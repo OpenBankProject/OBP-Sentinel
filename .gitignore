@@ -1,0 +1,10 @@
+.env
+*.db
+*.db-shm
+*.db-wal
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+work/*
+!work/.gitkeep
