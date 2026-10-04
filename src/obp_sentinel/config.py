@@ -18,6 +18,7 @@ class Config:
     oidc_client_secret: str
     log_cache_api_version: str
     telemetry_api_version: str
+    aggregate_metrics_api_version: str
     obp_api_source: str
 
     db_path: str
@@ -35,6 +36,9 @@ class Config:
     min_priority: float
     snooze_days: int
 
+    ui_host: str
+    ui_port: int
+
     @classmethod
     def from_env(cls) -> "Config":
         load_dotenv()
@@ -46,6 +50,7 @@ class Config:
             oidc_client_secret=env("OIDC_CLIENT_SECRET", ""),
             log_cache_api_version=env("OBP_LOG_CACHE_API_VERSION", "v5.1.0"),
             telemetry_api_version=env("OBP_TELEMETRY_API_VERSION", "v7.0.0"),
+            aggregate_metrics_api_version=env("OBP_AGGREGATE_METRICS_API_VERSION", "v6.0.0"),
             obp_api_source=env("OBP_API_SOURCE", ""),
             db_path=env("SENTINEL_DB", "sentinel.db"),
             poll_seconds=int(env("SENTINEL_POLL_SECONDS", "120")),
@@ -55,11 +60,13 @@ class Config:
             telemetry_prefixes=_list(
                 env("SENTINEL_TELEMETRY_PREFIXES", "obp.api.,hikaricp.connections,jvm.memory.used,jvm.gc.pause")
             ),
-            ignore_regex=env("SENTINEL_IGNORE_REGEX", "system/log-cache|management/telemetry|consumers/current/platform-app"),
+            ignore_regex=env("SENTINEL_IGNORE_REGEX", "system/log-cache|management/telemetry|management/aggregate-metrics|consumers/current/platform-app"),
             retention_days=int(env("SENTINEL_RETENTION_DAYS", "14")),
             min_watch_hours=float(env("SENTINEL_MIN_WATCH_HOURS", "4")),
             digest_size=int(env("SENTINEL_DIGEST_SIZE", "3")),
             max_per_week=int(env("SENTINEL_MAX_PER_WEEK", "10")),
             min_priority=float(env("SENTINEL_MIN_PRIORITY", "1.0")),
             snooze_days=int(env("SENTINEL_SNOOZE_DAYS", "7")),
+            ui_host=env("SENTINEL_UI_HOST", "127.0.0.1"),
+            ui_port=int(env("SENTINEL_UI_PORT", "8765")),
         )

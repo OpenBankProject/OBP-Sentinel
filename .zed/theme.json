@@ -1,0 +1,28 @@
+{
+  "name": "OBP-Sentinel-Amber",
+  "author": "Portal/Opey Development Setup",
+  "themes": [
+    {
+      "name": "OBP-Sentinel-Amber",
+      "appearance": "dark",
+      "style": {
+        "background": "#1e1e1e",
+        "foreground": "#d4d4d4",
+        "cursor": "#D97706",
+        "selection": "#D9770633",
+        "selected_line_background": "#D9770611",
+        "line_number": "#858585",
+        "active_line_number": "#D97706",
+        "find_highlight": "#D97706",
+        "border": "#D9770666",
+        "panel_background": "#252526",
+        "panel_focused_border": "#D97706",
+        "tab_bar_background": "#2d2d30",
+        "tab_active_background": "#D9770688",
+        "status_bar_background": "#D9770666",
+        "title_bar_background": "#D9770644",
+        "toolbar_background": "#37373d"
+      }
+    }
+  ]
+}

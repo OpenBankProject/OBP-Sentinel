@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 HEAD_SIZE = 5
 PRUNE_EVERY_SECONDS = 3600
+# Once OBP has accepted the Platform App declaration, declare again this often (an admin may have re-marked it)
+REDECLARE_EVERY_SECONDS = 3600
+# OBP-API writes metrics asynchronously: only ask for a bucket this long after it has ended
+METRICS_LAG_SECONDS = 120
+# After a pause, catch up at most this many buckets per poll
+METRICS_MAX_BUCKETS_PER_POLL = 8
 
 
 def new_entries(current: list[str], previous_head: list[str]) -> tuple[list[str], bool]:
@@ -48,6 +54,28 @@ class Collector:
         self.store = store
         self.client = client
         self.ignore = re.compile(config.ignore_regex) if config.ignore_regex else None
+        self.declared_at = 0.0
+
+    def declare_platform_app(self) -> None:
+        """Tell OBP-API which Scopes Sentinel needs, and say which are missing.
+
+        Refused until an administrator marks Sentinel's Consumer as a Platform App, so this is retried
+        on every poll until accepted: marking takes effect without a restart. Polling goes ahead either way.
+        """
+        if self.declared_at and time.monotonic() - self.declared_at < REDECLARE_EVERY_SECONDS:
+            return
+        try:
+            app = self.client.declare_platform_app()
+        except Exception as e:
+            logger.warning("Could not declare Sentinel's Scopes (is its Consumer marked as a Platform App?): %s", e)
+            return
+        self.declared_at = time.monotonic()
+        missing = [s["role_name"] for s in app.get("required_scopes", []) if not s.get("held") and not s.get("optional")]
+        if missing:
+            logger.warning("Consumer %s lacks the Scopes %s; ask an administrator to grant them",
+                           app.get("consumer_id"), ", ".join(missing))
+        else:
+            logger.info("Declared as Platform App %r; all Scopes held", app.get("label"))
 
     def ingest(self, level: str, messages: list[str]) -> int:
         """Count new messages (oldest first, so samples and first_seen are in order). Returns how many counted."""
@@ -98,10 +126,33 @@ class Collector:
         self.store.record_telemetry(now(), body.get("api_instance_id"), body.get("git_commit"), values)
         self.store.record_poll("telemetry", ok=True, fetched=len(values), new=len(values))
 
+    def poll_metrics(self) -> None:
+        """Fetch OBP-API's aggregate metrics for each bucket that has ended since the last one fetched."""
+        size = self.config.bucket_minutes * 60
+        last_complete = bucket_of(now() - METRICS_LAG_SECONDS, self.config.bucket_minutes) - size
+        oldest_kept = bucket_of(now() - self.config.retention_days * 86400, self.config.bucket_minutes)
+        # First run: start with the last complete bucket rather than backfilling history
+        start = max(self.store.get_state("metrics_next_bucket", last_complete), oldest_kept)
+        fetched = 0
+        while start <= last_complete and fetched < METRICS_MAX_BUCKETS_PER_POLL:
+            try:
+                metrics = self.client.aggregate_metrics(start, start + size)
+            except Exception as e:
+                logger.warning("Polling aggregate metrics failed: %s", e)
+                self.store.record_poll("metrics", ok=False, error=str(e)[:500])
+                return
+            self.store.record_metric_bucket(start, metrics)
+            start += size
+            fetched += 1
+            self.store.set_state("metrics_next_bucket", start)
+        self.store.record_poll("metrics", ok=True, fetched=fetched, new=fetched)
+
     def poll_once(self) -> None:
+        self.declare_platform_app()
         for level in self.config.log_levels:
             self.poll_logs(level)
         self.poll_telemetry()
+        self.poll_metrics()
         last_prune = self.store.get_state("last_prune", 0)
         if now() - last_prune > PRUNE_EVERY_SECONDS:
             self.store.prune(self.config.retention_days)

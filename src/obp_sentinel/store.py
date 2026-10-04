@@ -68,6 +68,20 @@ CREATE TABLE IF NOT EXISTS telemetry_values (
 );
 CREATE INDEX IF NOT EXISTS telemetry_values_snapshot ON telemetry_values(snapshot_id);
 
+-- OBP-API's own aggregate metrics (every API call it recorded), one row per time bucket.
+-- Only counts and times: no user, consumer or consent ids are fetched.
+CREATE TABLE IF NOT EXISTS metric_buckets (
+    bucket_start      INTEGER PRIMARY KEY,
+    count             INTEGER NOT NULL,
+    avg_ms            REAL,
+    min_ms            REAL,
+    max_ms            REAL,
+    distinct_users    INTEGER,
+    distinct_consumers INTEGER,
+    consent_calls     INTEGER,
+    distinct_consents INTEGER
+);
+
 -- The analyst's conclusions. `key` is a stable slug the analyst reuses for the same problem.
 CREATE TABLE IF NOT EXISTS findings (
     id            INTEGER PRIMARY KEY,
@@ -189,11 +203,21 @@ class Store:
             [(cur.lastrowid, *v) for v in values],
         )
 
+    def record_metric_bucket(self, bucket_start: int, m: dict) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO metric_buckets (bucket_start, count, avg_ms, min_ms, max_ms, distinct_users,
+               distinct_consumers, consent_calls, distinct_consents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (bucket_start, int(m.get("count") or 0), m.get("average_response_time"), m.get("minimum_response_time"),
+             m.get("maximum_response_time"), m.get("distinct_user_count"), m.get("distinct_consumer_count"),
+             m.get("consent_call_count"), m.get("distinct_consent_count")),
+        )
+
     def prune(self, retention_days: int) -> None:
         cutoff = now() - retention_days * 86400
         self.db.execute("DELETE FROM telemetry_snapshots WHERE ts < ?", (cutoff,))
         self.db.execute("DELETE FROM observations WHERE bucket_start < ?", (cutoff,))
         self.db.execute("DELETE FROM polls WHERE ts < ?", (cutoff,))
+        self.db.execute("DELETE FROM metric_buckets WHERE bucket_start < ?", (cutoff,))
 
     def commit(self) -> None:
         self.db.commit()

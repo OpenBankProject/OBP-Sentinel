@@ -8,34 +8,18 @@ import sys
 from .collector import Collector
 from .config import Config
 from .digest import NotReady, write_digest
-from .obp_client import OBPClient, OBPError
+from .obp_client import OBPClient
 from .store import Store, now
 from .summary import build_summary, coverage, to_markdown
+from .web import serve
 
 logger = logging.getLogger(__name__)
 
 VERDICTS = ("accepted", "dismissed", "later", "fixed")
 
 
-def declare_platform_app(client: OBPClient) -> None:
-    """Tell OBP-API which Scopes Sentinel needs, and say which are missing. Polling goes ahead either way."""
-    try:
-        app = client.declare_platform_app()
-    except OBPError as e:
-        logger.warning("Could not declare Sentinel's Scopes (is its Consumer marked as a Platform App?): %s", e)
-        return
-    missing = [s["role_name"] for s in app.get("required_scopes", []) if not s.get("held") and not s.get("optional")]
-    if missing:
-        logger.warning("Consumer %s lacks the Scopes %s; ask an administrator to grant them",
-                       app.get("consumer_id"), ", ".join(missing))
-    else:
-        logger.info("Declared as Platform App %r; all Scopes held", app.get("label"))
-
-
 def cmd_collect(args, config: Config, store: Store) -> None:
-    client = OBPClient(config)
-    declare_platform_app(client)
-    collector = Collector(config, store, client)
+    collector = Collector(config, store, OBPClient(config))
     if args.once:
         collector.poll_once()
     else:
@@ -104,6 +88,10 @@ def cmd_ignore(args, config: Config, store: Store) -> None:
     print(f"Signature {args.signature_id} will no longer appear in summaries")
 
 
+def cmd_ui(args, config: Config, store: Store) -> None:
+    serve(config, args.host or config.ui_host, args.port or config.ui_port, tuple(args.allow_host))
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="sentinel", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -145,6 +133,13 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("ignore", help="never show a signature again")
     p.add_argument("signature_id")
     p.set_defaults(func=cmd_ignore)
+
+    p = sub.add_parser("ui", help="a local web page to read findings and respond to them")
+    p.add_argument("--host", help="address to listen on (default SENTINEL_UI_HOST, 127.0.0.1)")
+    p.add_argument("--port", type=int, help="port (default SENTINEL_UI_PORT, 8765)")
+    p.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                   help="another host name the page is reached by, e.g. behind a proxy (repeatable)")
+    p.set_defaults(func=cmd_ui)
 
     args = parser.parse_args(argv)
     if args.command == "findings" and args.action == "import" and not args.file:

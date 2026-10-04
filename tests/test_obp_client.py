@@ -74,7 +74,7 @@ def test_missing_credentials_are_reported(app_config):
         client.telemetry()
 
 
-def test_declares_one_scope_per_watched_level_and_telemetry(app_config):
+def test_declares_one_scope_per_watched_level_telemetry_and_metrics(app_config):
     def handler(request):
         if response := oidc(request):
             return response
@@ -85,7 +85,20 @@ def test_declares_one_scope_per_watched_level_and_telemetry(app_config):
     client, _ = make_client(app_config, handler)
     sent = client.declare_platform_app()["declared"]
     assert [s["role_name"] for s in sent["required_scopes"]] == [
-        "CanGetSystemLogCacheError", "CanGetSystemLogCacheWarning", "CanGetTelemetry",
+        "CanGetSystemLogCacheError", "CanGetSystemLogCacheWarning", "CanGetTelemetry", "CanReadAggregateMetrics",
     ]
     assert sent["required_scopes"] == required_scopes(app_config)
     assert all(s["bank_id"] == "" and s["needed_for"] for s in sent["required_scopes"])
+
+
+def test_aggregate_metrics_asks_for_one_window(app_config):
+    def handler(request):
+        if response := oidc(request):
+            return response
+        assert request.url.path == "/obp/v6.0.0/management/aggregate-metrics"
+        assert request.url.params["from_date"] == "2026-10-04T09:00:00.000Z"
+        assert request.url.params["to_date"] == "2026-10-04T09:15:00.000Z"
+        return httpx.Response(200, json={"count": 7, "average_response_time": 12.5})
+
+    client, _ = make_client(app_config, handler)
+    assert client.aggregate_metrics(1791104400, 1791105300) == {"count": 7, "average_response_time": 12.5}

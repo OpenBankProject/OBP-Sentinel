@@ -1,10 +1,12 @@
-"""The few OBP-API calls Sentinel makes, as a Platform App: the log cache, Telemetry and its Scope declaration.
+"""The few OBP-API calls Sentinel makes, as a Platform App: the log cache, Telemetry, aggregate metrics and its
+Scope declaration.
 
 Sentinel calls OBP as its own application (OAuth2 client credentials from OBP-OIDC), not as a User.
 """
 
 import logging
 import time
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 
 import httpx
@@ -39,6 +41,12 @@ def required_scopes(config: Config) -> list[dict]:
         "needed_for": "Comparing request rates and latencies between hours to find what is getting slower",
         "optional": False,
     })
+    scopes.append({
+        "role_name": "CanReadAggregateMetrics",
+        "bank_id": "",
+        "needed_for": "Counting API calls and their response times per time bucket, to compare usage and speed between hours",
+        "optional": False,
+    })
     return scopes
 
 
@@ -47,6 +55,10 @@ def _sentinel_version() -> str | None:
         return version("obp-sentinel")
     except PackageNotFoundError:
         return None
+
+
+def _obp_date(ts: int) -> str:
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 class OBPClient:
@@ -88,7 +100,7 @@ class OBPClient:
             return self._token
         return self._fetch_token()
 
-    def _request(self, method: str, version: str, path: str, params: dict | None = None, json: dict | None = None) -> dict:
+    def _request(self, method: str, version: str, path: str, params: dict | None = None, json: dict | None = None) -> dict | list:
         url = f"{self.config.obp_base_url}/obp/{version}/{path}"
         for attempt in range(2):
             headers = {"Authorization": f"Bearer {self._token_now()}"}
@@ -108,6 +120,13 @@ class OBPClient:
 
     def telemetry(self) -> dict:
         return self._request("GET", self.config.telemetry_api_version, "management/telemetry")
+
+    def aggregate_metrics(self, from_ts: int, to_ts: int) -> dict:
+        """Call count, response times (ms) and distinct users/consumers/consents for calls in [from_ts, to_ts)."""
+        params = {"from_date": _obp_date(from_ts), "to_date": _obp_date(to_ts)}
+        body = self._request("GET", self.config.aggregate_metrics_api_version, "management/aggregate-metrics", params)
+        # Versions before v6.0.0 return a one-element list
+        return (body[0] if body else {}) if isinstance(body, list) else body
 
     def declare_platform_app(self) -> dict:
         """Tell OBP-API which Scopes Sentinel needs. Returns the app as OBP sees it, each Scope held or not."""

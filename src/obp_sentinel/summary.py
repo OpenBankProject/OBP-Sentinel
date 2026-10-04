@@ -156,6 +156,28 @@ def telemetry_summary(store: Store, start: int, end: int, prev_start: int) -> di
     }
 
 
+def api_usage(store: Store, start: int, end: int, prev_start: int) -> dict:
+    """OBP-API's own aggregate metrics: calls and response times in the window and the window before.
+
+    Distinct counts cannot be added across buckets, so the busiest bucket's value is given instead.
+    """
+
+    def over(a: int, b: int) -> dict:
+        r = store.db.execute(
+            """SELECT COUNT(*) AS buckets, SUM(count) AS calls, SUM(avg_ms * count) / NULLIF(SUM(count), 0) AS mean_ms,
+                      MAX(max_ms) AS max_ms, MAX(distinct_users) AS peak_bucket_users,
+                      MAX(distinct_consumers) AS peak_bucket_consumers, SUM(consent_calls) AS consent_calls
+               FROM metric_buckets WHERE bucket_start >= ? AND bucket_start < ?""",
+            (a, b),
+        ).fetchone()
+        out = dict(r)
+        out["calls"] = out["calls"] or 0
+        out["mean_ms"] = round(out["mean_ms"], 1) if out["mean_ms"] is not None else None
+        return out
+
+    return {"window": over(start, end), "previous_window": over(prev_start, start)}
+
+
 def build_summary(store: Store, config: Config, hours: float, limit: int = 30) -> dict:
     end = now()
     start = end - int(hours * 3600)
@@ -169,6 +191,7 @@ def build_summary(store: Store, config: Config, hours: float, limit: int = 30) -
         "coverage": coverage(store, config, start, end),
         "signatures": signature_rows(store, start, end, prev_start, limit),
         "telemetry": telemetry_summary(store, start, end, prev_start),
+        "api_usage": api_usage(store, start, end, prev_start),
         "open_findings": [
             {"id": f["id"], "key": f["key"], "title": f["title"], "status": f["status"], "priority": f["priority"]}
             for f in store.findings()
@@ -215,7 +238,16 @@ def to_markdown(summary: dict) -> str:
         for r in rows:
             out.append("- " + json.dumps(r))
         out.append("")
-    out += ["## Existing findings", ""]
+    usage = summary["api_usage"]
+    out += [
+        "## API usage (OBP-API aggregate metrics, all calls)",
+        "",
+        f"- Window: {json.dumps(usage['window'])}",
+        f"- Previous window: {json.dumps(usage['previous_window'])}",
+        "",
+        "## Existing findings",
+        "",
+    ]
     if not summary["open_findings"]:
         out.append("None.")
     for f in summary["open_findings"]:

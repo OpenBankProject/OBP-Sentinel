@@ -17,11 +17,12 @@ without overwhelming developers with suggestions.
                                           └──────────────────────────── digest: top 1–3
 ```
 
-- **Collector** (`sentinel collect`): polls `GET /obp/v5.1.0/system/log-cache/{level}` and
-  `GET /obp/v7.0.0/management/telemetry`. Log lines are normalised into **signatures**: ids, numbers,
+- **Collector** (`sentinel collect`): polls `GET /obp/v5.1.0/system/log-cache/{level}`,
+  `GET /obp/v7.0.0/management/telemetry` and `GET /obp/v6.0.0/management/aggregate-metrics`. Log lines are normalised into **signatures**: ids, numbers,
   quoted values, UUIDs, emails and IPs are stripped, so one problem is one signature. Each signature is
   counted per 15-minute bucket. Telemetry counters are stored as snapshots so rates and latencies can be
-  compared between windows.
+  compared between windows. Aggregate metrics (call count, response times, distinct users, consumers
+  and consents) are fetched once per bucket after it ends.
 - **Analyst** (the Claude Code subagent in `.claude/agents/obp-sentinel-analyst.md`): reads
   `sentinel summary` (aggregates over the last hours compared with the hours before), investigates the
   OBP-API source, and records findings scored by impact, confidence, effort and trend.
@@ -49,9 +50,11 @@ pull requests.
    - OBP-OIDC creates the client `obp-sentinel` at startup. Copy its client id and secret into `.env`.
    - The first call with that token creates its Consumer in OBP-API. An administrator marks that
      Consumer as a Platform App (`POST /obp/v7.0.0/management/platform-apps`).
-   - Each time `sentinel collect` starts, Sentinel declares the Scopes it needs
-     (`PUT /obp/v7.0.0/consumers/current/platform-app`): `CanGetSystemLogCache<Level>` for each level
-     in `SENTINEL_LOG_LEVELS`, and `CanGetTelemetry`. It logs any that are missing. The administrator
+   - While `sentinel collect` runs, Sentinel declares the Scopes it needs
+     (`PUT /obp/v7.0.0/consumers/current/platform-app`), the way the Portal and API Manager do from
+     their `/status` check. OBP refuses this until the Consumer is marked, so Sentinel retries on every
+     poll until accepted (no restart needed), then re-declares hourly. It declares
+     `CanGetSystemLogCache<Level>` for each level in `SENTINEL_LOG_LEVELS`, `CanGetTelemetry` and `CanReadAggregateMetrics`. It logs any that are missing. The administrator
      sees them in `GET /obp/v7.0.0/management/platform-apps` and grants them
      (`POST /obp/v7.0.0/consumers/CONSUMER_ID/scopes`).
 
@@ -88,7 +91,7 @@ OBP-Sandbox-Populator against it.
 
 | Command | What it does |
 |---|---|
-| `sentinel collect [--once]` | Poll the log cache and Telemetry |
+| `sentinel collect [--once]` | Poll the log cache, Telemetry and aggregate metrics |
 | `sentinel status` | How well Sentinel has watched over the last 24h |
 | `sentinel summary [--hours 6] [--json]` | Aggregates for the analyst |
 | `sentinel show <signature>` | A signature and its raw samples |
@@ -103,7 +106,8 @@ OBP-Sandbox-Populator against it.
   newest few messages it saw and counts only what is above them next time. If they were trimmed away
   before the next poll (a burst of more than 1000 entries), the poll is flagged as possibly missing
   entries; poll more often if that happens.
-- Sentinel's own calls are ignored via `SENTINEL_IGNORE_REGEX`.
+- Sentinel's own calls are ignored via `SENTINEL_IGNORE_REGEX`. They are still counted in the aggregate
+  metrics (the v6.0.0 endpoint has no exclude filters), a handful of calls per poll.
 - OBP-API masks sensitive values before writing to the log cache (`SecureLogging.maskSensitive`), and
   Telemetry tags never identify people. Still, treat `sentinel.db` as containing log data.
 

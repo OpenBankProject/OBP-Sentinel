@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OBP-Sentinel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #F4F5F2; --surface: #FFFFFF; --ink: #16181D; --muted: #5A5F66; --line: #D9DCD5; --line-strong: #C4C8C0;
+  --accent: #0B5F5B; --danger: #9A3A0A; --code-bg: #16181D; --code-ink: #E8EAE4;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121416; --surface: #1B1E21; --ink: #E8EAE4; --muted: #A2A8AE; --line: #2E3338; --line-strong: #444A50;
+    --accent: #4FB3AC; --danger: #F0925C; --code-bg: #0B0C0E;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+button, textarea { font: inherit; color: inherit; }
+header { background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1280px; margin: 0 auto; padding: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand strong { font-size: 18px; letter-spacing: -0.01em; }
+.sub { font-size: 13px; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.chip { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.chip span { color: var(--muted); }
+.chip b { font-family: var(--mono); font-weight: 500; }
+main { max-width: 1280px; margin: 0 auto; padding: 24px 16px; }
+.title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 16px; }
+h1 { margin: 0; font-size: 26px; letter-spacing: -0.015em; }
+.title p { margin: 0; color: var(--muted); font-size: 14px; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+nav button { min-height: 44px; padding: 0 14px; border: 0; background: none; cursor: pointer; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; color: var(--muted); font-weight: 500; }
+nav button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
+nav .n { font-family: var(--mono); font-size: 13px; margin-left: 4px; }
+.cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.list { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.item { display: block; width: 100%; text-align: left; padding: 14px 16px; border-radius: 8px; background: var(--surface);
+  border: 1px solid var(--line); cursor: pointer; }
+.item[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.item .top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.cat { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.prio { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.item .t { font-weight: 600; margin-top: 4px; }
+.item .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 13px; color: var(--muted); }
+.empty { padding: 24px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); text-align: center; }
+article { flex: 999 1 560px; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
+article .head { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); }
+article .key { font-family: var(--mono); }
+h2 { margin: 8px 0 20px; font-size: 22px; line-height: 1.3; letter-spacing: -0.01em; }
+.scores { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
+.scores div { background: var(--surface); padding: 10px 12px; }
+.scores small { display: block; font-size: 12px; color: var(--muted); }
+.scores b { font-family: var(--mono); font-size: 20px; font-weight: 500; }
+.scores .p b { color: var(--accent); }
+@media (max-width: 560px) { .scores { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+h3 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+article p { margin: 0 0 20px; white-space: pre-line; }
+.files { margin: 0 0 20px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.files li { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+.code { overflow-x: auto; background: var(--code-bg); color: var(--code-ink); border-radius: 8px; padding: 16px; margin-bottom: 24px; }
+.code pre { margin: 0; font: 13px/1.6 var(--mono); }
+.respond { border-top: 1px solid var(--line); padding-top: 20px; }
+label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+label span { font-weight: 400; color: var(--muted); }
+textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px;
+  resize: vertical; margin-bottom: 14px; background: var(--surface); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--surface); font-weight: 500; cursor: pointer; }
+.actions .primary { background: var(--accent); border-color: var(--accent); color: #FFFFFF; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .actions .primary { color: #0B0C0E; } }
+.actions .dismiss { color: var(--danger); margin-left: auto; }
+.actions button:disabled { opacity: 0.5; cursor: default; }
+.status { margin: 14px 0 0; font-size: 14px; color: var(--accent); min-height: 1.5em; }
+.status.error { color: var(--danger); }
+.previous { font-size: 14px; color: var(--muted); margin: 0 0 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+           stroke-linejoin="round" aria-hidden="true" style="color: var(--accent)"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"></path><circle cx="12" cy="11" r="2.5"></circle></svg>
+      <div><strong>OBP-Sentinel</strong><div class="sub" id="watching">Loading…</div></div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+</header>
+<main>
+  <div class="title">
+    <h1>Suggested improvements</h1>
+    <p id="rules"></p>
+  </div>
+  <nav aria-label="Filter suggestions" id="tabs"></nav>
+  <div class="cols">
+    <section class="list" aria-label="Suggestions" id="list"></section>
+    <article id="detail" hidden>
+      <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-when"></span></div>
+      <h2 id="d-title"></h2>
+      <div class="scores">
+        <div class="p"><small>Priority</small><b id="d-priority"></b></div>
+        <div><small>Impact</small><b id="d-impact"></b></div>
+        <div><small>Confidence</small><b id="d-confidence"></b></div>
+        <div><small>Effort</small><b id="d-effort"></b></div>
+        <div><small>Trend</small><b id="d-trend"></b></div>
+      </div>
+      <h3>Evidence</h3><p id="d-evidence"></p>
+      <h3>Why it happens</h3><p id="d-hypothesis"></p>
+      <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
+      <h3>Suggested change</h3><div class="code"><pre id="d-fix"></pre></div>
+      <div class="respond">
+        <p class="previous" id="d-previous" hidden></p>
+        <label for="comment">Comment for the analyst <span>(optional)</span></label>
+        <textarea id="comment" rows="2" maxlength="2000"></textarea>
+        <div class="actions">
+          <button type="button" class="primary" data-verdict="accepted">Accept</button>
+          <button type="button" data-verdict="later" id="later-btn">Later</button>
+          <button type="button" data-verdict="fixed">Already fixed</button>
+          <button type="button" class="dismiss" data-verdict="dismissed">Dismiss, never suggest again</button>
+        </div>
+        <p class="status" role="status" id="status"></p>
+      </div>
+    </article>
+  </div>
+</main>
+<script>
+// Everything shown comes from sentinel.db, partly derived from OBP-API logs: set as text, never as HTML.
+const TABS = [
+  ['review', 'To review', ['suggested']],
+  ['open', 'Not yet suggested', ['open']],
+  ['later', 'Snoozed', ['later']],
+  ['done', 'Done', ['accepted', 'fixed', 'dismissed']],
+];
+const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Falling' };
+const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted',
+                 fixed: 'Fixed', dismissed: 'Dismissed' };
+const CAT_COLOR = { bug: 'var(--danger)', reliability: 'var(--danger)', security: 'var(--danger)' };
+const state = { tab: 'review', selected: null, findings: [], overview: null };
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, children = []) => {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const c of children) node.append(c);
+  return node;
+};
+const fmtDate = (ts) => ts ? new Date(ts * 1000).toLocaleString() : '—';
+const fmtNum = (n) => n == null ? '—' : Number(n).toLocaleString();
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.statusText);
+  return body;
+}
+
+function renderHeader() {
+  const o = state.overview;
+  const inst = o.instance;
+  $('watching').textContent = `Watching ${o.obp_base_url}` + (inst ? ` · commit ${inst.git_commit || '?'}` : '');
+  const w = o.api_usage.window, p = o.api_usage.previous_window;
+  const chips = [
+    ['Watched', `${o.coverage.watched_hours}h`, ` of ${o.window_hours}h`],
+    ['Failed polls', fmtNum(o.coverage.failed_polls), ''],
+    ['API calls', fmtNum(w.calls), ` vs ${fmtNum(p.calls)} before`],
+    ['Mean response', w.mean_ms == null ? '—' : `${w.mean_ms} ms`, p.mean_ms == null ? '' : ` vs ${p.mean_ms}`],
+    ['Last poll', o.last_poll ? fmtDate(o.last_poll) : 'never', ''],
+  ];
+  $('chips').replaceChildren(...chips.map(([label, value, after]) =>
+    el('div', { className: 'chip' }, [el('span', { textContent: label + ' ' }), el('b', { textContent: value }),
+                                      el('span', { textContent: after })])));
+  $('rules').textContent = `At most ${o.digest_size} per digest, ${o.max_per_week} a week.`;
+  $('later-btn').textContent = `Later (${o.snooze_days} days)`;
+}
+
+function visible() {
+  const statuses = TABS.find((t) => t[0] === state.tab)[2];
+  return state.findings.filter((f) => statuses.includes(f.status)).sort((a, b) => b.priority - a.priority);
+}
+
+function render() {
+  $('tabs').replaceChildren(...TABS.map(([id, label, statuses]) => {
+    const b = el('button', { type: 'button' }, [label, el('span', { className: 'n',
+      textContent: state.findings.filter((f) => statuses.includes(f.status)).length })]);
+    b.setAttribute('aria-pressed', String(state.tab === id));
+    b.onclick = () => { state.tab = id; state.selected = null; setStatus(''); render(); };
+    return b;
+  }));
+
+  const items = visible();
+  const current = items.find((f) => f.id === state.selected) || items[0];
+  state.selected = current ? current.id : null;
+
+  $('list').replaceChildren(...(items.length ? items.map((f) => {
+    const b = el('button', { type: 'button', className: 'item' }, [
+      el('div', { className: 'top' }, [
+        el('span', { className: 'cat', textContent: f.category }),
+        el('span', { className: 'prio', textContent: `P ${f.priority.toFixed(2)}` }),
+      ]),
+      el('div', { className: 't', textContent: f.title }),
+      el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', `#${f.id}`, '·', STATUS[f.status] || f.status]
+        .map((s) => el('span', { textContent: s }))),
+    ]);
+    b.querySelector('.cat').style.color = CAT_COLOR[f.category] || 'var(--muted)';
+    b.setAttribute('aria-current', String(f.id === state.selected));
+    b.onclick = () => { state.selected = f.id; $('comment').value = ''; setStatus(''); render(); };
+    return b;
+  }) : [el('div', { className: 'empty', textContent: 'Nothing here. Sentinel only suggests what it is sure about.' })]));
+
+  $('detail').hidden = !current;
+  if (!current) return;
+  $('d-cat').textContent = current.category;
+  $('d-cat').style.color = CAT_COLOR[current.category] || 'var(--muted)';
+  $('d-key').textContent = current.key;
+  $('d-when').textContent = current.first_suggested ? `First suggested ${fmtDate(current.first_suggested)}`
+                                                    : `Found ${fmtDate(current.created_at)}`;
+  $('d-title').textContent = current.title;
+  $('d-priority').textContent = current.priority.toFixed(2);
+  $('d-impact').textContent = `${current.impact}/5`;
+  $('d-confidence').textContent = `${Math.round(current.confidence * 100)}%`;
+  $('d-effort').textContent = `${current.effort}/5`;
+  $('d-trend').textContent = TREND[current.trend] || current.trend;
+  $('d-evidence').textContent = current.evidence;
+  $('d-hypothesis').textContent = current.hypothesis;
+  $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
+  $('d-fix').textContent = current.suggested_fix;
+  const fb = current.feedback;
+  $('d-previous').hidden = !fb;
+  if (fb) {
+    $('d-previous').textContent = `Marked ${fb.verdict} on ${fmtDate(fb.ts)}` + (fb.comment ? `: “${fb.comment}”` : '');
+  }
+}
+
+function setStatus(text, error = false) {
+  $('status').textContent = text;
+  $('status').classList.toggle('error', error);
+}
+
+async function respond(verdict) {
+  const id = state.selected;
+  if (id == null) return;
+  const buttons = document.querySelectorAll('.actions button');
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    await api(`/api/findings/${id}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ verdict, comment: $('comment').value }),
+    });
+    $('comment').value = '';
+    state.findings = await api('/api/findings');
+    render();
+    setStatus(`Recorded “${verdict}” for #${id}.`);
+  } catch (e) {
+    setStatus(`Could not record: ${e.message}`, true);
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+
+document.querySelectorAll('.actions button').forEach((b) => { b.onclick = () => respond(b.dataset.verdict); });
+
+async function load() {
+  try {
+    [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);
+    renderHeader();
+    render();
+  } catch (e) {
+    $('watching').textContent = `Could not load: ${e.message}`;
+  }
+}
+load();
+</script>
+</body>
+</html>
