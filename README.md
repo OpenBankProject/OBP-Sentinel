@@ -44,9 +44,16 @@ pull requests.
    redis_logging_min_level = INFO
    ```
 
-2. Create an OBP user for Sentinel, a Consumer for DirectLogin, and grant the user only:
-   `CanGetSystemLogCacheError`, `CanGetSystemLogCacheWarning` and `CanGetTelemetry`
-   (add the Info/Debug/Trace log cache Roles only if you set `SENTINEL_LOG_LEVELS` to watch them).
+2. Sentinel calls OBP-API as a **Platform App**, with its own application token (OAuth2 client
+   credentials from OBP-OIDC), so it needs no OBP user or password.
+   - OBP-OIDC creates the client `obp-sentinel` at startup. Copy its client id and secret into `.env`.
+   - The first call with that token creates its Consumer in OBP-API. An administrator marks that
+     Consumer as a Platform App (`POST /obp/v7.0.0/management/platform-apps`).
+   - Each time `sentinel collect` starts, Sentinel declares the Scopes it needs
+     (`PUT /obp/v7.0.0/consumers/current/platform-app`): `CanGetSystemLogCache<Level>` for each level
+     in `SENTINEL_LOG_LEVELS`, and `CanGetTelemetry`. It logs any that are missing. The administrator
+     sees them in `GET /obp/v7.0.0/management/platform-apps` and grants them
+     (`POST /obp/v7.0.0/consumers/CONSUMER_ID/scopes`).
 
 3. Configure and install:
 

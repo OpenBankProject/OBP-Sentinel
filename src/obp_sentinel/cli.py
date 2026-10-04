@@ -8,15 +8,34 @@ import sys
 from .collector import Collector
 from .config import Config
 from .digest import NotReady, write_digest
-from .obp_client import OBPClient
+from .obp_client import OBPClient, OBPError
 from .store import Store, now
 from .summary import build_summary, coverage, to_markdown
+
+logger = logging.getLogger(__name__)
 
 VERDICTS = ("accepted", "dismissed", "later", "fixed")
 
 
+def declare_platform_app(client: OBPClient) -> None:
+    """Tell OBP-API which Scopes Sentinel needs, and say which are missing. Polling goes ahead either way."""
+    try:
+        app = client.declare_platform_app()
+    except OBPError as e:
+        logger.warning("Could not declare Sentinel's Scopes (is its Consumer marked as a Platform App?): %s", e)
+        return
+    missing = [s["role_name"] for s in app.get("required_scopes", []) if not s.get("held") and not s.get("optional")]
+    if missing:
+        logger.warning("Consumer %s lacks the Scopes %s; ask an administrator to grant them",
+                       app.get("consumer_id"), ", ".join(missing))
+    else:
+        logger.info("Declared as Platform App %r; all Scopes held", app.get("label"))
+
+
 def cmd_collect(args, config: Config, store: Store) -> None:
-    collector = Collector(config, store, OBPClient(config))
+    client = OBPClient(config)
+    declare_platform_app(client)
+    collector = Collector(config, store, client)
     if args.once:
         collector.poll_once()
     else:

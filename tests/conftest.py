@@ -16,7 +16,7 @@ def config(tmp_path, monkeypatch):
         log_levels=["error"],
         bucket_minutes=15,
         telemetry_prefixes=["obp.api."],
-        ignore_regex="system/log-cache|management/telemetry|my/logins/direct",
+        ignore_regex="system/log-cache|management/telemetry|consumers/current/platform-app",
         min_watch_hours=4,
         digest_size=3,
         max_per_week=10,

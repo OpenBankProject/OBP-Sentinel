@@ -13,9 +13,9 @@ def _list(value: str) -> list[str]:
 @dataclass(frozen=True)
 class Config:
     obp_base_url: str
-    obp_username: str
-    obp_password: str
-    obp_consumer_key: str
+    oidc_issuer: str
+    oidc_client_id: str
+    oidc_client_secret: str
     log_cache_api_version: str
     telemetry_api_version: str
     obp_api_source: str
@@ -41,9 +41,9 @@ class Config:
         env = os.environ.get
         return cls(
             obp_base_url=env("OBP_BASE_URL", "http://localhost:8080").rstrip("/"),
-            obp_username=env("OBP_USERNAME", ""),
-            obp_password=env("OBP_PASSWORD", ""),
-            obp_consumer_key=env("OBP_CONSUMER_KEY", ""),
+            oidc_issuer=env("OIDC_ISSUER", "http://localhost:9000/obp-oidc").rstrip("/"),
+            oidc_client_id=env("OIDC_CLIENT_ID", ""),
+            oidc_client_secret=env("OIDC_CLIENT_SECRET", ""),
             log_cache_api_version=env("OBP_LOG_CACHE_API_VERSION", "v5.1.0"),
             telemetry_api_version=env("OBP_TELEMETRY_API_VERSION", "v7.0.0"),
             obp_api_source=env("OBP_API_SOURCE", ""),
@@ -55,7 +55,7 @@ class Config:
             telemetry_prefixes=_list(
                 env("SENTINEL_TELEMETRY_PREFIXES", "obp.api.,hikaricp.connections,jvm.memory.used,jvm.gc.pause")
             ),
-            ignore_regex=env("SENTINEL_IGNORE_REGEX", "system/log-cache|management/telemetry|my/logins/direct"),
+            ignore_regex=env("SENTINEL_IGNORE_REGEX", "system/log-cache|management/telemetry|consumers/current/platform-app"),
             retention_days=int(env("SENTINEL_RETENTION_DAYS", "14")),
             min_watch_hours=float(env("SENTINEL_MIN_WATCH_HOURS", "4")),
             digest_size=int(env("SENTINEL_DIGEST_SIZE", "3")),
