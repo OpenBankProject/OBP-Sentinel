@@ -136,7 +136,7 @@ def test_unavailable_reasons(analyst_config):
 
 
 def test_page_starts_a_run_whatever_the_schedule_says(analyst_config):
-    server = make_server(analyst_config, "127.0.0.1", 0)
+    server = make_server([analyst_config], "127.0.0.1", 0)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         conn = HTTPConnection("127.0.0.1", server.server_address[1])

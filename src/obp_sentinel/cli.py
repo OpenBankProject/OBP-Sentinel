@@ -3,12 +3,15 @@
 import argparse
 import json
 import logging
+import os
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 
 from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
-from .config import Config
+from .config import Config, ConfigError
 from .digest import NotReady, write_digest
 from .obp_client import OBPClient
 from .store import VERDICTS, Store, now
@@ -22,21 +25,52 @@ def scheduled_analyst(args, config: Config) -> Analyst | None:
     return None if args.no_analyst else start_scheduler(config)
 
 
-def stop(analyst: Analyst | None) -> None:
-    if analyst:
+def analysts_for(args, configs: list[Config]) -> dict[str, Analyst]:
+    """One analyst per instance: on its schedule (unless --no-analyst), and for analyses asked for on the page."""
+    return {c.name: scheduled_analyst(args, c) or Analyst(c) for c in configs}
+
+
+def stop(analysts: dict[str, Analyst]) -> None:
+    for analyst in analysts.values():
         analyst.stop()
 
 
-def cmd_collect(args, config: Config, store: Store) -> None:
-    collector = Collector(config, store, OBPClient(config))
-    if args.once:
-        collector.poll_once()
-        return
-    analyst = scheduled_analyst(args, config)
+def collect(config: Config) -> None:
+    """Poll one instance forever. Runs in its own thread, with its own database connection."""
+    store = Store(config.db_path)
     try:
-        collector.run_forever()
+        while True:
+            try:
+                Collector(config, store, OBPClient(config)).run_forever()
+            except Exception:
+                logger.exception("Collector failed; starting again in %ss", config.poll_seconds)
+                time.sleep(config.poll_seconds)
     finally:
-        stop(analyst)
+        store.close()
+
+
+def collect_forever(configs: list[Config]) -> None:
+    threads = [threading.Thread(target=collect, args=(c,), name=f"collector-{c.name}", daemon=True) for c in configs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+
+def cmd_collect(args, configs: list[Config]) -> None:
+    if args.once:
+        for config in configs:
+            store = Store(config.db_path)
+            try:
+                Collector(config, store, OBPClient(config)).poll_once()
+            finally:
+                store.close()
+        return
+    analysts = {c.name: a for c in configs if (a := scheduled_analyst(args, c))}
+    try:
+        collect_forever(configs)
+    finally:
+        stop(analysts)
 
 
 def cmd_analyse(args, config: Config, store: Store) -> None:
@@ -105,7 +139,7 @@ def cmd_findings(args, config: Config, store: Store) -> None:
 
 def cmd_digest(args, config: Config, store: Store) -> None:
     try:
-        print(write_digest(store, config, args.out, args.force))
+        print(write_digest(store, config, args.out or config.digest_dir, args.force))
     except NotReady as e:
         sys.exit(str(e))
 
@@ -123,25 +157,41 @@ def cmd_ignore(args, config: Config, store: Store) -> None:
     print(f"Signature {args.signature_id} will no longer appear in summaries")
 
 
-def cmd_ui(args, config: Config, store: Store) -> None:
-    analyst = scheduled_analyst(args, config) or Analyst(config)  # also runs analyses asked for on the page
+def cmd_ui(args, configs: list[Config]) -> None:
+    analysts = analysts_for(args, configs)
+    first = configs[0]  # the page's settings are not per instance
     try:
-        serve(config, args.host or config.ui_host, args.port or config.ui_port, tuple(args.allow_host), analyst)
+        serve(configs, args.host or first.ui_host, args.port or first.ui_port, tuple(args.allow_host), analysts)
     finally:
-        stop(analyst)
+        stop(analysts)
 
 
-def cmd_run(args, config: Config, store: Store) -> None:
-    """All in one process: the web page and the analyst's schedule in the background, the collector in the foreground."""
-    analyst = scheduled_analyst(args, config) or Analyst(config)  # also runs analyses asked for on the page
-    server = serve_in_background(config, args.host or config.ui_host, args.port or config.ui_port,
-                                 tuple(args.allow_host), analyst)
+def cmd_run(args, configs: list[Config]) -> None:
+    """All in one process: the web page and each instance's analyst schedule and collector, in threads."""
+    analysts = analysts_for(args, configs)
+    first = configs[0]
+    server = serve_in_background(configs, args.host or first.ui_host, args.port or first.ui_port,
+                                 tuple(args.allow_host), analysts)
     try:
-        Collector(config, store, OBPClient(config)).run_forever()
+        collect_forever(configs)
     finally:
-        stop(analyst)
+        stop(analysts)
         server.shutdown()
         server.server_close()
+
+
+def pick_instance(configs: list[Config], name: str | None) -> Config:
+    """The instance a one-instance command works on: --instance, else SENTINEL_INSTANCE, else the only one."""
+    name = name or os.environ.get("SENTINEL_INSTANCE")
+    names = ", ".join(c.name for c in configs)
+    if name:
+        for c in configs:
+            if c.name == name:
+                return c
+        sys.exit(f"No instance {name!r}; SENTINEL_INSTANCES has: {names}")
+    if len(configs) > 1:
+        sys.exit(f"Several instances ({names}): choose one with --instance")
+    return configs[0]
 
 
 def add_ui_arguments(p: argparse.ArgumentParser) -> None:
@@ -160,16 +210,18 @@ def add_analyst_argument(p: argparse.ArgumentParser) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="sentinel", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--instance", help="the OBP-API instance to work on, from SENTINEL_INSTANCES "
+                                           "(default SENTINEL_INSTANCE; run, collect and ui default to all)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("run", help="start Sentinel: the collector, the web page and the analyst's schedule, in one process")
     add_ui_arguments(p)
-    p.set_defaults(func=cmd_run)
+    p.set_defaults(func=cmd_run, all_instances=True)
 
     p = sub.add_parser("collect", help="only the collector: poll OBP-API and record what it sees")
     p.add_argument("--once", action="store_true", help="poll once and exit")
     add_analyst_argument(p)
-    p.set_defaults(func=cmd_collect)
+    p.set_defaults(func=cmd_collect, all_instances=True)
 
     p = sub.add_parser("analyse", help="run the analyst now (headless Claude Code), if there is something new")
     p.add_argument("--force", action="store_true", help="run even if nothing is new")
@@ -194,7 +246,7 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(func=cmd_findings)
 
     p = sub.add_parser("digest", help="write the next digest of top suggestions")
-    p.add_argument("--out", default="digests")
+    p.add_argument("--out", help="directory (default SENTINEL_DIGEST_DIR: digests, or digests/<instance>)")
     p.add_argument("--force", action="store_true", help="skip the minimum watch time")
     p.set_defaults(func=cmd_digest)
 
@@ -210,15 +262,26 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("ui", help="only the web page to read findings and respond to them")
     add_ui_arguments(p)
-    p.set_defaults(func=cmd_ui)
+    p.set_defaults(func=cmd_ui, all_instances=True)
 
     args = parser.parse_args(argv)
     if args.command == "findings" and args.action == "import" and not args.file:
         parser.error("findings import needs a file")
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
     )
-    config = Config.from_env()
+    try:
+        configs = Config.all_from_env()
+    except ConfigError as e:
+        sys.exit(str(e))
+    if getattr(args, "all_instances", False):
+        try:
+            args.func(args, [pick_instance(configs, args.instance)] if args.instance else configs)
+        except KeyboardInterrupt:
+            pass
+        return
+    config = pick_instance(configs, args.instance)
     store = Store(config.db_path)
     try:
         args.func(args, config, store)

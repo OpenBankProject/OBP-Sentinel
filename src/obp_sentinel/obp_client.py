@@ -1,5 +1,5 @@
 """The few OBP-API calls Sentinel makes, as a Platform App: the log cache, Telemetry, aggregate metrics and its
-Scope declaration.
+Scope declaration. Plus the public root endpoint, for the git commit the instance runs.
 
 Sentinel calls OBP as its own application (OAuth2 client credentials from OBP-OIDC), not as a User.
 """
@@ -112,6 +112,14 @@ class OBPClient:
                 raise OBPError(f"{method} {path} failed ({response.status_code}): {response.text[:300]}")
             return response.json()
         raise OBPError(f"{method} {path} failed after getting a new token")
+
+    def root(self) -> dict:
+        """The instance's API info, with the git_commit it runs. Public: no token needed."""
+        url = f"{self.config.obp_base_url}/obp/{self.config.root_api_version}/root"
+        response = self.http.get(url)
+        if response.status_code != 200:
+            raise OBPError(f"GET root failed ({response.status_code}): {response.text[:300]}")
+        return response.json()
 
     def log_cache(self, level: str, limit: int) -> list[str]:
         """Raw log messages of one level, newest first."""

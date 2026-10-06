@@ -68,6 +68,19 @@ pull requests.
    uv run sentinel status
    ```
 
+### Several OBP-API instances
+
+Sentinel can watch several instances at once, each probably running different code. Name them in
+`SENTINEL_INSTANCES=local,staging` and give each its own settings by prefixing them with its name
+(`STAGING_OBP_BASE_URL`, `STAGING_OIDC_CLIENT_SECRET`, `STAGING_OBP_API_SOURCE`, ...); unprefixed
+settings are shared (see `.env.example`). Each instance has its own database (`sentinel-<name>.db`),
+digests (`digests/<name>/`), collector and analyst. The commit an instance runs is read from its public
+root endpoint on every poll, and the analyst reads the source at that commit.
+
+`run`, `collect` and `ui` cover all instances (or one with `--instance`). The other commands work on one
+instance: `sentinel --instance staging status`, or set `SENTINEL_INSTANCE`; with a single instance there
+is nothing to choose.
+
 ## Running
 
 Sentinel has three parts:
@@ -155,8 +168,9 @@ OBP-Sandbox-Populator against it.
 
 `sentinel run` (or `sentinel ui` on its own) serves a page on http://127.0.0.1:8765 (`SENTINEL_UI_HOST`, `SENTINEL_UI_PORT`) listing
 the findings by status, each with its evidence, the files in OBP-API and the suggested change. Accept, Later,
-Some action taken, Already fixed and Dismiss record the same feedback as `sentinel feedback`. It reads and writes only
-`sentinel.db`. It has no login: keep it on 127.0.0.1, or put it behind a proxy that authenticates and pass
+Some action taken, Already fixed and Dismiss record the same feedback as `sentinel feedback`. With several
+instances it has a tab for each. It reads and writes only Sentinel's databases (and reads commit dates
+and authors from the OBP-API checkouts). It has no login: keep it on 127.0.0.1, or put it behind a proxy that authenticates and pass
 that proxy's host name with `--allow-host`. Requests with any other Host or Origin are refused.
 
 ## Next stages

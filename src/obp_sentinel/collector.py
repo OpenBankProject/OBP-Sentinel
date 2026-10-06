@@ -151,9 +151,19 @@ class Collector:
         self.store.record_poll("metrics", ok=True, fetched=fetched, new=fetched)
         return f"metrics {fetched} bucket{'s' if fetched != 1 else ''}"
 
+    def poll_root(self) -> str:
+        """Which commit the instance runs. Not a poll that counts as watching: it needs no token."""
+        try:
+            root = self.client.root()
+        except Exception as e:
+            logger.warning("Reading the root endpoint failed: %s", e)
+            return "root failed"
+        self.store.record_deployment(root.get("git_commit"))
+        return f"commit {(root.get('git_commit') or '?')[:12]}"
+
     def poll_once(self) -> None:
         self.declare_platform_app()
-        results = [self.poll_logs(level) for level in self.config.log_levels]
+        results = [self.poll_root()] + [self.poll_logs(level) for level in self.config.log_levels]
         results += [self.poll_telemetry(), self.poll_metrics()]
         logger.info("Polled: %s", ", ".join(results))
         last_prune = self.store.get_state("last_prune", 0)

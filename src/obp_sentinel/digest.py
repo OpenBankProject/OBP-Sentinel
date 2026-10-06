@@ -62,7 +62,7 @@ def write_digest(store: Store, config: Config, out_dir: str, force: bool = False
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{stamp}.md")
     lines = [
-        f"# OBP-Sentinel digest {stamp} UTC",
+        f"# OBP-Sentinel digest {stamp} UTC: `{config.name}` ({config.obp_base_url})",
         "",
         f"Watched for {watched_hours:.1f}h since the last digest. "
         f"{len(candidates)} finding(s) qualified; showing {len(chosen)}.",

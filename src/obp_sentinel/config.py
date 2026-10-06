@@ -1,6 +1,15 @@
-"""Settings, read from the environment (and a .env file in the working directory)."""
+"""Settings, read from the environment (and a .env file in the working directory).
+
+Sentinel can watch several OBP-API instances: list their names in SENTINEL_INSTANCES (e.g. "local,staging").
+Any setting can then be given per instance by prefixing it with the instance's name in capitals, `-` as `_`
+(e.g. STAGING_OBP_BASE_URL, STAGING_OBP_API_SOURCE); without a prefixed value the plain one is used. Each
+instance has its own database (sentinel-<name>.db) and digests (digests/<name>): SENTINEL_DB and
+SENTINEL_DIGEST_DIR are only taken prefixed, so instances never share them. Without SENTINEL_INSTANCES
+there is one instance, "default", using sentinel.db and digests/ as before.
+"""
 
 import os
+import re
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
@@ -10,8 +19,29 @@ def _list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+DEFAULT_INSTANCE = "default"
+INSTANCE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+OWN_PER_INSTANCE = {"SENTINEL_DB", "SENTINEL_DIGEST_DIR"}
+
+
+class ConfigError(Exception):
+    pass
+
+
+def instance_names() -> list[str]:
+    load_dotenv()
+    names = _list(os.environ.get("SENTINEL_INSTANCES", ""))
+    for name in names:
+        if not INSTANCE_NAME.match(name):
+            raise ConfigError(f"Instance name {name!r} in SENTINEL_INSTANCES: use lower case letters, digits and -")
+    if len(set(names)) != len(names):
+        raise ConfigError("SENTINEL_INSTANCES names an instance twice")
+    return names or [DEFAULT_INSTANCE]
+
+
 @dataclass(frozen=True)
 class Config:
+    name: str  # the OBP-API instance this configuration watches
     obp_base_url: str
     oidc_issuer: str
     oidc_client_id: str
@@ -19,9 +49,11 @@ class Config:
     log_cache_api_version: str
     telemetry_api_version: str
     aggregate_metrics_api_version: str
+    root_api_version: str
     obp_api_source: str
 
     db_path: str
+    digest_dir: str
     poll_seconds: int
     log_levels: list[str]
     fetch_limit: int
@@ -46,10 +78,25 @@ class Config:
     claude_command: str
 
     @classmethod
-    def from_env(cls) -> "Config":
+    def all_from_env(cls) -> list["Config"]:
+        return [cls.from_env(name) for name in instance_names()]
+
+    @classmethod
+    def from_env(cls, name: str = DEFAULT_INSTANCE) -> "Config":
         load_dotenv()
-        env = os.environ.get
+        prefix = name.upper().replace("-", "_") + "_"
+        named = name != DEFAULT_INSTANCE
+
+        def env(key: str, default: str = "") -> str:
+            if not named:
+                return os.environ.get(key, default)
+            value = os.environ.get(prefix + key)
+            if value is None and key not in OWN_PER_INSTANCE:
+                value = os.environ.get(key)
+            return default if value is None else value
+
         return cls(
+            name=name,
             obp_base_url=env("OBP_BASE_URL", "http://localhost:8080").rstrip("/"),
             oidc_issuer=env("OIDC_ISSUER", "http://localhost:9000/obp-oidc").rstrip("/"),
             oidc_client_id=env("OIDC_CLIENT_ID", ""),
@@ -57,8 +104,10 @@ class Config:
             log_cache_api_version=env("OBP_LOG_CACHE_API_VERSION", "v5.1.0"),
             telemetry_api_version=env("OBP_TELEMETRY_API_VERSION", "v7.0.0"),
             aggregate_metrics_api_version=env("OBP_AGGREGATE_METRICS_API_VERSION", "v6.0.0"),
+            root_api_version=env("OBP_ROOT_API_VERSION", "v5.1.0"),
             obp_api_source=env("OBP_API_SOURCE", ""),
-            db_path=env("SENTINEL_DB", "sentinel.db"),
+            db_path=env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db"),
+            digest_dir=env("SENTINEL_DIGEST_DIR", f"digests/{name}" if named else "digests"),
             poll_seconds=int(env("SENTINEL_POLL_SECONDS", "120")),
             log_levels=_list(env("SENTINEL_LOG_LEVELS", "error,warning")),
             fetch_limit=int(env("SENTINEL_FETCH_LIMIT", "1000")),

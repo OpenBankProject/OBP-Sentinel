@@ -134,7 +134,8 @@ def command(config: Config) -> list[str]:
     tools = ["Read", "Grep", "Glob", "Edit(work/**)", "Bash(uv run sentinel *)"]
     tools += [f"Bash(git -C {source} {c} *)" for c in GIT_READ_COMMANDS]
     prompt = (
-        f"Run the Sentinel analysis. The OBP-API source is at {source}; use that path literally "
+        f"Run the Sentinel analysis of the OBP-API instance `{config.name}` ({config.obp_base_url}); every "
+        f"`uv run sentinel` command already reads that instance's data. The OBP-API source is at {source}; use that path literally "
         f"(e.g. git -C {source} log ...). At least {config.analyse_min_watch_hours:g}h of coverage is enough to go ahead."
     )
     return [
@@ -188,7 +189,7 @@ class Analyst:
             return None
         logger.info("Analysis #%s started (%s)", run_id, trigger)
         if background:
-            threading.Thread(target=self._execute_in_own_store, args=(run_id,), name="sentinel-analysis",
+            threading.Thread(target=self._execute_in_own_store, args=(run_id,), name=f"analysis-{self.config.name}",
                              daemon=True).start()
         else:
             self._execute_in_own_store(run_id)
@@ -219,7 +220,7 @@ class Analyst:
             with tempfile.TemporaryFile("w+") as stderr:
                 process = self.process = subprocess.Popen(
                     command(self.config), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
-                    text=True, start_new_session=True,
+                    text=True, start_new_session=True, env={**os.environ, "SENTINEL_INSTANCE": self.config.name},
                 )
                 timer = threading.Timer(self.config.analyse_timeout_minutes * 60,
                                         lambda: (timed_out.set(), process.kill()))
@@ -296,7 +297,7 @@ class Analyst:
             self._stop.wait(CHECK_EVERY_SECONDS)
 
     def start(self) -> threading.Thread:
-        thread = threading.Thread(target=self.schedule_forever, name="sentinel-analyst", daemon=True)
+        thread = threading.Thread(target=self.schedule_forever, name=f"analyst-{self.config.name}", daemon=True)
         thread.start()
         return thread
 

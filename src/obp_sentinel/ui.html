@@ -30,6 +30,8 @@ header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .chip { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
 .chip span { color: var(--muted); }
 .chip b { font-family: var(--mono); font-weight: 500; }
+nav.instances { max-width: 1280px; margin: 0 auto; padding: 0 16px; border-bottom: 0; }
+nav.instances button { font-size: 15px; }
 main { max-width: 1280px; margin: 0 auto; padding: 24px 16px; }
 .title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 16px; }
 h1 { margin: 0; font-size: 26px; letter-spacing: -0.015em; }
@@ -165,6 +167,7 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
     </div>
     <div class="chips" id="chips"></div>
   </div>
+  <nav class="instances" id="instances" aria-label="OBP-API instances" hidden></nav>
 </header>
 <main>
   <section class="activity" aria-labelledby="activity-title">
@@ -251,7 +254,7 @@ const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Fallin
 const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted', acted: 'Some action taken',
                  fixed: 'Fixed', dismissed: 'Dismissed' };
 const CAT_COLOR = { bug: 'var(--danger)', reliability: 'var(--danger)', security: 'var(--danger)' };
-const state = { tab: 'review', selected: null, findings: [], overview: null };
+const state = { instance: null, instances: [], tab: 'review', selected: null, findings: [], overview: null };
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, children = []) => {
@@ -262,17 +265,21 @@ const el = (tag, props = {}, children = []) => {
 const fmtDate = (ts) => ts ? new Date(ts * 1000).toLocaleString() : '—';
 const fmtNum = (n) => n == null ? '—' : Number(n).toLocaleString();
 
+// Every call is about the instance whose tab is open
 async function api(path, options) {
-  const response = await fetch(path, options);
+  const url = state.instance ? `${path}${path.includes('?') ? '&' : '?'}instance=${encodeURIComponent(state.instance)}` : path;
+  const instance = state.instance;
+  const response = await fetch(url, options);
   const body = await response.json();
+  if (instance !== state.instance) return new Promise(() => {});  // another tab opened meanwhile: drop this reply
   if (!response.ok) throw new Error(body.error || response.statusText);
   return body;
 }
 
 function renderHeader() {
   const o = state.overview;
-  const inst = o.instance;
-  $('watching').textContent = `Watching ${o.obp_base_url}` + (inst ? ` · commit ${(inst.git_commit || '?').slice(0, 12)}` : '');
+  const d = o.deployment;
+  $('watching').textContent = `Watching ${o.obp_base_url}` + (d ? ` · commit ${(d.git_commit || '?').slice(0, 12)}` : '');
   const w = o.api_usage.window, p = o.api_usage.previous_window;
   const chips = [
     ['Watched', `${o.coverage.watched_hours}h`, ` of ${o.window_hours}h`],
@@ -396,7 +403,31 @@ async function load() {
     $('watching').textContent = `Could not load: ${e.message}`;
   }
 }
-load();
+
+// One tab per OBP-API instance (none when there is only one); the open one is kept in the URL's #
+function renderInstances() {
+  const nav = $('instances');
+  nav.hidden = state.instances.length < 2;
+  nav.replaceChildren(...state.instances.map((i) => {
+    const b = el('button', { type: 'button', textContent: i.name, title: i.obp_base_url });
+    b.setAttribute('aria-pressed', String(state.instance === i.name));
+    b.onclick = () => openInstance(i.name);
+    return b;
+  }));
+}
+
+function openInstance(name) {
+  if (name === state.instance) return;
+  state.instance = name;
+  Object.assign(state, { tab: 'review', selected: null, findings: [], overview: null });
+  activityData = null;
+  history.replaceState(null, '', '#' + encodeURIComponent(name));
+  renderInstances();
+  setStatus('');
+  load();
+  loadActivity();
+  loadAnalysis();
+}
 
 // --- Activity --------------------------------------------------------------------------------
 const SOURCE_NAMES = { 'log:error': 'Error log', 'log:warning': 'Warning log', 'log:info': 'Info log',
@@ -535,7 +566,6 @@ async function refresh() {
 
 setInterval(renderActivity, 1000);
 setInterval(refresh, 30000);
-loadActivity();
 
 // --- Analyst ---------------------------------------------------------------------------------
 const RUN_STATUS = { running: 'Running', done: 'Done', failed: 'Failed' };
@@ -609,7 +639,17 @@ async function loadAnalysis() {
   }
   analysisTimer = setTimeout(loadAnalysis, running ? 3000 : 30000);
 }
-loadAnalysis();
+
+(async () => {
+  try {
+    state.instances = await api('/api/instances');
+  } catch (e) {
+    $('watching').textContent = `Could not load: ${e.message}`;
+    return;
+  }
+  const wanted = decodeURIComponent(location.hash.slice(1));
+  openInstance((state.instances.find((i) => i.name === wanted) || state.instances[0]).name);
+})();
 
 $('run-now').addEventListener('click', async () => {
   $('run-now').disabled = true;

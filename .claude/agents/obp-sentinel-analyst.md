@@ -38,8 +38,10 @@ perfectly good result.
    Use `uv run sentinel show <signature_id>` for raw samples.
 4. For each candidate, investigate the source: find where the message is logged
    (grep for its fixed words in `obp-api/src/main/scala`), follow the code path, and check recent
-   history with `git -C "$OBP_API_SOURCE" log -p --since=... -- <file>`. Note the instance's
-   `git_commit` from the summary; compare against it.
+   history with `git -C "$OBP_API_SOURCE" log -p --since=... -- <file>`. The summary gives the
+   `git_commit` the instance runs (from its root endpoint). The checkout may be at a different
+   commit: if so, read the code as deployed with `git -C "$OBP_API_SOURCE" show <git_commit>:<path>`
+   and say which commit your findings refer to.
 5. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
 
    ```json

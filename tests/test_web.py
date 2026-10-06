@@ -27,7 +27,7 @@ def server(config):
     store.commit()
     store.close()
     allowed = set()
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(config, allowed))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler([config], allowed))
     port = httpd.server_address[1]
     allowed.update({f"127.0.0.1:{port}", f"localhost:{port}"})
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -128,3 +128,31 @@ def test_some_action_taken_is_recorded_and_not_suggested_again(server, config):
     store = Store(config.db_path)
     assert store.findings()[0]["status"] == "acted" and not eligible_findings(store, config)
     store.close()
+
+
+def test_each_instance_has_its_own_findings(config, tmp_path):
+    other = replace(config, name="staging", db_path=str(tmp_path / "staging.db"))
+    store = Store(other.db_path)
+    store.upsert_finding(finding("staging-only"))
+    store.commit()
+    store.close()
+    allowed = set()
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler([config, other], allowed))
+    port = httpd.server_address[1]
+    allowed.add(f"127.0.0.1:{port}")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        assert [i["name"] for i in json.loads(request(port, "GET", "/api/instances")[1])] == [config.name, "staging"]
+        assert json.loads(request(port, "GET", "/api/findings")[1]) == []  # the first instance by default
+        status, data = request(port, "GET", "/api/findings?instance=staging")
+        assert status == 200 and json.loads(data)[0]["key"] == "staging-only"
+        assert request(port, "GET", "/api/findings?instance=nope")[0] == 404
+        status, _ = request(port, "POST", "/api/findings/1/feedback?instance=staging", {"verdict": "fixed"},
+                            {"Content-Type": "application/json"})
+        assert status == 200
+        store = Store(other.db_path)
+        assert store.findings()[0]["status"] == "fixed"
+        store.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

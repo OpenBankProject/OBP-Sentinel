@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS samples (
 );
 CREATE INDEX IF NOT EXISTS samples_signature ON samples(signature_id);
 
+-- Which commit the instance ran, and when: from its root endpoint. A new row whenever it changes.
+CREATE TABLE IF NOT EXISTS deployments (
+    id         INTEGER PRIMARY KEY,
+    first_seen INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL,
+    git_commit TEXT
+);
+
 CREATE TABLE IF NOT EXISTS telemetry_snapshots (
     id              INTEGER PRIMARY KEY,
     ts              INTEGER NOT NULL,
@@ -225,6 +233,16 @@ class Store:
             "INSERT INTO telemetry_values (snapshot_id, meter, type, tags, stat, value) VALUES (?, ?, ?, ?, ?, ?)",
             [(cur.lastrowid, *v) for v in values],
         )
+
+    def record_deployment(self, git_commit: str | None) -> None:
+        ts = now()
+        last = self.db.execute("SELECT id, git_commit FROM deployments ORDER BY id DESC LIMIT 1").fetchone()
+        if last and last["git_commit"] == git_commit:
+            self.db.execute("UPDATE deployments SET last_seen = ? WHERE id = ?", (ts, last["id"]))
+        else:
+            self.db.execute(
+                "INSERT INTO deployments (first_seen, last_seen, git_commit) VALUES (?, ?, ?)", (ts, ts, git_commit)
+            )
 
     def record_metric_bucket(self, bucket_start: int, m: dict) -> None:
         self.db.execute(

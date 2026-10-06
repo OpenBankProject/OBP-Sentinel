@@ -1,4 +1,5 @@
-"""`sentinel ui`: a small local web page to read findings and respond to them. Standard library only.
+"""`sentinel ui`: a small local web page to read findings and respond to them, one tab per OBP-API instance.
+Standard library only.
 
 It reads and writes `sentinel.db`, and reads commit dates and authors from the OBP-API checkout with git; no calls
 to OBP-API. It has no login, so it listens on
@@ -12,6 +13,7 @@ import re
 import subprocess
 import threading
 from http import HTTPStatus
+from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
@@ -56,7 +58,7 @@ def overview(store: Store, config: Config) -> dict:
         "obp_base_url": config.obp_base_url,
         "window_hours": OVERVIEW_HOURS,
         "coverage": c,
-        "instance": c["instances"][-1] if c["instances"] else None,
+        "deployment": c["deployments"][-1] if c["deployments"] else None,
         "api_usage": api_usage(store, start, end, start - OVERVIEW_HOURS * 3600),
         "last_poll": last_poll,
         "now": end,
@@ -169,10 +171,16 @@ def findings(store: Store, config: Config) -> list[dict]:
     return result
 
 
-def make_handler(config: Config, allowed_hosts: set[str], analyst: Analyst | None = None):
-    """`analyst` runs analyses asked for on the page; pass the scheduled one so stopping Sentinel stops them too."""
+def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[str, Analyst] | None = None):
+    """One page for all instances; each API call names its instance with `?instance=` (default: the first).
+
+    `analysts` (by instance name) run analyses asked for on the page; pass the scheduled ones so stopping
+    Sentinel stops them too.
+    """
     page = files("obp_sentinel").joinpath("ui.html").read_bytes()
-    analyst = analyst or Analyst(config)
+    by_name = {c.name: c for c in configs}
+    analysts = {c.name: (analysts or {}).get(c.name) or Analyst(c) for c in configs}
+    instances = [{"name": c.name, "obp_base_url": c.obp_base_url} for c in configs]
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "OBP-Sentinel"
@@ -204,7 +212,15 @@ def make_handler(config: Config, allowed_hosts: set[str], analyst: Analyst | Non
             origin = self.headers.get("Origin")
             return origin is None or origin.split("://", 1)[-1] in allowed_hosts
 
-        def _with_store(self, fn):
+        def _instance(self) -> Config | None:
+            """The instance this request is about, or None (and a 404 sent) if there is no such instance."""
+            names = parse_qs(urlsplit(self.path).query).get("instance")
+            config = by_name.get(names[0]) if names else configs[0]
+            if config is None:
+                self._json(HTTPStatus.NOT_FOUND, {"error": "No such instance"})
+            return config
+
+        def _with_store(self, config: Config, fn):
             store = Store(config.db_path)
             try:
                 return fn(store)
@@ -214,18 +230,17 @@ def make_handler(config: Config, allowed_hosts: set[str], analyst: Analyst | Non
         def do_GET(self):
             if not self._trusted():
                 return self._json(HTTPStatus.FORBIDDEN, {"error": "Unexpected Host or Origin"})
-            path = self.path.split("?", 1)[0]
+            path = urlsplit(self.path).path
             if path == "/":
                 return self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
-            if path == "/api/overview":
-                return self._json(HTTPStatus.OK, self._with_store(lambda s: overview(s, config)))
-            if path == "/api/activity":
-                return self._json(HTTPStatus.OK, self._with_store(lambda s: activity(s, config)))
-            if path == "/api/analysis":
-                return self._json(HTTPStatus.OK, self._with_store(lambda s: analysis(s, config)))
-            if path == "/api/findings":
-                return self._json(HTTPStatus.OK, self._with_store(lambda s: findings(s, config)))
-            self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+            if path == "/api/instances":
+                return self._json(HTTPStatus.OK, instances)
+            views = {"/api/overview": overview, "/api/activity": activity, "/api/analysis": analysis,
+                     "/api/findings": findings}
+            if path not in views:
+                return self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+            if config := self._instance():
+                self._json(HTTPStatus.OK, self._with_store(config, lambda s: views[path](s, config)))
 
         def do_POST(self):
             if not self._trusted():
@@ -233,11 +248,15 @@ def make_handler(config: Config, allowed_hosts: set[str], analyst: Analyst | Non
             # A JSON body cannot be sent cross-site without a CORS preflight, which this server never answers
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 return self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Send application/json"})
-            if self.path == "/api/analysis/run":
-                return self._run_analysis()
-            match = FEEDBACK_PATH.match(self.path)
-            if not match:
+            path = urlsplit(self.path).path
+            match = FEEDBACK_PATH.match(path)
+            if path != "/api/analysis/run" and not match:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+            config = self._instance()
+            if not config:
+                return
+            if not match:
+                return self._run_analysis(config)
             length = int(self.headers.get("Content-Length") or 0)
             if length > MAX_BODY_BYTES:
                 return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Too large"})
@@ -255,18 +274,18 @@ def make_handler(config: Config, allowed_hosts: set[str], analyst: Analyst | Non
                 store.commit()
 
             try:
-                self._with_store(record)
+                self._with_store(config, record)
             except ValueError as e:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
             self._json(HTTPStatus.OK, {"ok": True})
 
-        def _run_analysis(self):
+        def _run_analysis(self, config: Config):
             """Start an analysis now, whatever the schedule would decide (like `sentinel analyse --force`)."""
             reason = unavailable_reason(config, scheduled=False)
             if reason:
                 return self._json(HTTPStatus.CONFLICT, {"error": reason})
-            why = self._with_store(lambda s: decide(s, config)[1])
-            run_id = analyst.run("By hand, from the page: " + why, background=True)
+            why = self._with_store(config, lambda s: decide(s, config)[1])
+            run_id = analysts[config.name].run("By hand, from the page: " + why, background=True)
             if run_id is None:
                 return self._json(HTTPStatus.CONFLICT, {"error": "An analysis is already running"})
             self._json(HTTPStatus.OK, {"run_id": run_id})
@@ -274,11 +293,11 @@ def make_handler(config: Config, allowed_hosts: set[str], analyst: Analyst | Non
     return Handler
 
 
-def make_server(config: Config, host: str, port: int, extra_hosts: tuple[str, ...] = (),
-                analyst: Analyst | None = None) -> ThreadingHTTPServer:
+def make_server(configs: list[Config], host: str, port: int, extra_hosts: tuple[str, ...] = (),
+                analysts: dict[str, Analyst] | None = None) -> ThreadingHTTPServer:
     """`extra_hosts` are other names the page is reached by (e.g. behind a proxy)."""
     allowed_hosts: set[str] = set()
-    server = ThreadingHTTPServer((host, port), make_handler(config, allowed_hosts, analyst))
+    server = ThreadingHTTPServer((host, port), make_handler(configs, allowed_hosts, analysts))
     port = server.server_address[1]
     names = {host, *extra_hosts} | ({"localhost", "127.0.0.1"} if host in ("127.0.0.1", "localhost") else set())
     allowed_hosts.update(f"{name}:{port}" for name in names)
@@ -286,19 +305,19 @@ def make_server(config: Config, host: str, port: int, extra_hosts: tuple[str, ..
     return server
 
 
-def serve(config: Config, host: str, port: int, extra_hosts: tuple[str, ...] = (),
-          analyst: Analyst | None = None) -> None:
+def serve(configs: list[Config], host: str, port: int, extra_hosts: tuple[str, ...] = (),
+          analysts: dict[str, Analyst] | None = None) -> None:
     """Serve until interrupted."""
-    server = make_server(config, host, port, extra_hosts, analyst)
+    server = make_server(configs, host, port, extra_hosts, analysts)
     try:
         server.serve_forever()
     finally:
         server.server_close()
 
 
-def serve_in_background(config: Config, host: str, port: int, extra_hosts: tuple[str, ...] = (),
-                        analyst: Analyst | None = None) -> ThreadingHTTPServer:
+def serve_in_background(configs: list[Config], host: str, port: int, extra_hosts: tuple[str, ...] = (),
+                        analysts: dict[str, Analyst] | None = None) -> ThreadingHTTPServer:
     """Serve from a daemon thread, so it stops with the process. Call `shutdown()` on the result to stop sooner."""
-    server = make_server(config, host, port, extra_hosts, analyst)
+    server = make_server(configs, host, port, extra_hosts, analysts)
     threading.Thread(target=server.serve_forever, name="sentinel-ui", daemon=True).start()
     return server

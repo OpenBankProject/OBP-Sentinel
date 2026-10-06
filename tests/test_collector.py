@@ -130,3 +130,19 @@ def test_metrics_fetched_once_per_ended_bucket(config, tmp_path, monkeypatch):
     assert [w[0] for w in client.windows[1:]] == [1791104400 + 900 * i for i in range(1, 5)]
     row = store.db.execute("SELECT * FROM metric_buckets WHERE bucket_start = 1791104400").fetchone()
     assert row["count"] == 10 and row["avg_ms"] == 20.0 and row["distinct_consumers"] == 2
+
+
+def test_root_endpoint_records_which_commit_runs(config, tmp_path):
+    from obp_sentinel.summary import coverage
+
+    store = Store(str(tmp_path / "s.db"))
+    client = FakeClient({}, {"meters": []})
+    c = Collector(config, store, client)
+    client.root = lambda: {"git_commit": "aaa111"}
+    c.poll_root()
+    c.poll_root()
+    client.root = lambda: {"git_commit": "bbb222"}
+    c.poll_root()
+    deployments = coverage(store, config, 0, 2**40)["deployments"]
+    assert [d["git_commit"] for d in deployments] == ["aaa111", "bbb222"]
+    store.close()
