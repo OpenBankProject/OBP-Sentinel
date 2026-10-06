@@ -39,6 +39,12 @@ class Config:
     ui_host: str
     ui_port: int
 
+    analyse_minutes: int
+    analyse_min_watch_hours: float
+    analyse_budget_usd: float
+    analyse_timeout_minutes: int
+    claude_command: str
+
     @classmethod
     def from_env(cls) -> "Config":
         load_dotenv()
@@ -69,4 +75,9 @@ class Config:
             snooze_days=int(env("SENTINEL_SNOOZE_DAYS", "7")),
             ui_host=env("SENTINEL_UI_HOST", "127.0.0.1"),
             ui_port=int(env("SENTINEL_UI_PORT", "8765")),
+            analyse_minutes=int(env("SENTINEL_ANALYSE_MINUTES", "60")),
+            analyse_min_watch_hours=float(env("SENTINEL_ANALYSE_MIN_WATCH_HOURS", "2")),
+            analyse_budget_usd=float(env("SENTINEL_ANALYSE_BUDGET_USD", "2")),
+            analyse_timeout_minutes=int(env("SENTINEL_ANALYSE_TIMEOUT_MINUTES", "30")),
+            claude_command=env("SENTINEL_CLAUDE_COMMAND", "claude"),
         )

@@ -3,7 +3,7 @@
 - It is written only after enough hours of watching since the last digest.
 - It holds at most `digest_size` suggestions, and no more than `max_per_week` in any 7 days.
 - A finding must clear `min_priority`, and its signatures must have shown up in more than one bucket.
-- Nothing already suggested, accepted, dismissed or fixed is suggested again; "later" waits out its snooze.
+- Nothing already suggested, accepted, acted on, dismissed or fixed is suggested again; "later" waits out its snooze.
 - If nothing qualifies, the digest says so. That is a good outcome.
 """
 
@@ -91,7 +91,7 @@ def write_digest(store: Store, config: Config, out_dir: str, force: bool = False
         lines += [
             "**Suggested fix.** " + f["suggested_fix"],
             "",
-            f"Respond with `uv run sentinel feedback {f['id']} accepted|dismissed|later|fixed --comment \"...\"`",
+            f"Respond with `uv run sentinel feedback {f['id']} accepted|acted|dismissed|later|fixed --comment \"...\"`",
             "",
         ]
     with open(path, "w") as fh:

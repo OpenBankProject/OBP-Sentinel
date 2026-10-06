@@ -19,6 +19,9 @@ perfectly good result.
   Your output is findings and a digest.
 - Work from the repo root of OBP-Sentinel. Run commands as `uv run sentinel ...`.
 - The OBP-API source is at the path in `OBP_API_SOURCE` (see `.env`).
+- Search and read the source with the Grep, Glob and Read tools. For history use
+  `git -C <source path> log|show|blame|diff ...`, never `cd`: when Sentinel runs you on its schedule,
+  only those commands and `uv run sentinel ...` are allowed.
 
 ## Steps
 
@@ -26,7 +29,9 @@ perfectly good result.
    hours, say so and stop.
 2. `uv run sentinel findings list --all` to see what is already known. Reuse an existing finding's
    `key` when you are looking at the same problem, so it is updated rather than duplicated. Never
-   re-raise something dismissed or fixed unless it has clearly changed.
+   re-raise something dismissed or fixed unless it has clearly changed. For a finding marked fixed
+   or `acted` (someone tried to act on it; their comment says what), check whether its signatures
+   have dropped since that feedback, and if they have not, say so in its evidence.
 3. Pick the candidates that look most important: errors that are frequent, persistent (several
    buckets), new or rising, on important paths (authentication, consents, payments, account
    access), or endpoints and connector methods that are failing or have slowed down.

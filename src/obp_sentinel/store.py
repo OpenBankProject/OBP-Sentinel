@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS findings (
     effort        INTEGER NOT NULL,        -- 1..5
     trend         TEXT NOT NULL,           -- new | rising | stable | falling
     priority      REAL NOT NULL,
-    status        TEXT NOT NULL DEFAULT 'open',  -- open | suggested | accepted | dismissed | later | fixed
+    status        TEXT NOT NULL DEFAULT 'open',  -- open | suggested | accepted | acted | dismissed | later | fixed
     snoozed_until INTEGER
 );
 
@@ -117,9 +117,31 @@ CREATE TABLE IF NOT EXISTS feedback (
     id         INTEGER PRIMARY KEY,
     finding_id INTEGER NOT NULL REFERENCES findings(id),
     ts         INTEGER NOT NULL,
-    verdict    TEXT NOT NULL,              -- accepted | dismissed | later | fixed
+    verdict    TEXT NOT NULL,              -- accepted | acted | dismissed | later | fixed
     comment    TEXT
 );
+
+-- Each time the analyst ran (headless Claude Code), and the steps it took: tool calls and notes, never tool results.
+CREATE TABLE IF NOT EXISTS analysis_runs (
+    id         INTEGER PRIMARY KEY,
+    started_at INTEGER NOT NULL,
+    ended_at   INTEGER,
+    trigger    TEXT NOT NULL,              -- why it ran
+    status     TEXT NOT NULL,              -- running | done | failed
+    pid        INTEGER,                    -- the Sentinel process running it, to tell a stale 'running' row
+    cost_usd   REAL,
+    result     TEXT,                       -- the analyst's closing reply
+    error      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS analysis_steps (
+    id     INTEGER PRIMARY KEY,
+    run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
+    ts     INTEGER NOT NULL,
+    kind   TEXT NOT NULL,                  -- thinking | tool | note
+    text   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS analysis_steps_run ON analysis_steps(run_id);
 
 CREATE TABLE IF NOT EXISTS state (
     key   TEXT PRIMARY KEY,
@@ -129,6 +151,7 @@ CREATE TABLE IF NOT EXISTS state (
 
 SAMPLES_PER_SIGNATURE = 5
 TREND_WEIGHTS = {"new": 1.5, "rising": 1.3, "stable": 1.0, "falling": 0.6}
+VERDICTS = ("accepted", "acted", "dismissed", "later", "fixed")
 CATEGORIES = {"bug", "performance", "security", "reliability", "readability", "api-contract"}
 
 
@@ -218,6 +241,7 @@ class Store:
         self.db.execute("DELETE FROM observations WHERE bucket_start < ?", (cutoff,))
         self.db.execute("DELETE FROM polls WHERE ts < ?", (cutoff,))
         self.db.execute("DELETE FROM metric_buckets WHERE bucket_start < ?", (cutoff,))
+        self.db.execute("DELETE FROM analysis_runs WHERE started_at < ? AND status != 'running'", (cutoff,))
 
     def commit(self) -> None:
         self.db.commit()

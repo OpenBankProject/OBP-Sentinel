@@ -4,26 +4,55 @@ import argparse
 import json
 import logging
 import sys
+from datetime import datetime, timezone
 
+from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
 from .config import Config
 from .digest import NotReady, write_digest
 from .obp_client import OBPClient
-from .store import Store, now
+from .store import VERDICTS, Store, now
 from .summary import build_summary, coverage, to_markdown
-from .web import serve
+from .web import serve, serve_in_background
 
 logger = logging.getLogger(__name__)
 
-VERDICTS = ("accepted", "dismissed", "later", "fixed")
+
+def scheduled_analyst(args, config: Config) -> Analyst | None:
+    return None if args.no_analyst else start_scheduler(config)
+
+
+def stop(analyst: Analyst | None) -> None:
+    if analyst:
+        analyst.stop()
 
 
 def cmd_collect(args, config: Config, store: Store) -> None:
     collector = Collector(config, store, OBPClient(config))
     if args.once:
         collector.poll_once()
-    else:
+        return
+    analyst = scheduled_analyst(args, config)
+    try:
         collector.run_forever()
+    finally:
+        stop(analyst)
+
+
+def cmd_analyse(args, config: Config, store: Store) -> None:
+    reason = unavailable_reason(config, scheduled=False)
+    if reason:
+        sys.exit(reason)
+    go, why = decide(store, config)
+    if not go and not args.force:
+        sys.exit(f"{why} (use --force to run anyway)")
+    run_id = Analyst(config).run("By hand: " + why)
+    if run_id is None:
+        sys.exit("An analysis is already running")
+    run = store.db.execute("SELECT * FROM analysis_runs WHERE id = ?", (run_id,)).fetchone()
+    print(f"Analysis #{run_id} {run['status']}" + (f": {run['error']}" if run["error"] else ""))
+    if run["result"]:
+        print(run["result"])
 
 
 def cmd_status(args, config: Config, store: Store) -> None:
@@ -66,6 +95,12 @@ def cmd_findings(args, config: Config, store: Store) -> None:
         rows = store.findings() if args.all else store.findings(("open", "suggested", "later"))
         for f in rows:
             print(f"#{f['id']} [{f['status']}] {f['priority']:>6} {f['category']:<12} {f['key']}: {f['title']}")
+            fb = store.db.execute(
+                "SELECT ts, verdict, comment FROM feedback WHERE finding_id = ? ORDER BY id DESC LIMIT 1", (f["id"],)
+            ).fetchone()
+            if fb:
+                when = datetime.fromtimestamp(fb["ts"], timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+                print(f"    feedback {fb['verdict']} at {when}" + (f": {fb['comment']}" if fb["comment"] else ""))
 
 
 def cmd_digest(args, config: Config, store: Store) -> None:
@@ -89,7 +124,37 @@ def cmd_ignore(args, config: Config, store: Store) -> None:
 
 
 def cmd_ui(args, config: Config, store: Store) -> None:
-    serve(config, args.host or config.ui_host, args.port or config.ui_port, tuple(args.allow_host))
+    analyst = scheduled_analyst(args, config) or Analyst(config)  # also runs analyses asked for on the page
+    try:
+        serve(config, args.host or config.ui_host, args.port or config.ui_port, tuple(args.allow_host), analyst)
+    finally:
+        stop(analyst)
+
+
+def cmd_run(args, config: Config, store: Store) -> None:
+    """All in one process: the web page and the analyst's schedule in the background, the collector in the foreground."""
+    analyst = scheduled_analyst(args, config) or Analyst(config)  # also runs analyses asked for on the page
+    server = serve_in_background(config, args.host or config.ui_host, args.port or config.ui_port,
+                                 tuple(args.allow_host), analyst)
+    try:
+        Collector(config, store, OBPClient(config)).run_forever()
+    finally:
+        stop(analyst)
+        server.shutdown()
+        server.server_close()
+
+
+def add_ui_arguments(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--host", help="address the page listens on (default SENTINEL_UI_HOST, 127.0.0.1)")
+    p.add_argument("--port", type=int, help="port of the page (default SENTINEL_UI_PORT, 8765)")
+    p.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                   help="another host name the page is reached by, e.g. behind a proxy (repeatable)")
+    add_analyst_argument(p)
+
+
+def add_analyst_argument(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--no-analyst", action="store_true",
+                   help="do not run the analyst at startup and every SENTINEL_ANALYSE_MINUTES")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -97,9 +162,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("collect", help="poll OBP-API and record what it sees")
+    p = sub.add_parser("run", help="start Sentinel: the collector, the web page and the analyst's schedule, in one process")
+    add_ui_arguments(p)
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("collect", help="only the collector: poll OBP-API and record what it sees")
     p.add_argument("--once", action="store_true", help="poll once and exit")
+    add_analyst_argument(p)
     p.set_defaults(func=cmd_collect)
+
+    p = sub.add_parser("analyse", help="run the analyst now (headless Claude Code), if there is something new")
+    p.add_argument("--force", action="store_true", help="run even if nothing is new")
+    p.set_defaults(func=cmd_analyse)
 
     sub.add_parser("status", help="how well Sentinel has been watching").set_defaults(func=cmd_status)
 
@@ -116,7 +190,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("findings", help="list findings, or import the analyst's findings")
     p.add_argument("action", choices=("list", "import"))
     p.add_argument("file", nargs="?", help="JSON file (for import)")
-    p.add_argument("--all", action="store_true", help="include accepted, dismissed and fixed")
+    p.add_argument("--all", action="store_true", help="include accepted, acted on, dismissed and fixed")
     p.set_defaults(func=cmd_findings)
 
     p = sub.add_parser("digest", help="write the next digest of top suggestions")
@@ -134,11 +208,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("signature_id")
     p.set_defaults(func=cmd_ignore)
 
-    p = sub.add_parser("ui", help="a local web page to read findings and respond to them")
-    p.add_argument("--host", help="address to listen on (default SENTINEL_UI_HOST, 127.0.0.1)")
-    p.add_argument("--port", type=int, help="port (default SENTINEL_UI_PORT, 8765)")
-    p.add_argument("--allow-host", action="append", default=[], metavar="NAME",
-                   help="another host name the page is reached by, e.g. behind a proxy (repeatable)")
+    p = sub.add_parser("ui", help="only the web page to read findings and respond to them")
+    add_ui_arguments(p)
     p.set_defaults(func=cmd_ui)
 
     args = parser.parse_args(argv)

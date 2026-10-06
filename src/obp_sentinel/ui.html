@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OBP-Sentinel</title>
+<title>Sentinel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg: #F4F5F2; --surface: #FFFFFF; --ink: #16181D; --muted: #5A5F66; --line: #D9DCD5; --line-strong: #C4C8C0;
-  --accent: #0B5F5B; --danger: #9A3A0A; --code-bg: #16181D; --code-ink: #E8EAE4;
+  --accent: #0B5F5B; --danger: #9A3A0A;
   --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #121416; --surface: #1B1E21; --ink: #E8EAE4; --muted: #A2A8AE; --line: #2E3338; --line-strong: #444A50;
-    --accent: #4FB3AC; --danger: #F0925C; --code-bg: #0B0C0E;
+    --accent: #4FB3AC; --danger: #F0925C;
   }
 }
 * { box-sizing: border-box; }
@@ -39,6 +39,7 @@ nav button { min-height: 44px; padding: 0 14px; border: 0; background: none; cur
   border-bottom: 2px solid transparent; color: var(--muted); font-weight: 500; }
 nav button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
 nav .n { font-family: var(--mono); font-size: 13px; margin-left: 4px; }
+#suggestions.first { margin-bottom: 28px; }
 .cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
 .list { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .item { display: block; width: 100%; text-align: left; padding: 14px 16px; border-radius: 8px; background: var(--surface);
@@ -65,8 +66,6 @@ h3 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing
 article p { margin: 0 0 20px; white-space: pre-line; }
 .files { margin: 0 0 20px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .files li { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
-.code { overflow-x: auto; background: var(--code-bg); color: var(--code-ink); border-radius: 8px; padding: 16px; margin-bottom: 24px; }
-.code pre { margin: 0; font: 13px/1.6 var(--mono); }
 .respond { border-top: 1px solid var(--line); padding-top: 20px; }
 label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
 label span { font-weight: 400; color: var(--muted); }
@@ -82,6 +81,78 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .status { margin: 14px 0 0; font-size: 14px; color: var(--accent); min-height: 1.5em; }
 .status.error { color: var(--danger); }
 .previous { font-size: 14px; color: var(--muted); margin: 0 0 14px; }
+
+/* Activity */
+:root { --good: #1E7B34; --warn: #8A5A00; --bad: var(--danger); }
+@media (prefers-color-scheme: dark) { :root { --good: #5CC27A; --warn: #E3B341; } }
+.activity { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; margin-bottom: 28px; }
+.pulse-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
+.pulse { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); position: relative; flex: none; }
+.dot.live { background: var(--good); }
+.dot.live::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--good);
+  opacity: 0; animation: ping 2s ease-out infinite; }
+@keyframes ping { 0% { transform: scale(0.5); opacity: 0.8; } 100% { transform: scale(1.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .dot.live::after { animation: none; } }
+.dot.warn { background: var(--warn); }
+.pulse-row .sub { font-size: 14px; }
+.run-now { margin-left: auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
+.run-now:disabled { cursor: default; opacity: 0.55; }
+.totals { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 14px; color: var(--muted); }
+.totals b { color: var(--ink); font-family: var(--mono); font-weight: 500; }
+.sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.source { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.source .name { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 14px; }
+.state { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; }
+.state svg { flex: none; }
+.state.ok { color: var(--good); } .state.warn { color: var(--warn); } .state.bad { color: var(--bad); }
+.source .line { font-size: 13px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.source .err { font-family: var(--mono); font-size: 12px; color: var(--bad); margin-top: 6px; overflow-wrap: anywhere; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px 32px; }
+.chart h3 { margin: 0 0 2px; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); }
+.chart .note { font-size: 13px; color: var(--muted); margin: 0 0 8px; min-height: 1.5em; }
+.plot { position: relative; height: 96px; display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line-strong); }
+.plot .ymax { position: absolute; top: -2px; left: 0; font: 11px var(--mono); color: var(--muted); }
+.plot .gridline { position: absolute; left: 0; right: 0; top: 0; border-top: 1px dashed var(--line); }
+.bucket { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; cursor: default; border-radius: 2px; outline-offset: 1px; }
+.bucket span { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 0; }
+.bucket.zero span { background: var(--line-strong); height: 2px !important; border-radius: 1px; }
+.bucket.none span { background: none; }
+.bucket:hover span, .bucket:focus span { filter: brightness(1.25); }
+.bucket:hover, .bucket:focus { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.xaxis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: 4px; }
+.chart details { margin-top: 6px; font-size: 13px; }
+.chart summary { cursor: pointer; color: var(--muted); }
+.chart table { border-collapse: collapse; margin-top: 6px; font-family: var(--mono); font-size: 12px; }
+.chart td, .chart th { padding: 2px 12px 2px 0; text-align: right; }
+.chart th { text-align: left; font-family: var(--sans); color: var(--muted); font-weight: 500; }
+
+/* Analysis */
+.analysis-cols { display: flex; flex-wrap: wrap; gap: 20px 32px; }
+.analysis-cols > div { flex: 1 1 320px; min-width: 0; }
+.analysis h3 { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); margin: 0 0 8px; }
+.steps { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid var(--line);
+  border-radius: 8px; font-size: 13px; }
+.steps li { display: flex; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--line); min-width: 0; }
+.steps li:first-child { border-top: 0; }
+.steps time { flex: none; font-family: var(--mono); font-size: 12px; color: var(--muted); padding-top: 1px; }
+.steps .tool { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.steps .note { white-space: pre-line; overflow-wrap: anywhere; }
+.steps .thinking { color: var(--muted); font-style: italic; }
+.steps .more { color: var(--muted); justify-content: center; }
+.thinking-now::after { content: "…"; display: inline-block; width: 1.2em; animation: dots 1.4s steps(4, end) infinite;
+  overflow: hidden; vertical-align: bottom; }
+@keyframes dots { 0% { width: 0; } 100% { width: 1.2em; } }
+@media (prefers-reduced-motion: reduce) { .thinking-now::after { animation: none; } }
+.waiting { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.waiting li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.waiting .tpl { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; display: block; margin-top: 2px; }
+.waiting .n { color: var(--muted); }
+.runs { list-style: none; margin: 0; padding: 0; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.runs li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.runs .why { color: var(--muted); overflow-wrap: anywhere; }
+.result { white-space: pre-line; font-size: 14px; border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 0 0 16px; }
 </style>
 </head>
 <body>
@@ -90,12 +161,46 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
     <div class="brand">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
            stroke-linejoin="round" aria-hidden="true" style="color: var(--accent)"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"></path><circle cx="12" cy="11" r="2.5"></circle></svg>
-      <div><strong>OBP-Sentinel</strong><div class="sub" id="watching">Loading…</div></div>
+      <div><strong>Sentinel</strong><div class="sub" id="watching">Loading…</div></div>
     </div>
     <div class="chips" id="chips"></div>
   </div>
 </header>
 <main>
+  <section class="activity" aria-labelledby="activity-title">
+    <h2 id="activity-title" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Monitoring activity</h2>
+    <div class="pulse-row">
+      <span class="pulse"><span class="dot" id="a-dot"></span><span id="a-state">Loading…</span></span>
+      <span class="sub" id="a-when"></span>
+      <div class="totals" id="a-totals"></div>
+    </div>
+    <div class="sources" id="a-sources"></div>
+    <div class="charts">
+      <div class="chart" id="chart-logs"></div>
+      <div class="chart" id="chart-calls"></div>
+    </div>
+  </section>
+  <section class="activity analysis" aria-labelledby="analysis-title">
+    <div class="pulse-row">
+      <span class="pulse"><span class="dot" id="n-dot"></span><span id="analysis-title">Analyst</span></span>
+      <span class="sub" id="n-when"></span>
+      <button type="button" class="run-now" id="run-now">Run analysis now</button>
+    </div>
+    <div class="analysis-cols">
+      <div>
+        <h3 id="n-steps-title">What it did</h3>
+        <p class="result" id="n-result" hidden></p>
+        <ol class="steps" id="n-steps" aria-live="polite"></ol>
+      </div>
+      <div>
+        <h3>Waiting for the analyst</h3>
+        <ul class="waiting" id="n-waiting"></ul>
+        <h3>Recent runs</h3>
+        <ul class="runs" id="n-runs"></ul>
+      </div>
+    </div>
+  </section>
+  <div id="suggestions">
   <div class="title">
     <h1>Suggested improvements</h1>
     <p id="rules"></p>
@@ -116,7 +221,7 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
       <h3>Evidence</h3><p id="d-evidence"></p>
       <h3>Why it happens</h3><p id="d-hypothesis"></p>
       <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
-      <h3>Suggested change</h3><div class="code"><pre id="d-fix"></pre></div>
+      <h3>Suggested change</h3><p id="d-fix"></p>
       <div class="respond">
         <p class="previous" id="d-previous" hidden></p>
         <label for="comment">Comment for the analyst <span>(optional)</span></label>
@@ -124,12 +229,14 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
         <div class="actions">
           <button type="button" class="primary" data-verdict="accepted">Accept</button>
           <button type="button" data-verdict="later" id="later-btn">Later</button>
+          <button type="button" data-verdict="acted">Some action taken</button>
           <button type="button" data-verdict="fixed">Already fixed</button>
           <button type="button" class="dismiss" data-verdict="dismissed">Dismiss, never suggest again</button>
         </div>
         <p class="status" role="status" id="status"></p>
       </div>
     </article>
+  </div>
   </div>
 </main>
 <script>
@@ -138,10 +245,10 @@ const TABS = [
   ['review', 'To review', ['suggested']],
   ['open', 'Not yet suggested', ['open']],
   ['later', 'Snoozed', ['later']],
-  ['done', 'Done', ['accepted', 'fixed', 'dismissed']],
+  ['done', 'Done', ['accepted', 'acted', 'fixed', 'dismissed']],
 ];
 const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Falling' };
-const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted',
+const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted', acted: 'Some action taken',
                  fixed: 'Fixed', dismissed: 'Dismissed' };
 const CAT_COLOR = { bug: 'var(--danger)', reliability: 'var(--danger)', security: 'var(--danger)' };
 const state = { tab: 'review', selected: null, findings: [], overview: null };
@@ -165,14 +272,13 @@ async function api(path, options) {
 function renderHeader() {
   const o = state.overview;
   const inst = o.instance;
-  $('watching').textContent = `Watching ${o.obp_base_url}` + (inst ? ` · commit ${inst.git_commit || '?'}` : '');
+  $('watching').textContent = `Watching ${o.obp_base_url}` + (inst ? ` · commit ${(inst.git_commit || '?').slice(0, 12)}` : '');
   const w = o.api_usage.window, p = o.api_usage.previous_window;
   const chips = [
     ['Watched', `${o.coverage.watched_hours}h`, ` of ${o.window_hours}h`],
     ['Failed polls', fmtNum(o.coverage.failed_polls), ''],
     ['API calls', fmtNum(w.calls), ` vs ${fmtNum(p.calls)} before`],
     ['Mean response', w.mean_ms == null ? '—' : `${w.mean_ms} ms`, p.mean_ms == null ? '' : ` vs ${p.mean_ms}`],
-    ['Last poll', o.last_poll ? fmtDate(o.last_poll) : 'never', ''],
   ];
   $('chips').replaceChildren(...chips.map(([label, value, after]) =>
     el('div', { className: 'chip' }, [el('span', { textContent: label + ' ' }), el('b', { textContent: value }),
@@ -186,7 +292,17 @@ function visible() {
   return state.findings.filter((f) => statuses.includes(f.status)).sort((a, b) => b.priority - a.priority);
 }
 
+// Suggestions go above the monitoring sections while something waits for review.
+function placeSuggestions() {
+  const box = $('suggestions'), main = box.parentNode;
+  const first = state.findings.some((f) => f.status === 'suggested');
+  if (first && main.firstElementChild !== box) main.prepend(box);
+  if (!first && main.lastElementChild !== box) main.append(box);
+  box.classList.toggle('first', first);
+}
+
 function render() {
+  placeSuggestions();
   $('tabs').replaceChildren(...TABS.map(([id, label, statuses]) => {
     const b = el('button', { type: 'button' }, [label, el('span', { className: 'n',
       textContent: state.findings.filter((f) => statuses.includes(f.status)).length })]);
@@ -228,7 +344,10 @@ function render() {
   $('d-confidence').textContent = `${Math.round(current.confidence * 100)}%`;
   $('d-effort').textContent = `${current.effort}/5`;
   $('d-trend').textContent = TREND[current.trend] || current.trend;
-  $('d-evidence').textContent = current.evidence;
+  // Each commit the evidence names gets "(N days ago, author)"
+  const commits = current.evidence_commits || {};
+  $('d-evidence').textContent = (current.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
+    (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)}, ${commits[sha].author})` : sha);
   $('d-hypothesis').textContent = current.hypothesis;
   $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
   $('d-fix').textContent = current.suggested_fix;
@@ -278,6 +397,230 @@ async function load() {
   }
 }
 load();
+
+// --- Activity --------------------------------------------------------------------------------
+const SOURCE_NAMES = { 'log:error': 'Error log', 'log:warning': 'Warning log', 'log:info': 'Info log',
+                       'log:debug': 'Debug log', telemetry: 'Telemetry', metrics: 'Aggregate metrics' };
+const ICONS = {
+  ok: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
+  warn: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>',
+  bad: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+};
+const ago = (seconds) => seconds < 90 ? `${Math.max(0, Math.round(seconds))}s ago`
+  : seconds < 5400 ? `${Math.round(seconds / 60)} min ago` : `${(seconds / 3600).toFixed(1)}h ago`;
+const clock = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const daysAgo = (ts) => {
+  const days = Math.floor((Date.now() / 1000 - ts) / 86400);
+  return days < 1 ? 'today' : days === 1 ? '1 day ago' : `${days} days ago`;
+};
+const dayClock = (ts) => new Date(ts * 1000).toDateString() === new Date().toDateString() ? `today ${clock(ts)}`
+  : `${new Date(ts * 1000).toLocaleDateString([], { day: 'numeric', month: 'short' })} ${clock(ts)}`;
+let activityData = null, activityLoadedAt = 0;
+
+function stateEl(kind, label) {
+  const span = el('span', { className: `state ${kind}` });
+  span.innerHTML = ICONS[kind];  // fixed icon markup, no data
+  span.append(label);
+  return span;
+}
+
+function sourceLine(s) {
+  if (s.source.startsWith('log:')) return `+${fmtNum(s.new)} new lines · ${fmtNum(s.fetched)} in OBP's cache`;
+  if (s.source === 'telemetry') return `${fmtNum(s.fetched)} values stored`;
+  if (s.source === 'metrics') return !s.ok ? 'No buckets fetched'
+    : s.fetched ? `${fmtNum(s.fetched)} bucket${s.fetched > 1 ? 's' : ''} fetched` : 'Up to date, waiting for the next bucket';
+  return `${fmtNum(s.fetched)} fetched`;
+}
+
+function renderActivity() {
+  const a = activityData;
+  if (!a) return;
+  const elapsed = Date.now() / 1000 - activityLoadedAt;
+  const nowTs = a.now + elapsed;
+  const last = Math.max(0, ...a.sources.map((s) => s.ts));
+  const stale = !last || nowTs - last > 3 * a.poll_seconds;
+  const failing = a.sources.filter((s) => !s.ok);
+  $('a-dot').className = 'dot ' + (stale ? 'warn' : failing.length ? 'warn live' : 'live');
+  $('a-state').textContent = !last ? 'No polls yet' : stale ? 'Collector not polling'
+    : failing.length ? `Watching, ${failing.length} source${failing.length > 1 ? 's' : ''} failing` : 'Watching';
+  $('a-when').textContent = !last ? 'Start it with: uv run sentinel run'
+    : stale ? `Last poll ${ago(nowTs - last)}. Is the collector running?`
+    : `Last poll ${ago(nowTs - last)} · ` + (last + a.poll_seconds > nowTs ? `next in about ${Math.round(last + a.poll_seconds - nowTs)}s` : 'next one due now');
+}
+
+function renderActivityDetails() {
+  const a = activityData;
+  const t = a.totals;
+  $('a-totals').replaceChildren(...[
+    [fmtNum(t.log_lines_last_hour), ' log lines in the last hour'],
+    [fmtNum(t.signatures_last_hour), ' distinct problems'],
+    [fmtNum(t.new_signatures_last_day), ' new today'],
+  ].map(([v, label]) => el('span', {}, [el('b', { textContent: v }), label])));
+
+  $('a-sources').replaceChildren(...a.sources.map((s) => {
+    const stale = a.now - s.ts > 3 * a.poll_seconds;
+    const state = !s.ok ? stateEl('bad', 'Failing') : stale ? stateEl('warn', 'Stale') : s.gap ? stateEl('warn', 'Some missed') : stateEl('ok', 'OK');
+    const children = [
+      el('div', { className: 'name' }, [el('span', { textContent: SOURCE_NAMES[s.source] || s.source }), state]),
+      el('div', { className: 'line', textContent: `${sourceLine(s)} · ${clock(s.ts)}` }),
+      el('div', { className: 'line', textContent: s.failed_last_hour
+        ? `${s.failed_last_hour} of ${s.polls_last_hour} polls failed in the last hour` + (s.last_ok ? '' : ', never succeeded')
+        : `${s.polls_last_hour} polls in the last hour, none failed` }),
+    ];
+    if (!s.ok && s.error) children.push(el('div', { className: 'err', textContent: s.error.slice(0, 220) }));
+    return el('div', { className: 'source' }, children);
+  }));
+
+  renderChart($('chart-logs'), 'Log lines', a.buckets.map((b) => b.log_lines), a, 'log lines');
+  const calls = a.buckets.map((b) => b.api_calls);
+  const metrics = a.sources.find((s) => s.source === 'metrics');
+  renderChart($('chart-calls'), 'API calls', calls, a, 'API calls',
+    calls.every((v) => v == null) ? (metrics && !metrics.ok ? 'No data: aggregate metrics are failing (see above).'
+                                                            : 'No data yet: buckets are fetched after they end.') : null);
+}
+
+function renderChart(node, title, values, a, unit, emptyNote) {
+  const known = values.filter((v) => v != null);
+  const max = Math.max(1, ...known);
+  const total = known.reduce((x, y) => x + y, 0);
+  const size = a.bucket_minutes * 60;
+  const note = el('p', { className: 'note', textContent: emptyNote
+    || `${fmtNum(total)} in the last ${Math.round(values.length * a.bucket_minutes / 60)}h. Hover a bar for its ${a.bucket_minutes} minutes.` });
+  const plot = el('div', { className: 'plot', role: 'img',
+    ariaLabel: `${title} per ${a.bucket_minutes} minutes, last ${values.length} buckets, peak ${fmtNum(max)}` });
+  if (!emptyNote) plot.append(el('div', { className: 'gridline' }), el('span', { className: 'ymax', textContent: fmtNum(max) }));
+  const defaultNote = note.textContent;
+  a.buckets.forEach((b, i) => {
+    const v = values[i];
+    const bar = el('div', { className: 'bucket' + (v == null ? ' none' : v === 0 ? ' zero' : ''), tabIndex: v == null ? -1 : 0 },
+                   [el('span')]);
+    if (v) bar.firstChild.style.height = `${Math.max(4, (v / max) * 100)}%`;
+    const label = `${clock(b.start)}–${clock(b.start + size)} · ${v == null ? 'no data' : `${fmtNum(v)} ${unit}`}`;
+    bar.title = label;
+    bar.onmouseenter = bar.onfocus = () => { note.textContent = label; };
+    bar.onmouseleave = bar.onblur = () => { note.textContent = defaultNote; };
+    plot.append(bar);
+  });
+  const table = el('table', {}, [el('tr', {}, [el('th', { textContent: 'From' }), el('th', { textContent: title })]),
+    ...a.buckets.map((b, i) => el('tr', {}, [el('td', { textContent: clock(b.start) }),
+                                             el('td', { textContent: values[i] == null ? '—' : fmtNum(values[i]) })]))]);
+  node.replaceChildren(
+    el('h3', { textContent: `${title} per ${a.bucket_minutes} min` }), note, plot,
+    el('div', { className: 'xaxis' }, [el('span', { textContent: clock(a.buckets[0].start) }), el('span', { textContent: 'now' })]),
+    el('details', {}, [el('summary', { textContent: 'Show as table' }), table]),
+  );
+}
+
+async function loadActivity() {
+  try {
+    activityData = await api('/api/activity');
+    activityLoadedAt = Date.now() / 1000;
+    renderActivityDetails();
+    renderActivity();
+  } catch (e) {
+    $('a-dot').className = 'dot warn';
+    $('a-state').textContent = 'Cannot reach the Sentinel page server';
+    $('a-when').textContent = e.message;
+  }
+}
+
+async function refresh() {
+  await loadActivity();
+  try {
+    [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);
+    renderHeader();
+    if (!document.activeElement || document.activeElement.id !== 'comment') render();
+  } catch (e) { /* the activity section already says so */ }
+}
+
+setInterval(renderActivity, 1000);
+setInterval(refresh, 30000);
+loadActivity();
+
+// --- Analyst ---------------------------------------------------------------------------------
+const RUN_STATUS = { running: 'Running', done: 'Done', failed: 'Failed' };
+const duration = (seconds) => seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)} min`;
+let analysisTimer = null, analysisWasRunning = false;
+
+function renderAnalysis(n) {
+  const run = n.runs[0];
+  const running = run && run.status === 'running';
+  const check = n.last_check;
+  $('n-dot').className = 'dot ' + (running ? 'live' : n.unavailable ? 'warn' : run && run.status === 'failed' ? 'warn' : '');
+  $('analysis-title').textContent = running ? 'Analyst at work' : n.unavailable ? 'Analyst not scheduled' : 'Analyst idle';
+  const next = n.next_check ? `next check around ${clock(n.next_check)}` : null;
+  $('n-when').textContent = running
+    ? `Started ${ago(n.now - run.started_at)} · ${run.trigger} · ${run.steps_total} steps so far`
+    : n.unavailable ? `${n.unavailable}. Run it by hand with: uv run sentinel analyse`
+    : [check ? `${check.reason} (checked ${clock(check.ts)})` : 'Starting', next].filter(Boolean).join(' · ');
+
+  $('n-steps-title').textContent = running ? 'What it is doing' : run ? `What it did in run #${run.id} (${dayClock(run.started_at)})` : 'What it did';
+  const runNow = $('run-now');
+  runNow.disabled = running || Boolean(n.by_hand_unavailable);
+  runNow.title = running ? 'An analysis is running' : n.by_hand_unavailable || `Start one now, whatever the schedule says (budget $${n.budget_usd})`;
+  const showResult = run && !running && (run.result || run.error);
+  $('n-result').hidden = !showResult;
+  if (showResult) $('n-result').textContent = run.error ? `${run.error}${run.result ? '\n' + run.result : ''}` : run.result;
+
+  const steps = run ? run.steps : [];
+  const items = steps.map((s, i) => {
+    const last = i === steps.length - 1;
+    const text = s.kind === 'thinking' ? 'Thinking' : s.text;
+    const span = el('span', { className: s.kind + (s.kind === 'thinking' && last && running ? ' thinking-now' : ''), textContent: text });
+    return el('li', {}, [el('time', { textContent: clock(s.ts) }), span]);
+  });
+  const hidden = run ? run.steps_total - steps.filter((s) => s.kind !== 'thinking').length : 0;
+  if (hidden > 0) items.unshift(el('li', { className: 'more', textContent: `${hidden} earlier steps not shown` }));
+  if (!items.length) items.push(el('li', { className: 'more', textContent: run ? 'No steps recorded.'
+    : 'The analyst has not run yet. It starts once enough hours have been watched.' }));
+  const list = $('n-steps');
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+  list.replaceChildren(...items);
+  if (atBottom) list.scrollTop = list.scrollHeight;
+
+  $('n-waiting').replaceChildren(...(n.waiting.length ? n.waiting.map((w) => el('li', {}, [
+    el('b', { textContent: w.level.toUpperCase() }), ' ',
+    el('span', { className: 'n', textContent: `${fmtNum(w.window_count)} in ${o6()}h` + (w.prev_count ? ` (${fmtNum(w.prev_count)} before)` : ' (new)')
+      + (w.endpoint ? ` · ${w.endpoint}` : '') }),
+    el('span', { className: 'tpl', textContent: w.template.slice(0, 200) }),
+  ])) : [el('li', { className: 'n', textContent: 'Every recent problem already has a finding.' })]));
+
+  $('n-runs').replaceChildren(...(n.runs.length ? n.runs.map((r) => el('li', {}, [
+    el('span', { textContent: `#${r.id} ${clock(r.started_at)}` }),
+    stateEl(r.status === 'done' ? 'ok' : r.status === 'failed' ? 'bad' : 'warn', RUN_STATUS[r.status] || r.status),
+    el('span', { textContent: [r.ended_at ? duration(r.ended_at - r.started_at) : null,
+                               r.cost_usd != null ? `$${r.cost_usd.toFixed(2)}` : null].filter(Boolean).join(' · ') }),
+    el('span', { className: 'why', textContent: r.trigger }),
+  ])) : [el('li', { className: 'why', textContent: `None yet. Budget per run: $${n.budget_usd}.` })]));
+  return running;
+}
+
+const o6 = () => (state.overview ? state.overview.window_hours : 6);
+
+async function loadAnalysis() {
+  clearTimeout(analysisTimer);
+  let running = false;
+  try {
+    running = renderAnalysis(await api('/api/analysis'));
+    if (analysisWasRunning && !running) refresh();  // a run just ended: show its findings
+    analysisWasRunning = running;
+  } catch (e) {
+    $('n-when').textContent = `Could not load: ${e.message}`;
+  }
+  analysisTimer = setTimeout(loadAnalysis, running ? 3000 : 30000);
+}
+loadAnalysis();
+
+$('run-now').addEventListener('click', async () => {
+  $('run-now').disabled = true;
+  try {
+    await api('/api/analysis/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    loadAnalysis();
+  } catch (e) {
+    $('n-when').textContent = `Could not start: ${e.message}`;
+    $('run-now').disabled = false;
+  }
+});
 </script>
 </body>
 </html>

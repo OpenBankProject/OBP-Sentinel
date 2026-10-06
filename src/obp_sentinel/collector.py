@@ -92,14 +92,15 @@ class Collector:
             counted += 1
         return counted
 
-    def poll_logs(self, level: str) -> None:
+    def poll_logs(self, level: str) -> str:
+        """Returns a few words for the poll's log line."""
         source = f"log:{level}"
         try:
             current = self.client.log_cache(level, self.config.fetch_limit)
         except Exception as e:  # keep watching: a failed poll is recorded and shows up as reduced coverage
             logger.warning("Polling %s failed: %s", source, e)
             self.store.record_poll(source, ok=False, error=str(e)[:500])
-            return
+            return f"{level} failed"
         head_key = f"head:{level}"
         fresh, gap = new_entries(current, self.store.get_state(head_key, []))
         if gap:
@@ -108,14 +109,15 @@ class Collector:
         if current:
             self.store.set_state(head_key, current[:HEAD_SIZE])
         self.store.record_poll(source, ok=True, fetched=len(current), new=counted, gap=gap)
+        return f"{level} +{counted}" + (" (some missed)" if gap else "")
 
-    def poll_telemetry(self) -> None:
+    def poll_telemetry(self) -> str:
         try:
             body = self.client.telemetry()
         except Exception as e:
             logger.warning("Polling telemetry failed: %s", e)
             self.store.record_poll("telemetry", ok=False, error=str(e)[:500])
-            return
+            return "telemetry failed"
         prefixes = tuple(self.config.telemetry_prefixes)
         values = [
             (meter["name"], meter["type"], _tags_json(meter.get("tags", {})), stat, value)
@@ -125,8 +127,9 @@ class Collector:
         ]
         self.store.record_telemetry(now(), body.get("api_instance_id"), body.get("git_commit"), values)
         self.store.record_poll("telemetry", ok=True, fetched=len(values), new=len(values))
+        return f"telemetry {len(values)} values"
 
-    def poll_metrics(self) -> None:
+    def poll_metrics(self) -> str:
         """Fetch OBP-API's aggregate metrics for each bucket that has ended since the last one fetched."""
         size = self.config.bucket_minutes * 60
         last_complete = bucket_of(now() - METRICS_LAG_SECONDS, self.config.bucket_minutes) - size
@@ -140,19 +143,19 @@ class Collector:
             except Exception as e:
                 logger.warning("Polling aggregate metrics failed: %s", e)
                 self.store.record_poll("metrics", ok=False, error=str(e)[:500])
-                return
+                return "metrics failed"
             self.store.record_metric_bucket(start, metrics)
             start += size
             fetched += 1
             self.store.set_state("metrics_next_bucket", start)
         self.store.record_poll("metrics", ok=True, fetched=fetched, new=fetched)
+        return f"metrics {fetched} bucket{'s' if fetched != 1 else ''}"
 
     def poll_once(self) -> None:
         self.declare_platform_app()
-        for level in self.config.log_levels:
-            self.poll_logs(level)
-        self.poll_telemetry()
-        self.poll_metrics()
+        results = [self.poll_logs(level) for level in self.config.log_levels]
+        results += [self.poll_telemetry(), self.poll_metrics()]
+        logger.info("Polled: %s", ", ".join(results))
         last_prune = self.store.get_state("last_prune", 0)
         if now() - last_prune > PRUNE_EVERY_SECONDS:
             self.store.prune(self.config.retention_days)
