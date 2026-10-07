@@ -146,3 +146,16 @@ def test_root_endpoint_records_which_commit_runs(config, tmp_path):
     deployments = coverage(store, config, 0, 2**40)["deployments"]
     assert [d["git_commit"] for d in deployments] == ["aaa111", "bbb222"]
     store.close()
+
+
+def test_declaration_and_root_outcomes_are_kept_for_the_page(config, tmp_path):
+    store = Store(str(tmp_path / "s.db"))
+    client = DeclaringClient()
+    client.root = lambda: {"git_commit": "aaa111"}
+    collector = Collector(config, store, client)
+    collector.poll_once()
+    assert store.get_state("platform_app")["ok"] is False and "OBP-35046" in store.get_state("platform_app")["error"]
+    assert store.get_state("root")["ok"] is True
+    client.marked = True
+    collector.poll_once()
+    assert store.get_state("platform_app") == {**store.get_state("platform_app"), "ok": True, "consumer_id": "c1", "missing": []}

@@ -130,6 +130,25 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .chart td, .chart th { padding: 2px 12px 2px 0; text-align: right; }
 .chart th { text-align: left; font-family: var(--sans); color: var(--muted); font-weight: 500; }
 
+/* Setup: what stops Sentinel from watching */
+.setup { border-color: var(--bad); }
+.setup h2 { margin: 0 0 4px; font-size: 16px; }
+.setup .intro { margin: 0 0 16px; font-size: 14px; color: var(--muted); }
+.problems { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.problem { border: 1px solid var(--line); border-left: 4px solid var(--bad); border-radius: 8px; padding: 12px 16px; min-width: 0; }
+.problem.warn { border-left-color: var(--warn); }
+.problem .what { font-weight: 600; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.problem .what .num { font-family: var(--mono); color: var(--muted); font-weight: 500; }
+.problem .do { margin: 6px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.problem .affects { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.problem details { margin-top: 6px; font-size: 13px; }
+.problem summary { cursor: pointer; color: var(--muted); }
+.problem pre { margin: 6px 0 0; padding: 8px 10px; background: var(--bg); border-radius: 6px; font: 12px/1.45 var(--mono);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+nav.instances .age { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-left: 6px;
+  vertical-align: middle; }
+
 /* Analysis */
 .analysis-cols { display: flex; flex-wrap: wrap; gap: 20px 32px; }
 .analysis-cols > div { flex: 1 1 320px; min-width: 0; }
@@ -170,6 +189,11 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
   <nav class="instances" id="instances" aria-label="OBP-API instances" hidden></nav>
 </header>
 <main>
+  <section class="activity setup" id="setup" aria-labelledby="setup-title" hidden>
+    <h2 id="setup-title"></h2>
+    <p class="intro" id="setup-intro"></p>
+    <ol class="problems" id="setup-problems"></ol>
+  </section>
   <section class="activity" aria-labelledby="activity-title">
     <h2 id="activity-title" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Monitoring activity</h2>
     <div class="pulse-row">
@@ -276,10 +300,21 @@ async function api(path, options) {
   return body;
 }
 
+// How old the commit an instance runs is, from the OBP-API checkout
+function commitAge(c, long = false) {
+  if (!c || !c.commit_ts) return '';
+  const days = Math.floor((Date.now() / 1000 - c.commit_ts) / 86400);
+  if (!long) return days < 1 ? 'today' : `${days}d old`;
+  const date = new Date(c.commit_ts * 1000).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${date}, ${days < 1 ? 'today' : days === 1 ? '1 day old' : `${days} days old`}` + (c.author ? `, by ${c.author}` : '');
+}
+
 function renderHeader() {
   const o = state.overview;
-  const d = o.deployment;
-  $('watching').textContent = `Watching ${o.obp_base_url}` + (d ? ` · commit ${(d.git_commit || '?').slice(0, 12)}` : '');
+  const c = o.commit;
+  const why = !c ? '' : c.commit_ts ? ` (${commitAge(c, true)})`
+    : ' (age unknown: not in the OBP-API checkout nor on GitHub)';
+  $('watching').textContent = `Watching ${o.obp_base_url}` + (c ? ` · commit ${c.git_commit.slice(0, 12)}${why}` : '');
   const w = o.api_usage.window, p = o.api_usage.previous_window;
   const chips = [
     ['Watched', `${o.coverage.watched_hours}h`, ` of ${o.window_hours}h`],
@@ -409,7 +444,11 @@ function renderInstances() {
   const nav = $('instances');
   nav.hidden = state.instances.length < 2;
   nav.replaceChildren(...state.instances.map((i) => {
-    const b = el('button', { type: 'button', textContent: i.name, title: i.obp_base_url });
+    const age = commitAge(i.commit);
+    const b = el('button', { type: 'button', title: `${i.obp_base_url}` + (i.commit ? ` · commit ${i.commit.git_commit.slice(0, 12)}` : '')
+      + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : '') }, [i.name]);
+    if (age) b.append(el('span', { className: 'age', textContent: age }));
+    if (i.problems) b.append(el('span', { className: 'flag', role: 'img', ariaLabel: `${i.problems} to fix` }));
     b.setAttribute('aria-pressed', String(state.instance === i.name));
     b.onclick = () => openInstance(i.name);
     return b;
@@ -542,8 +581,34 @@ function renderChart(node, title, values, a, unit, emptyNote) {
   );
 }
 
+// --- Setup: what stops Sentinel from watching this instance, and what to do --------------------
+function renderHealth(h) {
+  const problems = h.problems;
+  $('setup').hidden = !problems.length;
+  if (!problems.length) return;
+  $('setup-title').textContent = problems.length === 1 ? '1 thing to fix before Sentinel can watch this instance'
+    : `${problems.length} things to fix before Sentinel can watch this instance`;
+  $('setup-intro').textContent = 'Most blocking first. Sentinel keeps retrying, so this clears by itself within a poll of the fix.'
+    + (h.more_may_follow ? ' Until the first is fixed OBP-API cannot say which Scopes are missing, so more may appear.' : '');
+  $('setup-problems').replaceChildren(...problems.map((p, i) => {
+    const children = [
+      el('div', { className: 'what' }, [el('span', { className: 'num', textContent: `${i + 1}.` }), el('span', { textContent: p.title })]),
+      el('p', { className: 'do', textContent: p.action }),
+      el('p', { className: 'affects', textContent: `Affects: ${p.sources.join(', ')}` + (p.since ? ` · last seen ${dayClock(p.since)}` : '') }),
+    ];
+    if (p.error) children.push(el('details', {}, [el('summary', { textContent: 'What Sentinel got' }), el('pre', { textContent: p.error })]));
+    return el('li', { className: `problem ${p.severity}` }, children);
+  }));
+}
+
+async function loadInstances() {
+  state.instances = await api('/api/instances');
+  renderInstances();
+}
+
 async function loadActivity() {
   try {
+    api('/api/health').then(renderHealth).catch(() => {});
     activityData = await api('/api/activity');
     activityLoadedAt = Date.now() / 1000;
     renderActivityDetails();
@@ -556,6 +621,7 @@ async function loadActivity() {
 }
 
 async function refresh() {
+  loadInstances().catch(() => {});
   await loadActivity();
   try {
     [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);

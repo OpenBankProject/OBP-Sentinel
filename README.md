@@ -169,8 +169,12 @@ OBP-Sandbox-Populator against it.
 `sentinel run` (or `sentinel ui` on its own) serves a page on http://127.0.0.1:8765 (`SENTINEL_UI_HOST`, `SENTINEL_UI_PORT`) listing
 the findings by status, each with its evidence, the files in OBP-API and the suggested change. Accept, Later,
 Some action taken, Already fixed and Dismiss record the same feedback as `sentinel feedback`. With several
-instances it has a tab for each. It reads and writes only Sentinel's databases (and reads commit dates
-and authors from the OBP-API checkouts). It has no login: keep it on 127.0.0.1, or put it behind a proxy that authenticates and pass
+instances it has a tab for each, showing how old the commit it runs (from its root endpoint) is.
+
+When something stops Sentinel from watching an instance (missing OIDC settings, a token OBP-API rejects, missing
+Scopes, an OBP-API too old for an endpoint), the page lists what to fix, most blocking first, with what OBP-API
+answered. It reads and writes only Sentinel's databases (and reads commit dates and authors from the OBP-API
+checkouts, or for a running commit missing there, from GitHub: `OBP_API_GITHUB_REPO`, empty for none). It has no login: keep it on 127.0.0.1, or put it behind a proxy that authenticates and pass
 that proxy's host name with `--allow-host`. Requests with any other Host or Origin are refused.
 
 ## Next stages

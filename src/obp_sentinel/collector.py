@@ -68,9 +68,12 @@ class Collector:
             app = self.client.declare_platform_app()
         except Exception as e:
             logger.warning("Could not declare Sentinel's Scopes (is its Consumer marked as a Platform App?): %s", e)
+            self.store.set_state("platform_app", {"ts": now(), "ok": False, "error": str(e)[:500]})
             return
         self.declared_at = time.monotonic()
         missing = [s["role_name"] for s in app.get("required_scopes", []) if not s.get("held") and not s.get("optional")]
+        self.store.set_state("platform_app", {"ts": now(), "ok": True, "consumer_id": app.get("consumer_id"),
+                                              "label": app.get("label"), "missing": missing})
         if missing:
             logger.warning("Consumer %s lacks the Scopes %s; ask an administrator to grant them",
                            app.get("consumer_id"), ", ".join(missing))
@@ -157,7 +160,9 @@ class Collector:
             root = self.client.root()
         except Exception as e:
             logger.warning("Reading the root endpoint failed: %s", e)
+            self.store.set_state("root", {"ts": now(), "ok": False, "error": str(e)[:500]})
             return "root failed"
+        self.store.set_state("root", {"ts": now(), "ok": True})
         self.store.record_deployment(root.get("git_commit"))
         return f"commit {(root.get('git_commit') or '?')[:12]}"
 

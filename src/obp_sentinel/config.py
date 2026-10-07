@@ -51,6 +51,7 @@ class Config:
     aggregate_metrics_api_version: str
     root_api_version: str
     obp_api_source: str
+    obp_api_github_repo: str  # owner/name, to date running commits missing from the checkout; "" for none
 
     db_path: str
     digest_dir: str
@@ -111,6 +112,7 @@ class Config:
             aggregate_metrics_api_version=env("OBP_AGGREGATE_METRICS_API_VERSION", "v6.0.0"),
             root_api_version=env("OBP_ROOT_API_VERSION", "v5.1.0"),
             obp_api_source=env("OBP_API_SOURCE", ""),
+            obp_api_github_repo=env("OBP_API_GITHUB_REPO", "OpenBankProject/OBP-API"),
             db_path=env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db"),
             digest_dir=env("SENTINEL_DIGEST_DIR", f"digests/{name}" if named else "digests"),
             poll_seconds=int(env("SENTINEL_POLL_SECONDS", "120")),

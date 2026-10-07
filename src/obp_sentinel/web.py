@@ -2,16 +2,19 @@
 Standard library only.
 
 It reads and writes `sentinel.db`, and reads commit dates and authors from the OBP-API checkout with git; no calls
-to OBP-API. It has no login, so it listens on
+to OBP-API. A running commit missing from the checkout is looked up on GitHub (OBP_API_GITHUB_REPO), once. It has no login, so it listens on
 127.0.0.1 by default. Requests whose Host or Origin is not the address it serves are refused, so a web page
 open in the same browser cannot use it (DNS rebinding, cross-site POSTs).
 """
 
 import json
+from datetime import datetime
 import logging
 import re
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 from http import HTTPStatus
 from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +22,7 @@ from importlib.resources import files
 
 from .analyst import Analyst, decide, unavailable_reason
 from .config import Config
+from .health import health
 from .store import VERDICTS, Store, now
 from .summary import api_usage, coverage, signature_rows
 
@@ -49,6 +53,52 @@ def commit_info(source: str | None, sha: str) -> dict | None:
     return _commits[(source, sha)]
 
 
+def running_commit(store: Store, config: Config) -> dict | None:
+    """The commit the instance runs (from its root endpoint), with its date and author if the OBP-API checkout has it."""
+    row = store.db.execute(
+        "SELECT git_commit, first_seen FROM deployments WHERE git_commit IS NOT NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return None
+    sha = row["git_commit"]
+    info, found_in = commit_info(config.obp_api_source, sha), "checkout"
+    if not info:
+        info, found_in = github_commit_info(config.obp_api_github_repo, sha), config.obp_api_github_repo
+    return {"git_commit": sha, "deployed_seen": row["first_seen"],
+            "commit_ts": info["ts"] if info else None, "author": info["author"] if info else None,
+            "found_in": found_in if info else None}
+
+
+def instance_status(store: Store, config: Config) -> dict:
+    """For the instance tabs: which commit each runs, how old it is, and how many problems stop Sentinel."""
+    return {"name": config.name, "obp_base_url": config.obp_base_url, "commit": running_commit(store, config),
+            "problems": len(health(store, config)["problems"])}
+
+
+_github: dict[tuple[str, str], dict | None] = {}
+
+
+def github_commit_info(repo: str, sha: str) -> dict | None:
+    """Date and author of commit `sha` from GitHub's public API, or None. Only for the commit an instance runs."""
+    if not repo or not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or not re.fullmatch(r"[0-9a-f]{7,40}", sha):
+        return None
+    if (repo, sha) not in _github:
+        request = urllib.request.Request(f"https://api.github.com/repos/{repo}/commits/{sha}",
+                                         headers={"Accept": "application/vnd.github+json", "User-Agent": "OBP-Sentinel"})
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                author = json.load(response)["commit"]["author"]
+            ts = int(datetime.fromisoformat(author["date"].replace("Z", "+00:00")).timestamp())
+            _github[(repo, sha)] = {"ts": ts, "author": author["name"]}
+        except urllib.error.HTTPError as e:
+            if e.code not in (404, 422):
+                return None  # rate limited or down: not cached, try again next time
+            _github[(repo, sha)] = None
+        except (OSError, ValueError, KeyError):
+            return None
+    return _github[(repo, sha)]
+
+
 def overview(store: Store, config: Config) -> dict:
     end = now()
     start = end - OVERVIEW_HOURS * 3600
@@ -59,6 +109,7 @@ def overview(store: Store, config: Config) -> dict:
         "window_hours": OVERVIEW_HOURS,
         "coverage": c,
         "deployment": c["deployments"][-1] if c["deployments"] else None,
+        "commit": running_commit(store, config),
         "api_usage": api_usage(store, start, end, start - OVERVIEW_HOURS * 3600),
         "last_poll": last_poll,
         "now": end,
@@ -180,7 +231,6 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
     page = files("obp_sentinel").joinpath("ui.html").read_bytes()
     by_name = {c.name: c for c in configs}
     analysts = {c.name: (analysts or {}).get(c.name) or Analyst(c) for c in configs}
-    instances = [{"name": c.name, "obp_base_url": c.obp_base_url} for c in configs]
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "OBP-Sentinel"
@@ -234,9 +284,9 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             if path == "/":
                 return self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
             if path == "/api/instances":
-                return self._json(HTTPStatus.OK, instances)
+                return self._json(HTTPStatus.OK, [self._with_store(c, lambda s, c=c: instance_status(s, c)) for c in configs])
             views = {"/api/overview": overview, "/api/activity": activity, "/api/analysis": analysis,
-                     "/api/findings": findings}
+                     "/api/findings": findings, "/api/health": health}
             if path not in views:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
             if config := self._instance():

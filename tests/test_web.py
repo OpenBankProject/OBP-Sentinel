@@ -156,3 +156,19 @@ def test_each_instance_has_its_own_findings(config, tmp_path):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_instances_show_running_commit_age_and_problems(server, config, monkeypatch):
+    from obp_sentinel import web
+
+    monkeypatch.setattr(web, "github_commit_info", lambda repo, sha: {"ts": 1791000000, "author": "A"} if sha == "abc1234" else None)
+    store = Store(config.db_path)
+    store.record_deployment("abc1234")
+    store.record_poll("log:error", ok=False, error='GET http://x/obp/v5.1.0/system/log-cache/error failed (401): {"code":401}')
+    store.commit()
+    store.close()
+    status, data = request(server, "GET", "/api/instances")
+    [instance] = json.loads(data)
+    assert status == 200 and instance["commit"]["commit_ts"] == 1791000000 and instance["problems"] == 1
+    status, data = request(server, "GET", "/api/health")
+    assert status == 200 and json.loads(data)["problems"][0]["key"] == "token-rejected"
