@@ -13,6 +13,7 @@ from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
 from .config import Config, ConfigError
 from .digest import NotReady, write_digest
+from .logs import for_instance, setup as setup_logging
 from .obp_client import OBPClient
 from .store import VERDICTS, Store, now
 from .summary import build_summary, coverage, to_markdown
@@ -50,7 +51,8 @@ def collect(config: Config) -> None:
 
 
 def collect_forever(configs: list[Config]) -> None:
-    threads = [threading.Thread(target=collect, args=(c,), name=f"collector-{c.name}", daemon=True) for c in configs]
+    threads = [for_instance(threading.Thread(target=collect, args=(c,), name=f"collector-{c.name}", daemon=True),
+                            c.obp_base_url) for c in configs]
     for t in threads:
         t.start()
     for t in threads:
@@ -60,6 +62,7 @@ def collect_forever(configs: list[Config]) -> None:
 def cmd_collect(args, configs: list[Config]) -> None:
     if args.once:
         for config in configs:
+            for_instance(threading.current_thread(), config.obp_base_url)
             store = Store(config.db_path)
             try:
                 Collector(config, store, OBPClient(config)).poll_once()
@@ -267,10 +270,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.command == "findings" and args.action == "import" and not args.file:
         parser.error("findings import needs a file")
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
-    )
+    setup_logging(args.verbose)
     try:
         configs = Config.all_from_env()
     except ConfigError as e:
@@ -282,6 +282,7 @@ def main(argv: list[str] | None = None) -> None:
             pass
         return
     config = pick_instance(configs, args.instance)
+    for_instance(threading.current_thread(), config.obp_base_url)
     store = Store(config.db_path)
     try:
         args.func(args, config, store)

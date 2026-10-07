@@ -102,3 +102,12 @@ def test_aggregate_metrics_asks_for_one_window(app_config):
 
     client, _ = make_client(app_config, handler)
     assert client.aggregate_metrics(1791104400, 1791105300) == {"count": 7, "average_response_time": 12.5}
+
+
+def test_errors_name_the_full_url(config):
+    def refuse(request):
+        raise httpx.ConnectError("Connection refused", request=request)
+
+    client = OBPClient(config, httpx.Client(transport=httpx.MockTransport(refuse)))
+    with pytest.raises(OBPError, match=r"GET http://\S+/obp/v5\.1\.0/root failed: Connection refused"):
+        client.root()

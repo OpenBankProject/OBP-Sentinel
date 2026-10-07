@@ -62,6 +62,8 @@ def _obp_date(ts: int) -> str:
 
 
 class OBPClient:
+    """Every error names the full URL it was calling: Sentinel may watch several instances."""
+
     def __init__(self, config: Config, http: httpx.Client | None = None):
         self.config = config
         self.http = http or httpx.Client(timeout=30)
@@ -69,10 +71,16 @@ class OBPClient:
         self._token_expires_at = 0.0
         self._token_endpoint: str | None = None
 
+    def _send(self, method: str, url: str, **kwargs) -> httpx.Response:
+        try:
+            return self.http.request(method, url, **kwargs)
+        except httpx.HTTPError as e:
+            raise OBPError(f"{method} {url} failed: {e}") from e
+
     def _discover_token_endpoint(self) -> str:
         if not self._token_endpoint:
             url = f"{self.config.oidc_issuer}/.well-known/openid-configuration"
-            response = self.http.get(url)
+            response = self._send("GET", url)
             if response.status_code != 200:
                 raise OBPError(f"OIDC discovery at {url} failed ({response.status_code}): {response.text[:300]}")
             self._token_endpoint = response.json()["token_endpoint"]
@@ -81,14 +89,17 @@ class OBPClient:
     def _fetch_token(self) -> str:
         c = self.config
         if not (c.oidc_issuer and c.oidc_client_id and c.oidc_client_secret):
-            raise OBPError("OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET must be set")
-        response = self.http.post(
-            self._discover_token_endpoint(),
+            p = c.env_prefix
+            raise OBPError(f"{p}OIDC_ISSUER, {p}OIDC_CLIENT_ID and {p}OIDC_CLIENT_SECRET must be set")
+        token_url = self._discover_token_endpoint()
+        response = self._send(
+            "POST", token_url,
             data={"grant_type": "client_credentials", "scope": "openid"},
             auth=(c.oidc_client_id, c.oidc_client_secret),
         )
         if response.status_code != 200:
-            raise OBPError(f"Client credentials token request failed ({response.status_code}): {response.text[:300]}")
+            raise OBPError(f"Client credentials token request to {token_url} failed ({response.status_code}): "
+                           f"{response.text[:300]}")
         body = response.json()
         self._token = body["access_token"]
         self._token_expires_at = time.monotonic() + float(body.get("expires_in", 300)) - TOKEN_MARGIN_SECONDS
@@ -104,21 +115,21 @@ class OBPClient:
         url = f"{self.config.obp_base_url}/obp/{version}/{path}"
         for attempt in range(2):
             headers = {"Authorization": f"Bearer {self._token_now()}"}
-            response = self.http.request(method, url, params=params, json=json, headers=headers)
+            response = self._send(method, url, params=params, json=json, headers=headers)
             if response.status_code == 401 and attempt == 0:
                 self._token = None  # token expired or revoked: get a new one once
                 continue
             if response.status_code != 200:
-                raise OBPError(f"{method} {path} failed ({response.status_code}): {response.text[:300]}")
+                raise OBPError(f"{method} {url} failed ({response.status_code}): {response.text[:300]}")
             return response.json()
-        raise OBPError(f"{method} {path} failed after getting a new token")
+        raise OBPError(f"{method} {url} failed after getting a new token")
 
     def root(self) -> dict:
         """The instance's API info, with the git_commit it runs. Public: no token needed."""
         url = f"{self.config.obp_base_url}/obp/{self.config.root_api_version}/root"
-        response = self.http.get(url)
+        response = self._send("GET", url)
         if response.status_code != 200:
-            raise OBPError(f"GET root failed ({response.status_code}): {response.text[:300]}")
+            raise OBPError(f"GET {url} failed ({response.status_code}): {response.text[:300]}")
         return response.json()
 
     def log_cache(self, level: str, limit: int) -> list[str]:

@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from .config import Config
+from .logs import about, for_instance
 from .store import Store, now
 from .summary import watched_seconds
 
@@ -179,6 +180,10 @@ class Analyst:
 
     def run(self, trigger: str, background: bool = False) -> int | None:
         """Run the analyst once, now (in a thread, if `background`). Returns the run id, or None if another run is going."""
+        with about(self.config.obp_base_url):
+            return self._run(trigger, background)
+
+    def _run(self, trigger: str, background: bool) -> int | None:
         store = Store(self.config.db_path)
         try:
             run_id = claim_run(store, trigger)
@@ -189,8 +194,9 @@ class Analyst:
             return None
         logger.info("Analysis #%s started (%s)", run_id, trigger)
         if background:
-            threading.Thread(target=self._execute_in_own_store, args=(run_id,), name=f"analysis-{self.config.name}",
-                             daemon=True).start()
+            for_instance(threading.Thread(target=self._execute_in_own_store, args=(run_id,),
+                                          name=f"analysis-{self.config.name}", daemon=True),
+                         self.config.obp_base_url).start()
         else:
             self._execute_in_own_store(run_id)
         return run_id
@@ -297,7 +303,8 @@ class Analyst:
             self._stop.wait(CHECK_EVERY_SECONDS)
 
     def start(self) -> threading.Thread:
-        thread = threading.Thread(target=self.schedule_forever, name=f"analyst-{self.config.name}", daemon=True)
+        thread = for_instance(threading.Thread(target=self.schedule_forever, name=f"analyst-{self.config.name}",
+                                               daemon=True), self.config.obp_base_url)
         thread.start()
         return thread
 
@@ -310,6 +317,11 @@ class Analyst:
 
 def start_scheduler(config: Config) -> Analyst | None:
     """Start the analyst's schedule in the background, or log why it cannot run."""
+    with about(config.obp_base_url):
+        return _start_scheduler(config)
+
+
+def _start_scheduler(config: Config) -> Analyst | None:
     reason = unavailable_reason(config)
     store = Store(config.db_path)
     try:

@@ -12,7 +12,7 @@ import os
 import re
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 
 def _list(value: str) -> list[str]:
@@ -29,7 +29,7 @@ class ConfigError(Exception):
 
 
 def instance_names() -> list[str]:
-    load_dotenv()
+    load_dotenv(find_dotenv(usecwd=True))  # the working directory's .env, not one near the code
     names = _list(os.environ.get("SENTINEL_INSTANCES", ""))
     for name in names:
         if not INSTANCE_NAME.match(name):
@@ -77,13 +77,18 @@ class Config:
     analyse_timeout_minutes: int
     claude_command: str
 
+    @property
+    def env_prefix(self) -> str:
+        """What this instance's settings are prefixed with in the environment ("" for the default instance)."""
+        return "" if self.name == DEFAULT_INSTANCE else self.name.upper().replace("-", "_") + "_"
+
     @classmethod
     def all_from_env(cls) -> list["Config"]:
         return [cls.from_env(name) for name in instance_names()]
 
     @classmethod
     def from_env(cls, name: str = DEFAULT_INSTANCE) -> "Config":
-        load_dotenv()
+        load_dotenv(find_dotenv(usecwd=True))  # the working directory's .env, not one near the code
         prefix = name.upper().replace("-", "_") + "_"
         named = name != DEFAULT_INSTANCE
 
