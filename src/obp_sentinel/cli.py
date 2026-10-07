@@ -15,7 +15,7 @@ from .config import Config, ConfigError
 from .digest import NotReady, write_digest
 from .logs import for_instance, setup as setup_logging
 from .obp_client import OBPClient
-from .source import TIERS, Reviews, blob_of, fingerprint, next_endpoints
+from .source import TIERS, Reviews, mark_of, next_endpoints
 from .store import VERDICTS, Store, now
 from .summary import build_summary, coverage, to_markdown
 from .web import serve, serve_in_background
@@ -200,22 +200,31 @@ def cmd_source(args, configs: list[Config]) -> None:
                     print(f"  reviewed before; changed since: {', '.join(e['changed'])}")
         else:
             source = configs[0].obp_api_source
-            blobs = {path: blob_of(source, args.commit, path) for path in args.paths}
-            if missing := [path for path, blob in blobs.items() if not blob]:
-                sys.exit(f"Not in commit {args.commit}: {', '.join(missing)}")
             if args.action == "done":
-                reviews.record(args.operation_id, args.commit,
-                               {path: fingerprint(source, args.commit, path, args.operation_id) for path in args.paths})
-                print(f"Recorded {args.operation_id}: {len(blobs)} files")
+                marks = {unit: mark_of(source, args.commit, unit, args.operation_id) for unit in args.paths}
+                if problems := [problem for _, problem in marks.values() if problem]:
+                    sys.exit("Nothing recorded:\n" + "\n".join(problems))
+                reviews.record(args.operation_id, args.commit, {unit: mark for unit, (mark, _) in marks.items()})
+                print(f"Recorded {args.operation_id}: {len(marks)} files and functions")
             else:
-                for path, blob in blobs.items():
-                    row = reviews.file(blob)
-                    last = reviews.last_review_of(path)
-                    print(f"{path}: " + (f"reviewed, unchanged (for {row['operation_id']})" if row
-                                         else f"changed since its review for {last['operation_id']}" if last
-                                         else "not reviewed"))
+                for unit in args.paths:
+                    print(seen_line(source, args.commit, reviews, unit))
     finally:
         reviews.close()
+
+
+def seen_line(source: str, commit: str, reviews: Reviews, unit: str) -> str:
+    """Whether a file, or a function in a big file, was already reviewed and is unchanged."""
+    mark, problem = mark_of(source, commit, unit)
+    if problem:
+        if "#" in unit or not (functions := reviews.functions_reviewed_in(unit)):
+            return f"{unit}: {problem}"
+        states = [f"{f.partition('#')[2]} ({'unchanged' if reviews.file(mark_of(source, commit, f)[0] or '') else 'changed'})"
+                  for f in functions]
+        return f"{unit}: {problem}. Reviewed in it so far: {', '.join(states)}"
+    row, last = reviews.file(mark), reviews.last_review_of(unit)
+    return f"{unit}: " + (f"reviewed, unchanged (for {row['operation_id']})" if row
+                          else f"changed since its review for {last['operation_id']}" if last else "not reviewed")
 
 
 def pick_instance(configs: list[Config], name: str | None) -> Config:
@@ -301,7 +310,8 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("source", help="the source review: what to review next, and what has been reviewed")
     p.add_argument("action", choices=("next", "done", "seen"))
     p.add_argument("operation_id", nargs="?", help="the endpoint reviewed (for done)")
-    p.add_argument("paths", nargs="*", help="files read, relative to the OBP-API checkout (for done and seen)")
+    p.add_argument("paths", nargs="*", help="files read, relative to the OBP-API checkout; for a file of more than "
+                                            "500 lines, each function read in it as path#name (for done and seen)")
     p.add_argument("--commit", help="the commit the files were read at (for done and seen)")
     p.add_argument("--n", type=int, default=3, help="how many endpoints to list (for next)")
     p.set_defaults(func=cmd_source, all_instances=True)

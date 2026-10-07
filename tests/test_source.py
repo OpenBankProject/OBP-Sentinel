@@ -3,7 +3,9 @@ from dataclasses import replace
 
 import pytest
 
-from obp_sentinel.source import REACH_FORMAT, Reviews, fetch_reach, fingerprint, handler_files, next_endpoints, tier_of
+from obp_sentinel.cli import seen_line
+from obp_sentinel.source import (BIG_FILE_LINES, REACH_FORMAT, Reviews, fetch_reach, function_code, handler_files, mark_of,
+                                 next_endpoints, tier_of)
 from obp_sentinel.store import Store
 
 V6 = "obp-api/src/main/scala/code/api/v6_0_0/Http4s600.scala"
@@ -77,12 +79,12 @@ def test_handler_file_is_the_endpoints_own_version(repo):
 
 def test_only_the_endpoints_own_code_counts_in_its_file(repo):
     first = commit(repo, {V6: endpoints_file("bank")})
-    mark = fingerprint(str(repo), first, V6, "OBPv6.0.0-getBank")
+    mark = mark_of(str(repo), first, V6, "OBPv6.0.0-getBank")[0]
     assert mark.startswith("code:")
     other = commit(repo, {V6: endpoints_file("bank").replace("banks", "allBanks")})
-    assert fingerprint(str(repo), other, V6, "OBPv6.0.0-getBank") == mark
+    assert mark_of(str(repo), other, V6, "OBPv6.0.0-getBank")[0] == mark
     changed = commit(repo, {V6: endpoints_file("bank(id)")})
-    assert fingerprint(str(repo), changed, V6, "OBPv6.0.0-getBank") != mark
+    assert mark_of(str(repo), changed, V6, "OBPv6.0.0-getBank")[0] != mark
 
 
 def test_queue_order_and_skipping_what_was_reviewed(instance, repo):
@@ -98,8 +100,8 @@ def test_queue_order_and_skipping_what_was_reviewed(instance, repo):
     assert (total, reviewed) == (5, 0)
     assert picked[2]["handlers"] == [V6] and picked[2]["read_at"] == c
 
-    reviews.record("OBPv6.0.0-getBank", c, {V6: fingerprint(str(repo), c, V6, "OBPv6.0.0-getBank"),
-                                             UTIL: fingerprint(str(repo), c, UTIL, "OBPv6.0.0-getBank")})
+    reviews.record("OBPv6.0.0-getBank", c, {V6: mark_of(str(repo), c, V6, "OBPv6.0.0-getBank")[0],
+                                             UTIL: mark_of(str(repo), c, UTIL, "OBPv6.0.0-getBank")[0]})
     assert reviews.file(git(repo, "rev-parse", f"{c}:{UTIL}"))  # a supporting file is reviewed as a whole
     assert reviews.last_review_of(V6) is None  # the endpoint's own file is not: only its code was read
     picked, _, reviewed = next_endpoints([instance], reviews, 10)
@@ -135,3 +137,56 @@ def test_reach_lists_active_static_endpoints_and_survives_an_instance_without_re
                                   "OBPv7.0.0-getCurrentConsumerScopes": {"roles": [], "login": True}}
     assert reach["roles"] is None and reach["git_commit"] == "abc"
     assert reach["versions"] == ["OBPv6.0.0"]  # active ones, dynamic left out
+
+
+BIG = "obp-api/src/main/scala/code/api/util/NewStyle.scala"
+
+
+def new_style(get_bank: str) -> str:
+    padding = "\n".join(f"  // line {i}" for i in range(BIG_FILE_LINES))
+    return f"""object NewStyle {{
+  object function {{
+    def getBank(bankId: BankId,
+                cc: Option[CallContext]
+               ): Future[Bank] = {{
+      {get_bank}
+    }}
+
+    override def getBanks(cc: Option[CallContext]): Future[List[Bank]] =
+      banks()
+    def getBank(bankId: String): Future[Bank] = getBank(BankId(bankId), None)
+  }}
+{padding}
+}}
+"""
+
+
+def test_a_function_is_its_definitions_overloads_included():
+    code = function_code(new_style("connector.getBank(bankId)"), "getBank")
+    assert code[0].strip().startswith("def getBank(bankId: BankId,") and "               ): Future[Bank] = {" in code
+    assert any("connector.getBank" in line for line in code) and code[-1].strip().startswith("def getBank(bankId: String)")
+    assert not any("getBanks" in line for line in code)
+    assert function_code(new_style("x"), "getBanks") == ["    override def getBanks(cc: Option[CallContext]): Future[List[Bank]] =",
+                                                       "      banks()"]
+    assert function_code(new_style("x"), "nope") is None
+
+
+def test_a_big_file_is_recorded_per_function(repo, instance, capsys):
+    c = commit(repo, {BIG: new_style("connector.getBank(bankId)"), UTIL: "util"})
+    mark, problem = mark_of(str(repo), c, BIG, "OBPv6.0.0-getBank")
+    assert mark is None and "#name" in problem  # a whole big file cannot be recorded
+    assert mark_of(str(repo), c, f"{BIG}#nope")[1] == f"{BIG} has no def or val nope"
+
+    reviews = Reviews(instance.source_db_path)
+    reviews.record("OBPv6.0.0-getBank", c, {f"{BIG}#getBank": mark_of(str(repo), c, f"{BIG}#getBank")[0],
+                                             UTIL: mark_of(str(repo), c, UTIL)[0]})
+    assert reviews.counts() == {"files": 1, "functions": 1}
+    assert "reviewed, unchanged (for OBPv6.0.0-getBank)" in seen_line(str(repo), c, reviews, f"{BIG}#getBank")
+    assert seen_line(str(repo), c, reviews, f"{BIG}#getBanks").endswith("not reviewed")
+    assert seen_line(str(repo), c, reviews, BIG).endswith("Reviewed in it so far: getBank (unchanged)")
+
+    other = commit(repo, {BIG: new_style("connector.getBank(bankId)").replace("banks()", "allBanks()")})  # elsewhere
+    assert "reviewed, unchanged" in seen_line(str(repo), other, reviews, f"{BIG}#getBank")
+    changed = commit(repo, {BIG: new_style("connector.getBank(bankId, cc)")})
+    assert "changed since its review" in seen_line(str(repo), changed, reviews, f"{BIG}#getBank")
+    assert seen_line(str(repo), changed, reviews, BIG).endswith("getBank (changed)")

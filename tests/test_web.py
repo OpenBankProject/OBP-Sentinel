@@ -56,7 +56,7 @@ def test_page_and_findings(server):
     status, data = request(server, "GET", "/api/overview")
     assert status == 200 and "api_usage" in json.loads(data)
     status, data = request(server, "GET", "/api/source")
-    assert status == 200 and json.loads(data) == {"total": 0, "reviewed": 0, "tiers": [], "recent": [],
+    assert status == 200 and json.loads(data) == {"total": 0, "reviewed": 0, "files": 0, "functions": 0, "tiers": [], "recent": [],
                                                   "instances": [{"name": "default", "listed_at": None}]}
 
 

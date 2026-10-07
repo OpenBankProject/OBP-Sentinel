@@ -32,9 +32,12 @@ without overwhelming developers with suggestions.
   instance serves (`GET /obp/v6.0.0/api/versions` and the resource docs of each active version) and the Roles
   anyone holds there (`GET /obp/v7.0.0/reachable-roles`: Role names only). `sentinel source next` puts first
   the endpoints that need no login, then those that need a login but no Role, then those whose Role someone holds, across all instances (how often an
-  endpoint is called does not matter for security); endpoints whose Role nobody holds come last. What was read is kept in
-  `sentinel-source.db` (`SENTINEL_SOURCE_DB`), shared by all instances, by git content: an endpoint comes
-  back only when its own code, or a file it was read with, changes.
+  endpoint is called does not matter for security); endpoints whose Role nobody holds come last. The code read is the OBP-API
+  checkout's HEAD, assumed to be the latest develop (read with `git show`: Sentinel never touches the
+  working tree or fetches). What was read is kept in `sentinel-source.db` (`SENTINEL_SOURCE_DB`), shared by
+  all instances, by content: whole files, and for files of more than 500 lines each function read
+  (`path#name`). An endpoint comes back only when its own code, or a file or function it was read with,
+  changes.
 - **Digest** (`sentinel digest`): the only thing people see. It is written only after enough hours of
   watching, holds at most 3 suggestions (and 10 a week), skips anything below the priority threshold or
   seen in only one bucket, and never repeats what was suggested, acted on, dismissed or fixed. When nothing
@@ -164,8 +167,8 @@ OBP-Sandbox-Populator against it.
 | `sentinel ui [--port 8765] [--no-analyst]` | Only the web page to read findings and respond to them |
 | `sentinel ignore <signature>` | Never show a signature again |
 | `sentinel source next [--n 3]` | The next endpoints to review, most reachable first, across all instances |
-| `sentinel source done <operation_id> <paths> --commit <c>` | Record an endpoint as reviewed, with the files read |
-| `sentinel source seen <paths> --commit <c>` | Whether files were already reviewed, unchanged |
+| `sentinel source done <operation_id> <units> --commit <c>` | Record an endpoint as reviewed, with the files (or `path#function` in big files) read |
+| `sentinel source seen <units> --commit <c>` | Whether files or functions were already reviewed, unchanged |
 
 ## Notes
 

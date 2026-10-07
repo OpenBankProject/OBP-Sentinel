@@ -41,7 +41,7 @@ nav button { min-height: 44px; padding: 0 14px; border: 0; background: none; cur
   border-bottom: 2px solid transparent; color: var(--muted); font-weight: 500; }
 nav button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
 nav .n { font-family: var(--mono); font-size: 13px; margin-left: 4px; }
-#suggestions.first { margin-bottom: 28px; }
+#suggestions { margin-bottom: 28px; }
 .cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
 .list { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .item { display: block; width: 100%; text-align: left; padding: 14px 16px; border-radius: 8px; background: var(--surface);
@@ -194,6 +194,44 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     <p class="intro" id="setup-intro"></p>
     <ol class="problems" id="setup-problems"></ol>
   </section>
+  <div id="suggestions">
+  <div class="title">
+    <h1>Suggested improvements</h1>
+    <p id="rules"></p>
+  </div>
+  <nav aria-label="Filter suggestions" id="tabs"></nav>
+  <div class="cols">
+    <section class="list" aria-label="Suggestions" id="list"></section>
+    <article id="detail" hidden>
+      <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-when"></span></div>
+      <h2 id="d-title"></h2>
+      <div class="scores">
+        <div class="p"><small>Priority</small><b id="d-priority"></b></div>
+        <div><small>Impact</small><b id="d-impact"></b></div>
+        <div><small>Confidence</small><b id="d-confidence"></b></div>
+        <div><small>Effort</small><b id="d-effort"></b></div>
+        <div><small>Trend</small><b id="d-trend"></b></div>
+      </div>
+      <h3>Evidence</h3><p id="d-evidence"></p>
+      <h3>Why it happens</h3><p id="d-hypothesis"></p>
+      <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
+      <h3>Suggested change</h3><p id="d-fix"></p>
+      <div class="respond">
+        <p class="previous" id="d-previous" hidden></p>
+        <label for="comment">Comment for the analyst <span>(optional)</span></label>
+        <textarea id="comment" rows="2" maxlength="2000"></textarea>
+        <div class="actions">
+          <button type="button" class="primary" data-verdict="accepted">Accept</button>
+          <button type="button" data-verdict="later" id="later-btn">Later</button>
+          <button type="button" data-verdict="acted">Some action taken</button>
+          <button type="button" data-verdict="fixed">Already fixed</button>
+          <button type="button" class="dismiss" data-verdict="dismissed">Dismiss, never suggest again</button>
+        </div>
+        <p class="status" role="status" id="status"></p>
+      </div>
+    </article>
+  </div>
+  </div>
   <section class="activity" aria-labelledby="activity-title">
     <h2 id="activity-title" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Monitoring activity</h2>
     <div class="pulse-row">
@@ -245,44 +283,6 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     <h3>What is scanned, per instance</h3>
     <ul class="waiting" id="source-instances"></ul>
   </section>
-  <div id="suggestions">
-  <div class="title">
-    <h1>Suggested improvements</h1>
-    <p id="rules"></p>
-  </div>
-  <nav aria-label="Filter suggestions" id="tabs"></nav>
-  <div class="cols">
-    <section class="list" aria-label="Suggestions" id="list"></section>
-    <article id="detail" hidden>
-      <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-when"></span></div>
-      <h2 id="d-title"></h2>
-      <div class="scores">
-        <div class="p"><small>Priority</small><b id="d-priority"></b></div>
-        <div><small>Impact</small><b id="d-impact"></b></div>
-        <div><small>Confidence</small><b id="d-confidence"></b></div>
-        <div><small>Effort</small><b id="d-effort"></b></div>
-        <div><small>Trend</small><b id="d-trend"></b></div>
-      </div>
-      <h3>Evidence</h3><p id="d-evidence"></p>
-      <h3>Why it happens</h3><p id="d-hypothesis"></p>
-      <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
-      <h3>Suggested change</h3><p id="d-fix"></p>
-      <div class="respond">
-        <p class="previous" id="d-previous" hidden></p>
-        <label for="comment">Comment for the analyst <span>(optional)</span></label>
-        <textarea id="comment" rows="2" maxlength="2000"></textarea>
-        <div class="actions">
-          <button type="button" class="primary" data-verdict="accepted">Accept</button>
-          <button type="button" data-verdict="later" id="later-btn">Later</button>
-          <button type="button" data-verdict="acted">Some action taken</button>
-          <button type="button" data-verdict="fixed">Already fixed</button>
-          <button type="button" class="dismiss" data-verdict="dismissed">Dismiss, never suggest again</button>
-        </div>
-        <p class="status" role="status" id="status"></p>
-      </div>
-    </article>
-  </div>
-  </div>
 </main>
 <script>
 // Everything shown comes from sentinel.db, partly derived from OBP-API logs: set as text, never as HTML.
@@ -353,16 +353,7 @@ function visible() {
 }
 
 // Suggestions go above the monitoring sections while something waits for review.
-function placeSuggestions() {
-  const box = $('suggestions'), main = box.parentNode;
-  const first = state.findings.some((f) => f.status === 'suggested');
-  if (first && main.firstElementChild !== box) main.prepend(box);
-  if (!first && main.lastElementChild !== box) main.append(box);
-  box.classList.toggle('first', first);
-}
-
 function render() {
-  placeSuggestions();
   $('tabs').replaceChildren(...TABS.map(([id, label, statuses]) => {
     const b = el('button', { type: 'button' }, [label, el('span', { className: 'n',
       textContent: state.findings.filter((f) => statuses.includes(f.status)).length })]);
@@ -735,7 +726,8 @@ async function loadSource() {
     const s = await response.json();
     if (!response.ok) throw new Error(s.error || response.statusText);
     $('source-when').textContent = s.total
-      ? `${fmtNum(s.reviewed)} of ${fmtNum(s.total)} endpoints reviewed, across all instances`
+      ? `${fmtNum(s.reviewed)} of ${fmtNum(s.total)} endpoints reviewed, across all instances · `
+        + `${fmtNum(s.files)} files and ${fmtNum(s.functions)} functions in big files read`
       : 'No instance has listed its endpoints yet. The collector does that once a day.';
     $('source-tiers').replaceChildren(...s.tiers.map((t) =>
       el('li', { textContent: `${t.label}: ${fmtNum(t.reviewed)} of ${fmtNum(t.total)}` })));

@@ -7,8 +7,10 @@ then endpoints whose Roles are unknown because the instance does not offer reach
 endpoints that need a Role nobody holds (someone may be granted it later). How often an endpoint is called does not matter here: for security what
 counts is who can reach it.
 
-What was reviewed is kept in one database for all instances (SENTINEL_SOURCE_DB), by git blob: a file whose
-content has not changed is never reviewed twice, whatever the commit or instance, and survives restarts.
+What was reviewed is kept in one database for all instances (SENTINEL_SOURCE_DB), and survives restarts. What
+is recorded is a unit of code: a whole file (by git blob), or for a file of more than BIG_FILE_LINES lines one
+function in it, written `path#function` (by a hash of that function's code). A unit whose content has not
+changed is never reviewed twice, whatever the commit or instance.
 """
 
 import hashlib
@@ -29,11 +31,13 @@ TIERS = ("no login needed", "login but no Role needed", "Role held", "Roles unkn
 # In a ResourceDoc's errors, these mean the caller must be logged in or an identified application
 CREDENTIALS_ERRORS = ("OBP-20001", "OBP-20200")
 REACH_FORMAT = 3  # bump when what fetch_reach stores changes, so it is fetched again
+BIG_FILE_LINES = 500  # bigger files are recorded per function read, not as a whole
+DEFINITION = re.compile(r"\s*((override|private|protected|final|implicit|lazy)(\[\w.]+\])?\s+)*(def|val)\s+(?P<name>[\w$]+)")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviewed_files (
-    blob         TEXT PRIMARY KEY,         -- git blob id: the file's content
-    path         TEXT NOT NULL,
+    blob         TEXT PRIMARY KEY,         -- the unit's content: a git blob id, or code:<sha1> of one function
+    path         TEXT NOT NULL,            -- the unit: a path, or path#function in a big file
     git_commit   TEXT NOT NULL,
     reviewed_at  INTEGER NOT NULL,
     operation_id TEXT NOT NULL             -- the endpoint it was read for
@@ -42,7 +46,7 @@ CREATE TABLE IF NOT EXISTS reviewed_endpoints (
     operation_id TEXT PRIMARY KEY,
     git_commit   TEXT NOT NULL,
     reviewed_at  INTEGER NOT NULL,
-    files        TEXT NOT NULL             -- JSON object: path -> blob, as read
+    files        TEXT NOT NULL             -- JSON object: unit -> its content (as in reviewed_files), as read
 );
 """
 
@@ -85,22 +89,34 @@ class Reviews:
     def endpoint(self, operation_id: str) -> sqlite3.Row | None:
         return self.db.execute("SELECT * FROM reviewed_endpoints WHERE operation_id = ?", (operation_id,)).fetchone()
 
-    def file(self, blob: str) -> sqlite3.Row | None:
-        return self.db.execute("SELECT * FROM reviewed_files WHERE blob = ?", (blob,)).fetchone()
+    def file(self, mark: str) -> sqlite3.Row | None:
+        return self.db.execute("SELECT * FROM reviewed_files WHERE blob = ?", (mark,)).fetchone()
 
-    def last_review_of(self, path: str) -> sqlite3.Row | None:
+    def last_review_of(self, unit: str) -> sqlite3.Row | None:
         return self.db.execute(
-            "SELECT * FROM reviewed_files WHERE path = ? ORDER BY reviewed_at DESC LIMIT 1", (path,)).fetchone()
+            "SELECT * FROM reviewed_files WHERE path = ? ORDER BY reviewed_at DESC LIMIT 1", (unit,)).fetchone()
+
+    def functions_reviewed_in(self, path: str) -> list[str]:
+        rows = self.db.execute("SELECT DISTINCT path FROM reviewed_files WHERE path LIKE ? ORDER BY path",
+                               (path.replace("%", "") + "#%",)).fetchall()
+        return [r["path"] for r in rows]
+
+    def counts(self) -> dict:
+        """How many files and functions (of big files) have been reviewed, in any version."""
+        row = self.db.execute(
+            """SELECT COUNT(DISTINCT CASE WHEN path NOT LIKE '%#%' THEN path END) AS files,
+                      COUNT(DISTINCT CASE WHEN path LIKE '%#%' THEN path END) AS functions FROM reviewed_files""").fetchone()
+        return {"files": row["files"], "functions": row["functions"]}
 
     def record(self, operation_id: str, git_commit: str, files: dict[str, str]) -> None:
-        """files: path -> fingerprint, as read for this endpoint."""
+        """files: unit -> its content mark (see mark_of), for every unit read for this endpoint."""
         ts = now()
         self.db.execute(
             "INSERT OR REPLACE INTO reviewed_endpoints (operation_id, git_commit, reviewed_at, files) VALUES (?, ?, ?, ?)",
             (operation_id, git_commit, ts, json.dumps(files, sort_keys=True)))
         for path, blob in files.items():
-            if blob.startswith("code:"):
-                continue  # only one endpoint's code in that file was read: the file is not reviewed
+            if blob.startswith("code:") and "#" not in path:
+                continue  # the endpoint's own block in its file: that code belongs to this endpoint only
             self.db.execute(
                 "INSERT OR IGNORE INTO reviewed_files (blob, path, git_commit, reviewed_at, operation_id) VALUES (?, ?, ?, ?, ?)",
                 (blob, path, git_commit, ts, operation_id))
@@ -117,10 +133,9 @@ def _git(source: str, *args: str) -> str | None:
     return out.stdout.strip() if out.returncode == 0 else None
 
 
-def readable_commit(source: str, git_commit: str | None) -> str:
-    """The commit to read: the deployed one if the checkout has it, else the checkout's HEAD."""
-    if git_commit and _git(source, "cat-file", "-e", f"{git_commit}^{{commit}}") is not None:
-        return git_commit
+def head_commit(source: str) -> str:
+    """The commit to read: the checkout's HEAD, assumed to be the latest develop. Read with git show, so the
+    working tree is never touched; nothing is fetched."""
     return _git(source, "rev-parse", "HEAD") or "HEAD"
 
 
@@ -133,20 +148,55 @@ def _show(source: str, commit: str, path: str) -> str | None:
     return _git(source, "show", f"{commit}:{path}")
 
 
-def fingerprint(source: str, commit: str, path: str, operation_id: str) -> str | None:
-    """What says whether a file read for an endpoint has changed. Most files: their git blob. The file the
-    endpoint is defined in holds many endpoints, so there only the endpoint's own code counts: from its
-    `val` to the next endpoint's (its ResourceDoc included)."""
-    function = operation_id.rpartition("-")[2]
+def _code(lines: list[str]) -> str:
+    return "code:" + hashlib.sha1("\n".join(lines).encode()).hexdigest()
+
+
+def function_code(text: str, name: str) -> list[str] | None:
+    """The lines of every `def name` / `val name` in a file (overloads together), or None if there is none.
+    A definition ends at the next line indented as much or less, except a closing `)`, `}` or `]`."""
+    lines, found = text.splitlines(), []
+    for i, line in enumerate(lines):
+        m = DEFINITION.match(line)
+        if not m or m["name"] != name:
+            continue
+        indent = len(line) - len(line.lstrip())
+        end = i + 1
+        while end < len(lines):
+            stripped = lines[end].lstrip()
+            depth = len(lines[end]) - len(stripped)
+            if stripped and (depth < indent or (depth == indent and not stripped.startswith((")", "}", "]")))):
+                break
+            end += 1
+        while not lines[end - 1].strip():  # blank lines after it belong to no one
+            end -= 1
+        found += lines[i:end]
+    return found or None
+
+
+def mark_of(source: str, commit: str, unit: str, operation_id: str = "") -> tuple[str | None, str | None]:
+    """What says whether a unit read for an endpoint has changed, or why it cannot be recorded.
+
+    `path#function`: that function's code. A plain path: the file's git blob, except the file the endpoint
+    is defined in (only the endpoint's own block counts: from its `val` to the next endpoint's) and a big
+    file (which has to be given per function)."""
+    path, _, name = unit.partition("#")
     text = _show(source, commit, path)
     if text is None:
-        return None
+        return None, f"{path} is not in commit {commit[:12]}"
+    if name:
+        code = function_code(text, name)
+        return (_code(code), None) if code else (None, f"{path} has no def or val {name}")
     lines = text.splitlines()
-    start = next((i for i, line in enumerate(lines) if re.match(rf"\s*(lazy\s+)?val\s+{re.escape(function)}\b", line)), None)
-    if start is None or f"nameOf({function})" not in text:
-        return blob_of(source, commit, path)
-    end = next((i for i in range(start + 1, len(lines)) if ENDPOINT_VAL.match(lines[i])), len(lines))
-    return "code:" + hashlib.sha1("\n".join(lines[start:end]).encode()).hexdigest()
+    function = operation_id.rpartition("-")[2]
+    if function and f"nameOf({function})" in text:
+        start = next((i for i, line in enumerate(lines) if re.match(rf"\s*(lazy\s+)?val\s+{re.escape(function)}\b", line)), None)
+        if start is not None:
+            end = next((i for i in range(start + 1, len(lines)) if ENDPOINT_VAL.match(lines[i])), len(lines))
+            return _code(lines[start:end]), None
+    if len(lines) > BIG_FILE_LINES:
+        return None, f"{path} has {len(lines)} lines: give the functions read in it, as {path}#name"
+    return blob_of(source, commit, path), None
 
 
 def handler_files(source: str, commit: str, operation_id: str) -> list[str]:
@@ -182,10 +232,9 @@ def reachable(configs: list[Config]) -> dict[str, dict]:
             continue
         for op, endpoint in reach["endpoints"].items():
             tier = tier_of(endpoint, reach["roles"])
-            e = out.setdefault(op, {"operation_id": op, "tier": tier, "instances": [],
-                                    "source": config.obp_api_source, "git_commit": reach["git_commit"]})
+            e = out.setdefault(op, {"operation_id": op, "tier": tier, "instances": [], "source": config.obp_api_source})
             if tier < e["tier"]:
-                e.update(tier=tier, source=config.obp_api_source, git_commit=reach["git_commit"])
+                e.update(tier=tier, source=config.obp_api_source)
             e["instances"].append(config.name)
     return out
 
@@ -195,9 +244,9 @@ def changed_files(reviews: Reviews, e: dict) -> list[str] | None:
     row = reviews.endpoint(e["operation_id"])
     if not row:
         return None
-    commit = readable_commit(e["source"], e["git_commit"])
-    return [path for path, mark in json.loads(row["files"]).items()
-            if fingerprint(e["source"], commit, path, e["operation_id"]) != mark]
+    commit = head_commit(e["source"])
+    return [unit for unit, mark in json.loads(row["files"]).items()
+            if mark_of(e["source"], commit, unit, e["operation_id"])[0] != mark]
 
 
 def progress(configs: list[Config], reviews: Reviews, recent: int = 8) -> dict:
@@ -211,7 +260,7 @@ def progress(configs: list[Config], reviews: Reviews, recent: int = 8) -> dict:
     rows = reviews.db.execute(
         "SELECT operation_id, git_commit, reviewed_at FROM reviewed_endpoints ORDER BY reviewed_at DESC LIMIT ?",
         (recent,)).fetchall()
-    return {"total": sum(t["total"] for t in tiers), "reviewed": sum(t["reviewed"] for t in tiers),
+    return {"total": sum(t["total"] for t in tiers), "reviewed": sum(t["reviewed"] for t in tiers), **reviews.counts(),
             "tiers": [t for t in tiers if t["total"]], "recent": [dict(r) for r in rows],
             "instances": [scanned(config) for config in configs]}
 
@@ -239,7 +288,7 @@ def next_endpoints(configs: list[Config], reviews: Reviews, n: int) -> tuple[lis
             reviewed += 1
             continue
         if len(picked) < n:
-            commit = readable_commit(e["source"], e["git_commit"])
+            commit = head_commit(e["source"])
             picked.append({**e, "read_at": commit, "changed": changed,
                            "handlers": handler_files(e["source"], commit, e["operation_id"])})
     return picked, len(endpoints), reviewed
