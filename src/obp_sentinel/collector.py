@@ -13,6 +13,7 @@ import time
 from .config import Config
 from .obp_client import OBPClient
 from .signatures import parse_line, signature_of
+from .source import fetch_reach, reach_is_due
 from .store import Store, now
 
 logger = logging.getLogger(__name__)
@@ -166,10 +167,25 @@ class Collector:
         self.store.record_deployment(root.get("git_commit"))
         return f"commit {(root.get('git_commit') or '?')[:12]}"
 
+    def poll_reach(self) -> str:
+        """Which endpoints the instance serves and which Roles anyone holds, for the source review. Daily."""
+        deployment = self.store.db.execute("SELECT git_commit FROM deployments ORDER BY id DESC LIMIT 1").fetchone()
+        git_commit = deployment["git_commit"] if deployment else None
+        if not reach_is_due(self.store, git_commit) or now() - self.store.get_state("reach_failed_at", 0) < 3600:
+            return "reach unchanged"
+        try:
+            reach = fetch_reach(self.client, git_commit)
+        except Exception as e:  # the resource docs are large: wait an hour before trying again
+            logger.warning("Reading the endpoints the instance serves failed: %s", e)
+            self.store.set_state("reach_failed_at", now())
+            return "reach failed"
+        self.store.set_state("reach", reach)
+        return f"reach {len(reach['endpoints'])} endpoints" + ("" if reach["roles"] is not None else ", Roles held unknown")
+
     def poll_once(self) -> None:
         self.declare_platform_app()
         results = [self.poll_root()] + [self.poll_logs(level) for level in self.config.log_levels]
-        results += [self.poll_telemetry(), self.poll_metrics()]
+        results += [self.poll_telemetry(), self.poll_metrics(), self.poll_reach()]
         logger.info("Polled: %s", ", ".join(results))
         last_prune = self.store.get_state("last_prune", 0)
         if now() - last_prune > PRUNE_EVERY_SECONDS:

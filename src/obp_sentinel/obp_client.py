@@ -16,6 +16,8 @@ from .config import Config
 logger = logging.getLogger(__name__)
 
 PLATFORM_APP_API_VERSION = "v7.0.0"
+# OBP-API's error when a declared Scope names a Role it does not know (among other checks)
+UNKNOWN_ROLE_DECLARED = "OBP-35048"
 # Renew the token this many seconds before it expires
 TOKEN_MARGIN_SECONDS = 30
 
@@ -46,6 +48,13 @@ def required_scopes(config: Config) -> list[dict]:
         "bank_id": "",
         "needed_for": "Counting API calls and their response times per time bucket, to compare usage and speed between hours",
         "optional": False,
+    })
+    # Optional: OBP-API instances older than the reachable-roles endpoint do not know this Role
+    scopes.append({
+        "role_name": "CanGetReachableRoles",
+        "bank_id": "",
+        "needed_for": "Learning which Roles anyone holds (names only), to review first the source code that can be reached",
+        "optional": True,
     })
     return scopes
 
@@ -147,7 +156,31 @@ class OBPClient:
         # Versions before v6.0.0 return a one-element list
         return (body[0] if body else {}) if isinstance(body, list) else body
 
+    def api_versions(self) -> list[dict]:
+        """The API versions this instance has (OBP, Berlin Group, UK ...), each active or not."""
+        return self._request("GET", "v6.0.0", "api/versions")["scanned_api_versions"]
+
+    def resource_docs(self, fully_qualified_version: str) -> list[dict]:
+        """The static endpoints one API version serves, each with its operation_id and the Roles it needs."""
+        body = self._request("GET", PLATFORM_APP_API_VERSION, f"resource-docs/{fully_qualified_version}/obp",
+                             {"content": "static"})
+        return body.get("resource_docs", [])
+
+    def reachable_roles(self) -> list[str]:
+        """The names of the Roles anyone holds, as an Entitlement or a Scope. Nothing about who holds them."""
+        return self._request("GET", PLATFORM_APP_API_VERSION, "reachable-roles")["role_names"]
+
     def declare_platform_app(self) -> dict:
         """Tell OBP-API which Scopes Sentinel needs. Returns the app as OBP sees it, each Scope held or not."""
-        body = {"version": _sentinel_version(), "required_scopes": required_scopes(self.config)}
-        return self._request("PUT", PLATFORM_APP_API_VERSION, "consumers/current/platform-app", json=body)
+        scopes = required_scopes(self.config)
+        try:
+            return self._request("PUT", PLATFORM_APP_API_VERSION, "consumers/current/platform-app",
+                                 json={"version": _sentinel_version(), "required_scopes": scopes})
+        except OBPError as e:
+            if UNKNOWN_ROLE_DECLARED not in str(e):
+                raise
+        # An older OBP-API that does not know an optional Role refuses the whole declaration: declare without them
+        logger.info("OBP-API refused an optional Scope; declaring the required ones only")
+        return self._request("PUT", PLATFORM_APP_API_VERSION, "consumers/current/platform-app",
+                             json={"version": _sentinel_version(),
+                                   "required_scopes": [s for s in scopes if not s["optional"]]})

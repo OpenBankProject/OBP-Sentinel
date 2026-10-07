@@ -32,6 +32,12 @@ perfectly good result.
    re-raise something dismissed or fixed unless it has clearly changed. For a finding marked fixed
    or `acted` (someone tried to act on it; their comment says what), check whether its signatures
    have dropped since that feedback, and if they have not, say so in its evidence.
+   A finding that did not come back in this window, while the instance now runs a different
+   `git_commit` than when it was raised (see the deployments in the summary), can be downgraded:
+   re-import it with trend `falling` and lower impact or confidence, saying in its evidence when it
+   was last seen and which commit is deployed now. Downgrade more if that commit changed the files
+   the finding names (`git -C "$OBP_API_SOURCE" diff <old>..<new> -- <files>`). Without a new
+   commit, leave it as it was.
 3. Pick the candidates that look most important: errors that are frequent, persistent (several
    buckets), new or rising, on important paths (authentication, consents, payments, account
    access), or endpoints and connector methods that are failing or have slowed down.
@@ -42,7 +48,26 @@ perfectly good result.
    `git_commit` the instance runs (from its root endpoint). The checkout may be at a different
    commit: if so, read the code as deployed with `git -C "$OBP_API_SOURCE" show <git_commit>:<path>`
    and say which commit your findings refer to.
-5. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
+5. Source review: a few endpoints a run, so that over time all the code that can be reached is read.
+   `uv run sentinel source next` lists the next endpoints to review, most reachable first (no login needed,
+   then login but no Role, then Role held, and
+   last a Role nobody holds), with the commit to read and the file each is defined in. For each one:
+   - Read its code at that commit (`git -C "$OBP_API_SOURCE" show <commit>:<path>`) and follow its path
+     into what it calls (NewStyle functions, the connector, mappers, Doobie queries). Before reading a
+     whole supporting file, `uv run sentinel source seen <paths> --commit <commit>`: one already reviewed
+     and unchanged need not be read again.
+   - Look for what can hurt: SQL built from input (string interpolation into `sql`, `fr`, `DB.runQuery`,
+     `executeQuery`; doobie `Fragment.const` with input), missing or wrong authorisation (a Role, view or
+     consent check that is absent, or checks another bank or account than the one used), data of other
+     users or banks returned, secrets or personal data logged, unsafe deserialisation or reflection on
+     input, unbounded queries or loops driven by input.
+   - Add what you would defend as findings in step 6 (usually `security`), with the files and lines.
+     Finding nothing is the usual, good result.
+   - Then record it, listing every file you read for it, the endpoint's own file included:
+     `uv run sentinel source done <operation_id> <paths> --commit <commit>`. An endpoint you could not
+     finish is not recorded.
+   If it says no instance has listed its endpoints yet, skip this step.
+6. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
 
    ```json
    {
@@ -68,6 +93,6 @@ perfectly good result.
    - Include only findings you would defend to the developer who owns that code. Expected noise
      (e.g. 4xx from clients sending bad input, logged as warnings) is not a finding unless the
      API handles it wrongly.
-6. `uv run sentinel findings import work/findings-<timestamp>.json`, then `uv run sentinel digest`.
+7. `uv run sentinel findings import work/findings-<timestamp>.json`, then `uv run sentinel digest`.
    If the digest refuses because not enough hours were watched, report that and stop.
-7. Reply with the digest's path and a two-line summary. Do not repeat the digest.
+8. Reply with the digest's path, a two-line summary, and the endpoints you reviewed. Do not repeat the digest.

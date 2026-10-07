@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import threading
 from dataclasses import replace
@@ -54,6 +55,9 @@ def test_page_and_findings(server):
     assert status == 200 and items[0]["key"] == "one" and items[0]["files"] == ["a.scala:1"]
     status, data = request(server, "GET", "/api/overview")
     assert status == 200 and "api_usage" in json.loads(data)
+    status, data = request(server, "GET", "/api/source")
+    assert status == 200 and json.loads(data) == {"total": 0, "reviewed": 0, "tiers": [], "recent": [],
+                                                  "instances": [{"name": "default", "listed_at": None}]}
 
 
 def test_feedback_is_recorded(server, config):
@@ -110,7 +114,9 @@ def test_evidence_commits_get_date_and_author(config, tmp_path):
     repo.mkdir()
     git = ["git", "-C", str(repo), "-c", "user.name=Ada Dev", "-c", "user.email=ada@example.com"]
     subprocess.run([*git, "init", "-q"], check=True)
-    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "x", "--date", "@1791201600 +0000"], check=True)
+    # A fixed committer date too, so the hash is always the same (one with only digits is not taken for a commit)
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "x", "--date", "@1791201600 +0000"], check=True,
+                   env={**os.environ, "GIT_COMMITTER_DATE": "@1791201600 +0000"})
     sha = subprocess.run([*git, "rev-parse", "--short=8", "HEAD"], capture_output=True, text=True).stdout.strip()
     store = Store(config.db_path)
     store.upsert_finding({**finding("one"), "evidence": f"Signature 3d4b07fc4b73 survived commits {sha} and abcdef12"})

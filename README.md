@@ -26,6 +26,15 @@ without overwhelming developers with suggestions.
 - **Analyst** (the Claude Code subagent in `.claude/agents/obp-sentinel-analyst.md`): reads
   `sentinel summary` (aggregates over the last hours compared with the hours before), investigates the
   OBP-API source, and records findings scored by impact, confidence, effort and trend.
+- **Source review**: besides what the logs point at, the analyst reads a few endpoints' code each run,
+  looking for SQL injection, missing authorisation checks and similar problems, until all the code that can
+  be reached has been read. Once a day (and when the commit changes) the collector lists the endpoints each
+  instance serves (`GET /obp/v6.0.0/api/versions` and the resource docs of each active version) and the Roles
+  anyone holds there (`GET /obp/v7.0.0/reachable-roles`: Role names only). `sentinel source next` puts first
+  the endpoints that need no login, then those that need a login but no Role, then those whose Role someone holds, across all instances (how often an
+  endpoint is called does not matter for security); endpoints whose Role nobody holds come last. What was read is kept in
+  `sentinel-source.db` (`SENTINEL_SOURCE_DB`), shared by all instances, by git content: an endpoint comes
+  back only when its own code, or a file it was read with, changes.
 - **Digest** (`sentinel digest`): the only thing people see. It is written only after enough hours of
   watching, holds at most 3 suggestions (and 10 a week), skips anything below the priority threshold or
   seen in only one bucket, and never repeats what was suggested, acted on, dismissed or fixed. When nothing
@@ -55,7 +64,9 @@ pull requests.
      (`PUT /obp/v7.0.0/consumers/current/platform-app`), the way the Portal and API Manager do from
      their `/status` check. OBP refuses this until the Consumer is marked, so Sentinel retries on every
      poll until accepted (no restart needed), then re-declares hourly. It declares
-     `CanGetSystemLogCache<Level>` for each level in `SENTINEL_LOG_LEVELS`, `CanGetTelemetry` and `CanReadAggregateMetrics`. It logs any that are missing. The administrator
+     `CanGetSystemLogCache<Level>` for each level in `SENTINEL_LOG_LEVELS`, `CanGetTelemetry` and `CanReadAggregateMetrics`,
+     and, optional, `CanGetReachableRoles` for the source review (an OBP-API too old to know it gets the
+     others only). It logs any required ones that are missing. The administrator
      sees them in `GET /obp/v7.0.0/management/platform-apps` and grants them
      (`POST /obp/v7.0.0/consumers/CONSUMER_ID/scopes`).
 
@@ -152,6 +163,9 @@ OBP-Sandbox-Populator against it.
 | `sentinel feedback <id> accepted\|acted\|dismissed\|later\|fixed` | Respond to a suggestion |
 | `sentinel ui [--port 8765] [--no-analyst]` | Only the web page to read findings and respond to them |
 | `sentinel ignore <signature>` | Never show a signature again |
+| `sentinel source next [--n 3]` | The next endpoints to review, most reachable first, across all instances |
+| `sentinel source done <operation_id> <paths> --commit <c>` | Record an endpoint as reviewed, with the files read |
+| `sentinel source seen <paths> --commit <c>` | Whether files were already reviewed, unchanged |
 
 ## Notes
 
@@ -181,6 +195,8 @@ that proxy's host name with `--allow-host`. Requests with any other Host or Orig
 
 1. Let the analyst raise the log level for an area it is investigating, then restore it.
 2. Let it open pull requests (against a fork or branch, never `main`) for findings a person accepted.
+3. An OBP-API endpoint that traces the functions and files an operation id calls on each instance, so the
+   source review knows every file behind an endpoint: see [docs/call-trace-endpoint.md](docs/call-trace-endpoint.md).
 
 ## License
 

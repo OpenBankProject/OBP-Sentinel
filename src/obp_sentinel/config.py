@@ -54,6 +54,7 @@ class Config:
     obp_api_github_repo: str  # owner/name, to date running commits missing from the checkout; "" for none
 
     db_path: str
+    source_db_path: str  # what the source review has read, shared by all instances
     digest_dir: str
     poll_seconds: int
     log_levels: list[str]
@@ -114,6 +115,7 @@ class Config:
             obp_api_source=env("OBP_API_SOURCE", ""),
             obp_api_github_repo=env("OBP_API_GITHUB_REPO", "OpenBankProject/OBP-API"),
             db_path=env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db"),
+            source_db_path=env("SENTINEL_SOURCE_DB", "sentinel-source.db"),
             digest_dir=env("SENTINEL_DIGEST_DIR", f"digests/{name}" if named else "digests"),
             poll_seconds=int(env("SENTINEL_POLL_SECONDS", "120")),
             log_levels=_list(env("SENTINEL_LOG_LEVELS", "error,warning")),

@@ -15,6 +15,7 @@ from .config import Config, ConfigError
 from .digest import NotReady, write_digest
 from .logs import for_instance, setup as setup_logging
 from .obp_client import OBPClient
+from .source import TIERS, Reviews, blob_of, fingerprint, next_endpoints
 from .store import VERDICTS, Store, now
 from .summary import build_summary, coverage, to_markdown
 from .web import serve, serve_in_background
@@ -183,6 +184,40 @@ def cmd_run(args, configs: list[Config]) -> None:
         server.server_close()
 
 
+def cmd_source(args, configs: list[Config]) -> None:
+    reviews = Reviews(configs[0].source_db_path)
+    try:
+        if args.action == "next":
+            picked, total, reviewed = next_endpoints(configs, reviews, args.n)
+            if not total:
+                print("No instance has listed its endpoints yet: the collector does that once a day.")
+            print(f"Reviewed {reviewed} of {total} endpoints.")
+            for e in picked:
+                print(f"\n{e['operation_id']}: {TIERS[e['tier']]}, on {', '.join(e['instances'])}")
+                print(f"  read at commit {e['read_at']}")
+                print(f"  defined in {', '.join(e['handlers']) or '(not found: search for it)'}")
+                if e["changed"]:
+                    print(f"  reviewed before; changed since: {', '.join(e['changed'])}")
+        else:
+            source = configs[0].obp_api_source
+            blobs = {path: blob_of(source, args.commit, path) for path in args.paths}
+            if missing := [path for path, blob in blobs.items() if not blob]:
+                sys.exit(f"Not in commit {args.commit}: {', '.join(missing)}")
+            if args.action == "done":
+                reviews.record(args.operation_id, args.commit,
+                               {path: fingerprint(source, args.commit, path, args.operation_id) for path in args.paths})
+                print(f"Recorded {args.operation_id}: {len(blobs)} files")
+            else:
+                for path, blob in blobs.items():
+                    row = reviews.file(blob)
+                    last = reviews.last_review_of(path)
+                    print(f"{path}: " + (f"reviewed, unchanged (for {row['operation_id']})" if row
+                                         else f"changed since its review for {last['operation_id']}" if last
+                                         else "not reviewed"))
+    finally:
+        reviews.close()
+
+
 def pick_instance(configs: list[Config], name: str | None) -> Config:
     """The instance a one-instance command works on: --instance, else SENTINEL_INSTANCE, else the only one."""
     name = name or os.environ.get("SENTINEL_INSTANCE")
@@ -263,6 +298,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("signature_id")
     p.set_defaults(func=cmd_ignore)
 
+    p = sub.add_parser("source", help="the source review: what to review next, and what has been reviewed")
+    p.add_argument("action", choices=("next", "done", "seen"))
+    p.add_argument("operation_id", nargs="?", help="the endpoint reviewed (for done)")
+    p.add_argument("paths", nargs="*", help="files read, relative to the OBP-API checkout (for done and seen)")
+    p.add_argument("--commit", help="the commit the files were read at (for done and seen)")
+    p.add_argument("--n", type=int, default=3, help="how many endpoints to list (for next)")
+    p.set_defaults(func=cmd_source, all_instances=True)
+
     p = sub.add_parser("ui", help="only the web page to read findings and respond to them")
     add_ui_arguments(p)
     p.set_defaults(func=cmd_ui, all_instances=True)
@@ -270,6 +313,13 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.command == "findings" and args.action == "import" and not args.file:
         parser.error("findings import needs a file")
+    if args.command == "source" and args.action != "next":
+        if not args.commit:
+            parser.error(f"source {args.action} needs --commit")
+        if args.action == "seen" and args.operation_id:  # seen takes paths only
+            args.paths.insert(0, args.operation_id)
+        if not args.paths:
+            parser.error(f"source {args.action} needs the files' paths")
     setup_logging(args.verbose)
     try:
         configs = Config.all_from_env()

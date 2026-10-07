@@ -86,6 +86,7 @@ def test_declares_one_scope_per_watched_level_telemetry_and_metrics(app_config):
     sent = client.declare_platform_app()["declared"]
     assert [s["role_name"] for s in sent["required_scopes"]] == [
         "CanGetSystemLogCacheError", "CanGetSystemLogCacheWarning", "CanGetTelemetry", "CanReadAggregateMetrics",
+        "CanGetReachableRoles",
     ]
     assert sent["required_scopes"] == required_scopes(app_config)
     assert all(s["bank_id"] == "" and s["needed_for"] for s in sent["required_scopes"])
@@ -111,3 +112,21 @@ def test_errors_name_the_full_url(config):
     client = OBPClient(config, httpx.Client(transport=httpx.MockTransport(refuse)))
     with pytest.raises(OBPError, match=r"GET http://\S+/obp/v5\.1\.0/root failed: Connection refused"):
         client.root()
+
+
+def test_an_older_obp_api_that_refuses_an_optional_scope_gets_the_required_ones(app_config):
+    declared = []
+
+    def handler(request):
+        if response := oidc(request):
+            return response
+        roles = [s["role_name"] for s in json.loads(request.content)["required_scopes"]]
+        declared.append(roles)
+        if "CanGetReachableRoles" in roles:
+            return httpx.Response(400, json={"message": "OBP-35048: Invalid Platform App declaration."})
+        return httpx.Response(200, json={"required_scopes": []})
+
+    client, _ = make_client(app_config, handler)
+    client.declare_platform_app()
+    assert "CanGetReachableRoles" in declared[0]
+    assert declared[1] == [s["role_name"] for s in required_scopes(app_config) if not s["optional"]]

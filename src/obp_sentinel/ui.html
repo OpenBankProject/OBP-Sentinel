@@ -227,6 +227,24 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       </div>
     </div>
   </section>
+  <section class="activity analysis" aria-labelledby="source-title">
+    <div class="pulse-row">
+      <span id="source-title"><strong>Source review</strong></span>
+      <span class="sub" id="source-when"></span>
+    </div>
+    <div class="analysis-cols">
+      <div>
+        <h3>Reviewed, most reachable first</h3>
+        <ul class="waiting" id="source-tiers"></ul>
+      </div>
+      <div>
+        <h3>Latest reviewed</h3>
+        <ul class="waiting" id="source-recent"></ul>
+      </div>
+    </div>
+    <h3>What is scanned, per instance</h3>
+    <ul class="waiting" id="source-instances"></ul>
+  </section>
   <div id="suggestions">
   <div class="title">
     <h1>Suggested improvements</h1>
@@ -306,7 +324,7 @@ function commitAge(c, long = false) {
   const days = Math.floor((Date.now() / 1000 - c.commit_ts) / 86400);
   if (!long) return days < 1 ? 'today' : `${days}d old`;
   const date = new Date(c.commit_ts * 1000).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
-  return `${date}, ${days < 1 ? 'today' : days === 1 ? '1 day old' : `${days} days old`}` + (c.author ? `, by ${c.author}` : '');
+  return `${days < 1 ? 'today' : days === 1 ? '1 day old' : `${days} days old`}, ${date}`;
 }
 
 function renderHeader() {
@@ -358,7 +376,8 @@ function render() {
   state.selected = current ? current.id : null;
 
   $('list').replaceChildren(...(items.length ? items.map((f) => {
-    const b = el('button', { type: 'button', className: 'item' }, [
+    // A div, not a button: its text must stay selectable and copyable
+    const b = el('div', { className: 'item', tabIndex: 0 }, [
       el('div', { className: 'top' }, [
         el('span', { className: 'cat', textContent: f.category }),
         el('span', { className: 'prio', textContent: `P ${f.priority.toFixed(2)}` }),
@@ -369,7 +388,9 @@ function render() {
     ]);
     b.querySelector('.cat').style.color = CAT_COLOR[f.category] || 'var(--muted)';
     b.setAttribute('aria-current', String(f.id === state.selected));
-    b.onclick = () => { state.selected = f.id; $('comment').value = ''; setStatus(''); render(); };
+    const pick = () => { state.selected = f.id; $('comment').value = ''; setStatus(''); render(); };
+    b.onclick = () => { if (!String(getSelection())) pick(); };  // not when the click ended a text selection
+    b.onkeydown = (e) => { if (e.key === 'Enter') pick(); };
     return b;
   }) : [el('div', { className: 'empty', textContent: 'Nothing here. Sentinel only suggests what it is sure about.' })]));
 
@@ -386,10 +407,10 @@ function render() {
   $('d-confidence').textContent = `${Math.round(current.confidence * 100)}%`;
   $('d-effort').textContent = `${current.effort}/5`;
   $('d-trend').textContent = TREND[current.trend] || current.trend;
-  // Each commit the evidence names gets "(N days ago, author)"
+  // Each commit the evidence names gets "(N days ago)"
   const commits = current.evidence_commits || {};
   $('d-evidence').textContent = (current.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
-    (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)}, ${commits[sha].author})` : sha);
+    (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)})` : sha);
   $('d-hypothesis').textContent = current.hypothesis;
   $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
   $('d-fix').textContent = current.suggested_fix;
@@ -705,6 +726,35 @@ async function loadAnalysis() {
   }
   analysisTimer = setTimeout(loadAnalysis, running ? 3000 : 30000);
 }
+
+// The source review is shared by all instances: one view, refreshed every minute
+async function loadSource() {
+  try {
+    // Not through api(): that drops replies when the instance tab changes, and this view has no instance
+    const response = await fetch('/api/source');
+    const s = await response.json();
+    if (!response.ok) throw new Error(s.error || response.statusText);
+    $('source-when').textContent = s.total
+      ? `${fmtNum(s.reviewed)} of ${fmtNum(s.total)} endpoints reviewed, across all instances`
+      : 'No instance has listed its endpoints yet. The collector does that once a day.';
+    $('source-tiers').replaceChildren(...s.tiers.map((t) =>
+      el('li', { textContent: `${t.label}: ${fmtNum(t.reviewed)} of ${fmtNum(t.total)}` })));
+    $('source-recent').replaceChildren(...(s.recent.length ? s.recent.map((r) =>
+      el('li', { textContent: `${dayClock(r.reviewed_at)} · ${r.operation_id} · commit ${r.git_commit.slice(0, 12)}` }))
+      : [el('li', { className: 'n', textContent: 'Nothing yet: the analyst reviews a few endpoints each run.' })]));
+    $('source-instances').replaceChildren(...s.instances.map((i) => el('li', {}, !i.listed_at
+      ? [el('b', { textContent: i.name }), ': endpoints not listed yet']
+      : [el('b', { textContent: i.name }),
+         `: ${fmtNum(i.endpoints)} endpoints, listed ${dayClock(i.listed_at)} at commit ${(i.git_commit || '?').slice(0, 12)}`,
+         el('br'), `API versions (${i.versions.length}): ${i.versions.join(', ')}`,
+         el('br'), i.roles === null ? 'Roles held: unknown (needs GET /reachable-roles and the Scope CanGetReachableRoles)'
+           : `Roles held: ${fmtNum(i.roles)}`])));
+  } catch (e) {
+    $('source-when').textContent = `Could not load: ${e.message}`;
+  }
+  setTimeout(loadSource, 60000);
+}
+loadSource();
 
 (async () => {
   try {

@@ -23,6 +23,7 @@ from importlib.resources import files
 from .analyst import Analyst, decide, unavailable_reason
 from .config import Config
 from .health import health
+from .source import Reviews, progress
 from .store import VERDICTS, Store, now
 from .summary import api_usage, coverage, signature_rows
 
@@ -285,6 +286,12 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 return self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
             if path == "/api/instances":
                 return self._json(HTTPStatus.OK, [self._with_store(c, lambda s, c=c: instance_status(s, c)) for c in configs])
+            if path == "/api/source":  # the source review is shared by all instances
+                reviews = Reviews(configs[0].source_db_path)
+                try:
+                    return self._json(HTTPStatus.OK, progress(configs, reviews))
+                finally:
+                    reviews.close()
             views = {"/api/overview": overview, "/api/activity": activity, "/api/analysis": analysis,
                      "/api/findings": findings, "/api/health": health}
             if path not in views:
