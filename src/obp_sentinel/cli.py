@@ -11,11 +11,12 @@ from datetime import datetime, timezone
 
 from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
+from .scanner import Scanner
 from .config import Config, ConfigError
 from .digest import NotReady, write_digest
 from .logs import for_instance, setup as setup_logging
 from .obp_client import OBPClient
-from .source import TIERS, Reviews, mark_of, next_endpoints
+from .source import TIERS, Reviews, export_reviews, mark_of, next_endpoints, open_reviews
 from .store import VERDICTS, Store, now
 from .summary import build_summary, coverage, to_markdown
 from .web import serve, serve_in_background
@@ -163,31 +164,40 @@ def cmd_ignore(args, config: Config, store: Store) -> None:
 
 def cmd_ui(args, configs: list[Config]) -> None:
     analysts = analysts_for(args, configs)
+    scanner = Scanner(configs)
+    scanner.start()
     first = configs[0]  # the page's settings are not per instance
     try:
-        serve(configs, args.host or first.ui_host, args.port or first.ui_port, tuple(args.allow_host), analysts)
+        serve(configs, args.host or first.ui_host, args.port or first.ui_port, tuple(args.allow_host), analysts, scanner)
     finally:
         stop(analysts)
+        scanner.stop()
 
 
 def cmd_run(args, configs: list[Config]) -> None:
     """All in one process: the web page and each instance's analyst schedule and collector, in threads."""
     analysts = analysts_for(args, configs)
+    scanner = Scanner(configs)  # the source scanner: scans while Go is on (on the page)
+    scanner.start()
     first = configs[0]
     server = serve_in_background(configs, args.host or first.ui_host, args.port or first.ui_port,
-                                 tuple(args.allow_host), analysts)
+                                 tuple(args.allow_host), analysts, scanner)
     try:
         collect_forever(configs)
     finally:
         stop(analysts)
+        scanner.stop()
         server.shutdown()
         server.server_close()
 
 
 def cmd_source(args, configs: list[Config]) -> None:
-    reviews = Reviews(configs[0].source_db_path)
+    reviews = open_reviews(configs[0])
     try:
-        if args.action == "next":
+        if args.action == "export":
+            export_reviews(reviews, configs[0].review_dir)
+            print(f"Written to {configs[0].review_dir}/endpoints.jsonl and units.jsonl")
+        elif args.action == "next":
             picked, total, reviewed = next_endpoints(configs, reviews, args.n)
             if not total:
                 print("No instance has listed its endpoints yet: the collector does that once a day.")
@@ -205,6 +215,7 @@ def cmd_source(args, configs: list[Config]) -> None:
                 if problems := [problem for _, problem in marks.values() if problem]:
                     sys.exit("Nothing recorded:\n" + "\n".join(problems))
                 reviews.record(args.operation_id, args.commit, {unit: mark for unit, (mark, _) in marks.items()})
+                export_reviews(reviews, configs[0].review_dir)
                 print(f"Recorded {args.operation_id}: {len(marks)} files and functions")
             else:
                 for unit in args.paths:
@@ -308,7 +319,7 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(func=cmd_ignore)
 
     p = sub.add_parser("source", help="the source review: what to review next, and what has been reviewed")
-    p.add_argument("action", choices=("next", "done", "seen"))
+    p.add_argument("action", choices=("next", "done", "seen", "export"))
     p.add_argument("operation_id", nargs="?", help="the endpoint reviewed (for done)")
     p.add_argument("paths", nargs="*", help="files read, relative to the OBP-API checkout; for a file of more than "
                                             "500 lines, each function read in it as path#name (for done and seen)")
@@ -323,7 +334,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.command == "findings" and args.action == "import" and not args.file:
         parser.error("findings import needs a file")
-    if args.command == "source" and args.action != "next":
+    if args.command == "source" and args.action in ("done", "seen"):
         if not args.commit:
             parser.error(f"source {args.action} needs --commit")
         if args.action == "seen" and args.operation_id:  # seen takes paths only

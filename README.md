@@ -26,9 +26,11 @@ without overwhelming developers with suggestions.
 - **Analyst** (the Claude Code subagent in `.claude/agents/obp-sentinel-analyst.md`): reads
   `sentinel summary` (aggregates over the last hours compared with the hours before), investigates the
   OBP-API source, and records findings scored by impact, confidence, effort and trend.
-- **Source review**: besides what the logs point at, the analyst reads a few endpoints' code each run,
-  looking for SQL injection, missing authorisation checks and similar problems, until all the code that can
-  be reached has been read. Once a day (and when the commit changes) the collector lists the endpoints each
+- **Source review**: besides what the logs point at, Sentinel reads the code of the endpoints that can be
+  reached, looking for SQL injection, missing authorisation checks and similar problems. It is turned on
+  and off with Go and Stop on the page: while on, the source scanner reviews `SENTINEL_SCAN_ENDPOINTS` (2)
+  endpoints every `SENTINEL_SCAN_MINUTES` (10), each scan spending at most `SENTINEL_SCAN_BUDGET_USD` ($0.50),
+  with the agent in `.claude/agents/obp-sentinel-source-reviewer.md`. Whether it is on survives restarts. Once a day (and when the commit changes) the collector lists the endpoints each
   instance serves (`GET /obp/v6.0.0/api/versions` and the resource docs of each active version) and the Roles
   anyone holds there (`GET /obp/v7.0.0/reachable-roles`: Role names only). `sentinel source next` puts first
   the endpoints that need no login, then those that need a login but no Role, then those whose Role someone holds, across all instances (how often an
@@ -37,7 +39,10 @@ without overwhelming developers with suggestions.
   working tree or fetches). What was read is kept in `sentinel-source.db` (`SENTINEL_SOURCE_DB`), shared by
   all instances, by content: whole files, and for files of more than 500 lines each function read
   (`path#name`). An endpoint comes back only when its own code, or a file or function it was read with,
-  changes.
+  changes. The same record is written as text to `SENTINEL_REVIEW_DIR` (`source-review/`, kept out of
+  this repo's git): `endpoints.jsonl` and `units.jsonl`, one sorted line per endpoint and per file or
+  function, so it can be kept in a private git repo. Sentinel never commits it, and reads it back when its
+  database lacks reviews (a new machine).
 - **Digest** (`sentinel digest`): the only thing people see. It is written only after enough hours of
   watching, holds at most 3 suggestions (and 10 a week), skips anything below the priority threshold or
   seen in only one bucket, and never repeats what was suggested, acted on, dismissed or fixed. When nothing
@@ -169,6 +174,7 @@ OBP-Sandbox-Populator against it.
 | `sentinel source next [--n 3]` | The next endpoints to review, most reachable first, across all instances |
 | `sentinel source done <operation_id> <units> --commit <c>` | Record an endpoint as reviewed, with the files (or `path#function` in big files) read |
 | `sentinel source seen <units> --commit <c>` | Whether files or functions were already reviewed, unchanged |
+| `sentinel source export` | Write the review record to `SENTINEL_REVIEW_DIR` (also done after each review) |
 
 ## Notes
 

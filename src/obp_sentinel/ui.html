@@ -98,6 +98,8 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 @media (prefers-reduced-motion: reduce) { .dot.live::after { animation: none; } }
 .dot.warn { background: var(--warn); }
 .pulse-row .sub { font-size: 14px; }
+#scan-stop { margin-left: 0; }  /* next to Go, which takes the free space before them */
+#scan-state { margin: -8px 0 16px; }
 .run-now { margin-left: auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
 .run-now:disabled { cursor: default; opacity: 0.55; }
@@ -240,6 +242,12 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <div class="totals" id="a-totals"></div>
     </div>
     <div class="sources" id="a-sources"></div>
+    <details class="problem" id="a-new">
+      <summary id="a-new-title"></summary>
+      <p class="affects">A kind of log message is one message with its ids, numbers and values taken out, so the
+        same problem counts once. These were seen for the first time in the last 24 hours.</p>
+      <ul class="waiting" id="a-new-list"></ul>
+    </details>
     <div class="charts">
       <div class="chart" id="chart-logs"></div>
       <div class="chart" id="chart-calls"></div>
@@ -267,9 +275,12 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
   </section>
   <section class="activity analysis" aria-labelledby="source-title">
     <div class="pulse-row">
-      <span id="source-title"><strong>Source review</strong></span>
+      <span class="pulse"><span class="dot" id="scan-dot"></span><span id="source-title">Source review</span></span>
       <span class="sub" id="source-when"></span>
+      <button type="button" class="run-now" id="scan-go">Go</button>
+      <button type="button" class="run-now" id="scan-stop">Stop</button>
     </div>
+    <p class="sub" id="scan-state"></p>
     <div class="analysis-cols">
       <div>
         <h3>Reviewed, most reachable first</h3>
@@ -278,6 +289,8 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <div>
         <h3>Latest reviewed</h3>
         <ul class="waiting" id="source-recent"></ul>
+        <h3>Recent scans</h3>
+        <ul class="waiting" id="scan-runs"></ul>
       </div>
     </div>
     <h3>What is scanned, per instance</h3>
@@ -535,9 +548,17 @@ function renderActivityDetails() {
   const t = a.totals;
   $('a-totals').replaceChildren(...[
     [fmtNum(t.log_lines_last_hour), ' log lines in the last hour'],
-    [fmtNum(t.signatures_last_hour), ' distinct problems'],
-    [fmtNum(t.new_signatures_last_day), ' new today'],
+    [fmtNum(t.signatures_last_hour), ' kinds of log message in them'],
+    [fmtNum(t.new_signatures_last_day), ' kinds new in the last 24 hours (listed below)'],
   ].map(([v, label]) => el('span', {}, [el('b', { textContent: v }), label])));
+
+  $('a-new').hidden = !a.new_signatures.length;
+  $('a-new-title').textContent = `New kinds of log message in the last 24 hours (${fmtNum(t.new_signatures_last_day)})`;
+  $('a-new-list').replaceChildren(...a.new_signatures.map((n) => el('li', {}, [
+    el('b', { textContent: n.level.toUpperCase() }),
+    ` ${fmtNum(n.total_count)} since ${dayClock(n.first_seen)} · signature ${n.id} · `,
+    el('span', { className: 'tpl', textContent: n.template.slice(0, 300) }),
+  ])));
 
   $('a-sources').replaceChildren(...a.sources.map((s) => {
     const stale = a.now - s.ts > 3 * a.poll_seconds;
@@ -741,11 +762,48 @@ async function loadSource() {
          el('br'), `API versions (${i.versions.length}): ${i.versions.join(', ')}`,
          el('br'), i.roles === null ? 'Roles held: unknown (needs GET /reachable-roles and the Scope CanGetReachableRoles)'
            : `Roles held: ${fmtNum(i.roles)}`])));
+    renderScanner(s.scanner);
   } catch (e) {
     $('source-when').textContent = `Could not load: ${e.message}`;
   }
-  setTimeout(loadSource, 60000);
+  clearTimeout(sourceTimer);
+  sourceTimer = setTimeout(loadSource, sourceScanning ? 5000 : 60000);
 }
+let sourceTimer = null, sourceScanning = false;
+
+function renderScanner(sc) {
+  const current = sc.scans[0];
+  sourceScanning = sc.running;
+  $('scan-dot').className = 'dot ' + (sc.running ? 'live' : sc.on ? '' : 'warn');
+  $('scan-go').disabled = sc.on || Boolean(sc.unavailable);
+  $('scan-stop').disabled = !sc.on && !sc.running;
+  const each = `${sc.endpoints_per_scan} endpoints every ${sc.every_minutes} min, at most $${sc.budget_usd} a scan`;
+  $('scan-state').textContent = sc.unavailable ? `Scanner cannot run: ${sc.unavailable}`
+    : sc.running ? `Scanning: scan #${current.id} started ${clock(current.started_at)}` + (current.last_step ? ` · ${current.last_step}` : '')
+      + (sc.on ? '' : ' · stopping')
+    : sc.on ? `On: ${each}. Next scan around ${clock(sc.next_at)}.`
+    : `Stopped. Go reviews ${each}.`;
+  $('scan-runs').replaceChildren(...(sc.scans.length ? sc.scans.map((r) => el('li', {}, [
+    `#${r.id} ${dayClock(r.started_at)} · ${r.status}` + (r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ''),
+    ...(r.error || r.result ? [el('br'), r.error || r.result] : []),
+  ])) : [el('li', { className: 'n', textContent: 'None yet.' })]));
+}
+
+async function turnScanner(on) {
+  $('scan-go').disabled = $('scan-stop').disabled = true;
+  try {
+    const response = await fetch('/api/source/scanner', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify({ on }) });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || response.statusText);
+  } catch (e) {
+    $('scan-state').textContent = `Could not ${on ? 'start' : 'stop'}: ${e.message}`;
+  }
+  sourceScanning = true;  // look again soon: a scan starts within seconds of Go
+  loadSource();
+}
+$('scan-go').addEventListener('click', () => turnScanner(true));
+$('scan-stop').addEventListener('click', () => turnScanner(false));
 loadSource();
 
 (async () => {

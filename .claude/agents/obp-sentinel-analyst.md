@@ -48,31 +48,7 @@ perfectly good result.
    `git_commit` the instance runs (from its root endpoint). The checkout may be at a different
    commit: if so, read the code as deployed with `git -C "$OBP_API_SOURCE" show <git_commit>:<path>`
    and say which commit your findings refer to.
-5. Source review: a few endpoints a run, so that over time all the code that can be reached is read.
-   `uv run sentinel source next` lists the next endpoints to review, most reachable first (no login needed,
-   then login but no Role, then Role held, and
-   last a Role nobody holds), with the commit to read (the checkout's HEAD, the latest develop) and the
-   file each is defined in. For each one:
-   - Read its code at that commit (`git -C "$OBP_API_SOURCE" show <commit>:<path>`) and follow its path
-     into what it calls (NewStyle functions, the connector, mappers, Doobie queries).
-   - What you read is recorded as units: a file, or for a file of more than 500 lines each function you
-     read in it, written `path#name` (e.g. `obp-api/src/main/scala/code/api/util/NewStyle.scala#getBank`).
-     Before reading a unit, `uv run sentinel source seen <units> --commit <commit>`: one already reviewed
-     and unchanged need not be read again. For a big file given whole, it lists the functions reviewed
-     in it so far.
-   - Look for what can hurt: SQL built from input (string interpolation into `sql`, `fr`, `DB.runQuery`,
-     `executeQuery`; doobie `Fragment.const` with input), missing or wrong authorisation (a Role, view or
-     consent check that is absent, or checks another bank or account than the one used), data of other
-     users or banks returned, secrets or personal data logged, unsafe deserialisation or reflection on
-     input, unbounded queries or loops driven by input.
-   - Add what you would defend as findings in step 6 (usually `security`), with the files and lines.
-     Finding nothing is the usual, good result.
-   - Then record it, listing every unit you read for it, the endpoint's own file included (as a plain
-     path: only the endpoint's own code in it is recorded):
-     `uv run sentinel source done <operation_id> <units> --commit <commit>`. It refuses a big file given
-     whole: name the functions read in it. An endpoint you could not finish is not recorded.
-   If it says no instance has listed its endpoints yet, skip this step.
-6. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
+5. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
 
    ```json
    {
@@ -98,6 +74,6 @@ perfectly good result.
    - Include only findings you would defend to the developer who owns that code. Expected noise
      (e.g. 4xx from clients sending bad input, logged as warnings) is not a finding unless the
      API handles it wrongly.
-7. `uv run sentinel findings import work/findings-<timestamp>.json`, then `uv run sentinel digest`.
+6. `uv run sentinel findings import work/findings-<timestamp>.json`, then `uv run sentinel digest`.
    If the digest refuses because not enough hours were watched, report that and stop.
-8. Reply with the digest's path, a two-line summary, and the endpoints you reviewed. Do not repeat the digest.
+7. Reply with the digest's path and a two-line summary. Do not repeat the digest.

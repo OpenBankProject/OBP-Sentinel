@@ -172,6 +172,54 @@ def describe(event: dict) -> list[tuple[str, str]]:
     return [(kind, text[:STEP_TEXT_MAX]) for kind, text in steps]
 
 
+def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped: threading.Event,
+               set_process=lambda process: None) -> tuple[str | None, float | None, str | None]:
+    """Run headless Claude Code to the end, passing each step to `on_step(kind, text)`.
+
+    Returns (error, cost in USD, result text); error is None when it succeeded. `set_process` is told the
+    process while it runs (and None after), so it can be stopped from another thread."""
+    error, cost, result = None, None, None
+    timed_out = threading.Event()
+    try:
+        with tempfile.TemporaryFile("w+") as stderr:
+            process = subprocess.Popen(
+                cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
+                text=True, start_new_session=True, env={**os.environ, **env},
+            )
+            set_process(process)
+            timer = threading.Timer(timeout_minutes * 60, lambda: (timed_out.set(), process.kill()))
+            timer.start()
+            try:
+                for line in process.stdout:
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") == "result":
+                        cost = event.get("total_cost_usd")
+                        result = (event.get("result") or "")[:2000]
+                        if event.get("is_error") or event.get("subtype") != "success":
+                            error = f"Claude Code stopped: {event.get('subtype')}"
+                        continue
+                    for kind, text in describe(event):
+                        on_step(kind, text)
+                code = process.wait()
+            finally:
+                timer.cancel()
+                set_process(None)
+            stderr.seek(0)
+            stderr_text = stderr.read().strip()
+        if timed_out.is_set():
+            error = f"Timed out after {timeout_minutes} minutes"
+        elif stopped.is_set():
+            error = "Interrupted: stopped"
+        elif code != 0 and not error:
+            error = (stderr_text or f"Claude Code exited with {code}")[:500]
+    except OSError as e:
+        error = f"Could not start Claude Code: {e}"[:500]
+    return error, cost, result
+
+
 class Analyst:
     def __init__(self, config: Config):
         self.config = config
@@ -221,52 +269,21 @@ class Analyst:
             store.commit()
 
         status, error, cost, result = "failed", None, None, None
-        timed_out = threading.Event()
         try:
-            with tempfile.TemporaryFile("w+") as stderr:
-                process = self.process = subprocess.Popen(
-                    command(self.config), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
-                    text=True, start_new_session=True, env={**os.environ, "SENTINEL_INSTANCE": self.config.name},
-                )
-                timer = threading.Timer(self.config.analyse_timeout_minutes * 60,
-                                        lambda: (timed_out.set(), process.kill()))
-                timer.start()
-                try:
-                    for line in process.stdout:
-                        try:
-                            event = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        if event.get("type") == "result":
-                            cost = event.get("total_cost_usd")
-                            result = (event.get("result") or "")[:2000]
-                            if event.get("is_error") or event.get("subtype") != "success":
-                                error = f"Claude Code stopped: {event.get('subtype')}"
-                            continue
-                        for kind, text in describe(event):
-                            add_step(kind, text)
-                    code = process.wait()
-                finally:
-                    timer.cancel()
-                stderr.seek(0)
-                stderr_text = stderr.read().strip()
-            if timed_out.is_set():
-                error = f"Timed out after {self.config.analyse_timeout_minutes} minutes"
-            elif self._stop.is_set():
-                error = "Interrupted: Sentinel stopped"
-            elif code != 0 and not error:
-                error = (stderr_text or f"Claude Code exited with {code}")[:500]
+            error, cost, result = run_claude(
+                command(self.config), {"SENTINEL_INSTANCE": self.config.name}, self.config.analyse_timeout_minutes,
+                add_step, self._stop, self._set_process)
             status = "failed" if error else "done"
-        except OSError as e:
-            error = f"Could not start Claude Code: {e}"[:500]
         finally:
-            self.process = None
             store.db.execute(
                 "UPDATE analysis_runs SET status = ?, ended_at = ?, cost_usd = ?, result = ?, error = ? WHERE id = ?",
                 (status, now(), cost, result, error, run_id),
             )
             store.commit()
             logger.info("Analysis #%s %s%s", run_id, status, f": {error}" if error else "")
+
+    def _set_process(self, process: subprocess.Popen | None) -> None:
+        self.process = process
 
     def check(self, startup: bool) -> None:
         """Decide whether to run now; run if so. Records the decision for the web page."""

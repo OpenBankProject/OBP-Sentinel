@@ -56,8 +56,9 @@ def test_page_and_findings(server):
     status, data = request(server, "GET", "/api/overview")
     assert status == 200 and "api_usage" in json.loads(data)
     status, data = request(server, "GET", "/api/source")
-    assert status == 200 and json.loads(data) == {"total": 0, "reviewed": 0, "files": 0, "functions": 0, "tiers": [], "recent": [],
-                                                  "instances": [{"name": "default", "listed_at": None}]}
+    source = json.loads(data)
+    assert status == 200 and source["total"] == 0 and source["instances"] == [{"name": "default", "listed_at": None}]
+    assert source["scanner"]["on"] is False and source["scanner"]["scans"] == []
 
 
 def test_feedback_is_recorded(server, config):

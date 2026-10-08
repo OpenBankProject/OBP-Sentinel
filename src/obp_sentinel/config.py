@@ -55,6 +55,7 @@ class Config:
 
     db_path: str
     source_db_path: str  # what the source review has read, shared by all instances
+    review_dir: str  # the same, as text files to keep in a private git repo
     digest_dir: str
     poll_seconds: int
     log_levels: list[str]
@@ -78,6 +79,10 @@ class Config:
     analyse_budget_usd: float
     analyse_timeout_minutes: int
     claude_command: str
+
+    scan_minutes: int  # while the source scanner is on (Go on the page), a scan this often
+    scan_budget_usd: float  # most one scan may spend
+    scan_endpoints: int  # endpoints reviewed per scan
 
     @property
     def env_prefix(self) -> str:
@@ -116,6 +121,7 @@ class Config:
             obp_api_github_repo=env("OBP_API_GITHUB_REPO", "OpenBankProject/OBP-API"),
             db_path=env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db"),
             source_db_path=env("SENTINEL_SOURCE_DB", "sentinel-source.db"),
+            review_dir=env("SENTINEL_REVIEW_DIR", "source-review"),
             digest_dir=env("SENTINEL_DIGEST_DIR", f"digests/{name}" if named else "digests"),
             poll_seconds=int(env("SENTINEL_POLL_SECONDS", "120")),
             log_levels=_list(env("SENTINEL_LOG_LEVELS", "error,warning")),
@@ -138,4 +144,7 @@ class Config:
             analyse_budget_usd=float(env("SENTINEL_ANALYSE_BUDGET_USD", "2")),
             analyse_timeout_minutes=int(env("SENTINEL_ANALYSE_TIMEOUT_MINUTES", "30")),
             claude_command=env("SENTINEL_CLAUDE_COMMAND", "claude"),
+            scan_minutes=int(env("SENTINEL_SCAN_MINUTES", "10")),
+            scan_budget_usd=float(env("SENTINEL_SCAN_BUDGET_USD", "0.5")),
+            scan_endpoints=int(env("SENTINEL_SCAN_ENDPOINTS", "2")),
         )

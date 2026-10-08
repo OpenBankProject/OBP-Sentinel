@@ -1,3 +1,4 @@
+import json
 import subprocess
 from dataclasses import replace
 
@@ -190,3 +191,22 @@ def test_a_big_file_is_recorded_per_function(repo, instance, capsys):
     changed = commit(repo, {BIG: new_style("connector.getBank(bankId, cc)")})
     assert "changed since its review" in seen_line(str(repo), changed, reviews, f"{BIG}#getBank")
     assert seen_line(str(repo), changed, reviews, BIG).endswith("getBank (changed)")
+
+
+def test_reviews_are_written_as_text_and_read_back_into_an_empty_database(tmp_path):
+    from obp_sentinel.source import export_reviews, import_reviews
+
+    reviews = Reviews(str(tmp_path / "a.db"))
+    reviews.record("OBPv6.0.0-getBanks", "c1", {"x/Big.scala#getBank": "code:aa", "x/Small.scala": "b1"})
+    reviews.record("OBPv6.0.0-getBank", "c1", {"x/V6.scala": "code:bb", "x/Small.scala": "b1"})
+    export_reviews(reviews, str(tmp_path / "review"))
+    endpoints = (tmp_path / "review/endpoints.jsonl").read_text().splitlines()
+    units = (tmp_path / "review/units.jsonl").read_text().splitlines()
+    assert [json.loads(line)["operation_id"] for line in endpoints] == ["OBPv6.0.0-getBank", "OBPv6.0.0-getBanks"]
+    assert [json.loads(line)["unit"] for line in units] == ["x/Big.scala#getBank", "x/Small.scala"]  # sorted
+    assert json.loads(units[1])["for"] == "OBPv6.0.0-getBanks"  # where it was first read
+
+    fresh = Reviews(str(tmp_path / "b.db"))
+    assert import_reviews(fresh, str(tmp_path / "review")) == 4
+    assert fresh.counts() == {"files": 1, "functions": 1} and fresh.endpoint("OBPv6.0.0-getBank")["git_commit"] == "c1"
+    assert import_reviews(fresh, str(tmp_path / "review")) == 0  # nothing new the second time

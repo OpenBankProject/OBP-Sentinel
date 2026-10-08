@@ -15,14 +15,19 @@ changed is never reviewed twice, whatever the commit or instance.
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import subprocess
+from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 
 from .config import Config
 from .obp_client import OBPClient
 from .store import Store, now
+
+logger = logging.getLogger(__name__)
 
 SOURCE_DIR = "obp-api/src/main/scala"
 REACH_EVERY_SECONDS = 86400  # resource docs are large: read them once a day, or when the commit changes
@@ -84,6 +89,7 @@ class Reviews:
     def __init__(self, path: str):
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA journal_mode=WAL")  # the scanner, the page and the reviewer's commands share it
         self.db.executescript(SCHEMA)
 
     def endpoint(self, operation_id: str) -> sqlite3.Row | None:
@@ -124,6 +130,69 @@ class Reviews:
 
     def close(self) -> None:
         self.db.close()
+
+
+# --- as text files, for a private git repo ----------------------------------------------------
+# endpoints.jsonl and units.jsonl in SENTINEL_REVIEW_DIR: one line per endpoint and per unit, sorted, so a
+# review changes or adds one line. Written after each review; read back when the database has fewer reviews
+# (a new machine, a lost database). Sentinel never commits them.
+
+def _iso(ts: int) -> str:
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _ts(iso: str) -> int:
+    return int(datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp())
+
+
+def _write_lines(path: Path, items: list[dict]) -> None:
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("".join(json.dumps(item, sort_keys=False) + "\n" for item in items))
+    tmp.replace(path)  # whole or not at all
+
+
+def export_reviews(reviews: Reviews, directory: str) -> None:
+    d = Path(directory)
+    d.mkdir(parents=True, exist_ok=True)
+    _write_lines(d / "endpoints.jsonl", [
+        {"operation_id": r["operation_id"], "commit": r["git_commit"], "reviewed_at": _iso(r["reviewed_at"]),
+         "units": json.loads(r["files"])}
+        for r in reviews.db.execute("SELECT * FROM reviewed_endpoints ORDER BY operation_id")])
+    _write_lines(d / "units.jsonl", [
+        {"unit": r["path"], "content": r["blob"], "commit": r["git_commit"], "reviewed_at": _iso(r["reviewed_at"]),
+         "for": r["operation_id"]}
+        for r in reviews.db.execute("SELECT * FROM reviewed_files ORDER BY path, reviewed_at, blob")])
+
+
+def import_reviews(reviews: Reviews, directory: str) -> int:
+    """Read the files back into the database where they hold reviews it lacks or has older. Returns how many."""
+    d, added = Path(directory), 0
+    endpoints, units = d / "endpoints.jsonl", d / "units.jsonl"
+    if endpoints.exists():
+        for line in endpoints.read_text().splitlines():
+            e = json.loads(line)
+            row = reviews.endpoint(e["operation_id"])
+            if not row or row["reviewed_at"] < _ts(e["reviewed_at"]):
+                reviews.db.execute(
+                    "INSERT OR REPLACE INTO reviewed_endpoints (operation_id, git_commit, reviewed_at, files) VALUES (?, ?, ?, ?)",
+                    (e["operation_id"], e["commit"], _ts(e["reviewed_at"]), json.dumps(e["units"], sort_keys=True)))
+                added += 1
+    if units.exists():
+        for line in units.read_text().splitlines():
+            u = json.loads(line)
+            added += reviews.db.execute(
+                "INSERT OR IGNORE INTO reviewed_files (blob, path, git_commit, reviewed_at, operation_id) VALUES (?, ?, ?, ?, ?)",
+                (u["content"], u["unit"], u["commit"], _ts(u["reviewed_at"]), u["for"])).rowcount
+    reviews.db.commit()
+    return added
+
+
+def open_reviews(config: Config) -> Reviews:
+    """The review database, with anything newer from the text files read in."""
+    reviews = Reviews(config.source_db_path)
+    if added := import_reviews(reviews, config.review_dir):
+        logger.info("Read %s reviews from %s", added, config.review_dir)
+    return reviews
 
 
 # --- git ------------------------------------------------------------------------------------
