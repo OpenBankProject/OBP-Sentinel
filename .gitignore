@@ -9,3 +9,5 @@ __pycache__/
 work/*
 !work/.gitkeep
 source-review/
+digests/*
+!digests/.gitkeep
