@@ -48,6 +48,17 @@ def diagnose(source: str, error: str, config: Config) -> dict:
                               "and that this machine can reach them."}
         return {"key": "other", "title": f"{_source_name(source)} fails", "action": "See what Sentinel got below."}
     status, body = int(m["status"]), m["body"]
+    if config.is_app:  # the app's own /monitoring endpoints, which ask OBP-API about the token and Roles
+        if status == 403:
+            roles = ROLE.findall(body)
+            return {"key": "missing-scopes", "title": "Sentinel lacks Scopes", "roles": [roles] if roles else []}
+        if status == 404:
+            return {"key": "not-served", "title": f"The app does not serve {m['url']}",
+                    "action": f"Check {p}MONITORING_PATH ({config.monitoring_path}) and {p}OBP_BASE_URL "
+                              f"({config.obp_base_url}), or upgrade the app to one with monitoring endpoints."}
+        if status == 503:
+            return {"key": "server-error", "title": "The app cannot check Sentinel's token with OBP-API",
+                    "action": "See what Sentinel got below: the app cannot reach OBP-API, or does not know where it is."}
     if status == 401 or "OBP-20200" in body or "OBP-20206" in body:
         return {"key": "token-rejected", "title": "OBP-API does not accept Sentinel's token",
                 "action": "Sentinel gets a token from the OIDC provider, but OBP-API cannot verify it. In OBP-API's props, "

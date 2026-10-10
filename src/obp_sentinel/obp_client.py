@@ -1,5 +1,7 @@
 """The few OBP-API calls Sentinel makes, as a Platform App: the log cache, Telemetry, aggregate metrics and its
-Scope declaration. Plus the public root endpoint, for the git commit the instance runs.
+Scope declaration. Plus the public root endpoint, for the git commit the instance runs. An app (API Explorer II,
+the API Manager, the Portal) serves its own log cache and Telemetry at its monitoring path, checking the same token
+and Roles with OBP-API.
 
 Sentinel calls OBP as its own application (OAuth2 client credentials from OBP-OIDC), not as a User.
 """
@@ -121,7 +123,9 @@ class OBPClient:
         return self._fetch_token()
 
     def _request(self, method: str, version: str, path: str, params: dict | None = None, json: dict | None = None) -> dict | list:
-        url = f"{self.config.obp_base_url}/obp/{version}/{path}"
+        return self._request_url(method, f"{self.config.obp_base_url}/obp/{version}/{path}", params, json)
+
+    def _request_url(self, method: str, url: str, params: dict | None = None, json: dict | None = None) -> dict | list:
         for attempt in range(2):
             headers = {"Authorization": f"Bearer {self._token_now()}"}
             response = self._send(method, url, params=params, json=json, headers=headers)
@@ -142,11 +146,17 @@ class OBPClient:
         return response.json()
 
     def log_cache(self, level: str, limit: int) -> list[str]:
-        """Raw log messages of one level, newest first."""
-        body = self._request("GET", self.config.log_cache_api_version, f"system/log-cache/{level}", {"limit": limit})
+        """Raw log messages of one level, newest first. An app serves them in the same shape."""
+        if self.config.is_app:
+            url = f"{self.config.obp_base_url}{self.config.monitoring_path}/log-cache/{level}"
+            body = self._request_url("GET", url, {"limit": limit})
+        else:
+            body = self._request("GET", self.config.log_cache_api_version, f"system/log-cache/{level}", {"limit": limit})
         return [entry["message"] for entry in body.get("entries", [])]
 
     def telemetry(self) -> dict:
+        if self.config.is_app:
+            return self._request_url("GET", f"{self.config.obp_base_url}{self.config.monitoring_path}/telemetry")
         return self._request("GET", self.config.telemetry_api_version, "management/telemetry")
 
     def aggregate_metrics(self, from_ts: int, to_ts: int) -> dict:

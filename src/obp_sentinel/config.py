@@ -6,6 +6,10 @@ Any setting can then be given per instance by prefixing it with the instance's n
 instance has its own database (sentinel-<name>.db) and digests (digests/<name>): SENTINEL_DB and
 SENTINEL_DIGEST_DIR are only taken prefixed, so instances never share them. Without SENTINEL_INSTANCES
 there is one instance, "default", using sentinel.db and digests/ as before.
+
+An instance can also be an app that serves its own log cache and Telemetry in OBP-API's shape (API Explorer II,
+the API Manager, the Portal): set its MONITORING_PATH (e.g. EXPLORER_MONITORING_PATH=/api/monitoring, MANAGER_MONITORING_PATH=/monitoring)
+and its OBP_BASE_URL to the app's own URL. MONITORING_PATH is only taken prefixed, like SENTINEL_DB.
 """
 
 import os
@@ -21,7 +25,7 @@ def _list(value: str) -> list[str]:
 
 DEFAULT_INSTANCE = "default"
 INSTANCE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-OWN_PER_INSTANCE = {"SENTINEL_DB", "SENTINEL_DIGEST_DIR"}
+OWN_PER_INSTANCE = {"SENTINEL_DB", "SENTINEL_DIGEST_DIR", "MONITORING_PATH"}
 
 
 class ConfigError(Exception):
@@ -41,8 +45,9 @@ def instance_names() -> list[str]:
 
 @dataclass(frozen=True)
 class Config:
-    name: str  # the OBP-API instance this configuration watches
-    obp_base_url: str
+    name: str  # the OBP-API instance (or app) this configuration watches
+    obp_base_url: str  # for an app, the app's own URL
+    monitoring_path: str  # "" for OBP-API; for an app, where its log-cache and telemetry endpoints are
     oidc_issuer: str
     oidc_client_id: str
     oidc_client_secret: str
@@ -85,6 +90,11 @@ class Config:
     scan_endpoints: int  # endpoints reviewed per scan
 
     @property
+    def is_app(self) -> bool:
+        """An app with its own /monitoring endpoints rather than OBP-API: no metrics, root, Scopes or source review."""
+        return bool(self.monitoring_path)
+
+    @property
     def env_prefix(self) -> str:
         """What this instance's settings are prefixed with in the environment ("" for the default instance)."""
         return "" if self.name == DEFAULT_INSTANCE else self.name.upper().replace("-", "_") + "_"
@@ -107,9 +117,11 @@ class Config:
                 value = os.environ.get(key)
             return default if value is None else value
 
+        monitoring_path = env("MONITORING_PATH", "").rstrip("/")
         return cls(
             name=name,
             obp_base_url=env("OBP_BASE_URL", "http://localhost:8080").rstrip("/"),
+            monitoring_path=monitoring_path,
             oidc_issuer=env("OIDC_ISSUER", "http://localhost:9000/obp-oidc").rstrip("/"),
             oidc_client_id=env("OIDC_CLIENT_ID", ""),
             oidc_client_secret=env("OIDC_CLIENT_SECRET", ""),
@@ -127,10 +139,14 @@ class Config:
             log_levels=_list(env("SENTINEL_LOG_LEVELS", "error,warning")),
             fetch_limit=int(env("SENTINEL_FETCH_LIMIT", "1000")),
             bucket_minutes=int(env("SENTINEL_BUCKET_MINUTES", "15")),
+            # An app's Telemetry is small: keep all of it unless told otherwise
             telemetry_prefixes=_list(
-                env("SENTINEL_TELEMETRY_PREFIXES", "obp.api.,hikaricp.connections,jvm.memory.used,jvm.gc.pause")
+                env("SENTINEL_TELEMETRY_PREFIXES",
+                    "" if monitoring_path else "obp.api.,hikaricp.connections,jvm.memory.used,jvm.gc.pause")
             ),
-            ignore_regex=env("SENTINEL_IGNORE_REGEX", "system/log-cache|management/telemetry|management/aggregate-metrics|consumers/current/platform-app"),
+            ignore_regex=env("SENTINEL_IGNORE_REGEX",
+                             "monitoring/" if monitoring_path else
+                             "system/log-cache|management/telemetry|management/aggregate-metrics|consumers/current/platform-app"),
             retention_days=int(env("SENTINEL_RETENTION_DAYS", "14")),
             min_watch_hours=float(env("SENTINEL_MIN_WATCH_HOURS", "4")),
             digest_size=int(env("SENTINEL_DIGEST_SIZE", "3")),

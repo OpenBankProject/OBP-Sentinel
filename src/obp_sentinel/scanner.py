@@ -7,6 +7,7 @@ reads their code, imports what it finds as findings and records what it read. On
 One scanner serves all instances, like the source review itself.
 """
 
+import json
 import logging
 import threading
 import time
@@ -38,7 +39,8 @@ CREATE TABLE IF NOT EXISTS scans (
     cost_usd   REAL,
     result     TEXT,
     error      TEXT,
-    last_step  TEXT                        -- what it is doing (or did last)
+    last_step  TEXT,                       -- what it is doing (or did last)
+    model      TEXT                        -- the Claude model that scanned
 );
 """
 
@@ -78,6 +80,8 @@ class Scanner:
     def _reviews(self) -> Reviews:
         reviews = Reviews(self.config.source_db_path)
         reviews.db.executescript(SCHEMA)
+        if "model" not in {r[1] for r in reviews.db.execute("PRAGMA table_info(scans)")}:
+            reviews.db.execute("ALTER TABLE scans ADD COLUMN model TEXT")  # databases made before it was recorded
         return reviews
 
     def unavailable(self) -> str | None:
@@ -93,6 +97,12 @@ class Scanner:
         try:
             on, changed = reviews.db.execute("SELECT on_, changed FROM scanner WHERE id = 1").fetchone()
             scans = [dict(r) for r in reviews.db.execute("SELECT * FROM scans ORDER BY id DESC LIMIT 6")]
+            for scan in scans:  # what each scan recorded: not read again until it changes
+                scan["reviewed"] = [
+                    {"operation_id": r["operation_id"], "git_commit": r["git_commit"], "units": json.loads(r["files"])}
+                    for r in reviews.db.execute(
+                        "SELECT * FROM reviewed_endpoints WHERE reviewed_at BETWEEN ? AND ? ORDER BY reviewed_at",
+                        (scan["started_at"], scan["ended_at"] or now()))]
         finally:
             reviews.close()
         running = bool(scans) and scans[0]["status"] == "running"
@@ -137,12 +147,12 @@ class Scanner:
                         reviews.db.commit()
 
                 logger.info("Source scan #%s started", scan_id)
-                error, cost, result = run_claude(command(self.config), {}, self.config.analyse_timeout_minutes,
+                error, cost, result, model = run_claude(command(self.config), {}, self.config.analyse_timeout_minutes,
                                                  on_step, self._cancel, self._set_process)
                 if error and self._cancel.is_set():
                     error = "Stopped from the page"
-                reviews.db.execute("UPDATE scans SET status = ?, ended_at = ?, cost_usd = ?, result = ?, error = ? "
-                                   "WHERE id = ?", ("failed" if error else "done", now(), cost, result, error, scan_id))
+                reviews.db.execute("UPDATE scans SET status = ?, ended_at = ?, cost_usd = ?, result = ?, error = ?, model = ? "
+                                   "WHERE id = ?", ("failed" if error else "done", now(), cost, result, error, model, scan_id))
                 reviews.db.commit()
                 logger.info("Source scan #%s %s", scan_id, f"failed: {error}" if error else "done")
             finally:

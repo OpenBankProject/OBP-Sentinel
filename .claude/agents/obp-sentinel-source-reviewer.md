@@ -31,11 +31,46 @@ finding nothing is the usual, good result.
      Before reading a unit, `uv run sentinel source seen <units> --commit <commit>`: one already reviewed
      and unchanged need not be read again. For a big file given whole, it lists the functions reviewed in
      it so far.
-   - Look for what can hurt: SQL built from input (string interpolation into `sql`, `fr`, `DB.runQuery`,
-     `executeQuery`; doobie `Fragment.const` with input), missing or wrong authorisation (a Role, view or
-     consent check that is absent, or checks another bank or account than the one used), data of other
-     users or banks returned, secrets or personal data logged, unsafe deserialisation or reflection on
-     input, unbounded queries or loops driven by input.
+   - Check the path against each of the OWASP Top 10 (2025) that applies to it:
+     - A01 Broken Access Control: a Role, view or consent check that is absent, or checks another bank or
+       account than the one used; data of other users or banks returned; SSRF from a URL in the input.
+     - A02 Security Misconfiguration: unsafe defaults in props read on the path, debug output or stack
+       traces returned to the caller, permissive CORS or headers set here.
+     - A04 Cryptographic Failures: weak or home-made hashing, signing or encryption; hard-coded keys;
+       secrets compared without constant time; tokens or passwords stored or returned in clear.
+     - A05 Injection: SQL built from input (string interpolation into `sql`, `fr`, `DB.runQuery`,
+       `executeQuery`; doobie `Fragment.const` with input), and input reaching shell, LDAP, XPath,
+       regex or templates unescaped.
+     - A06 Insecure Design: missing limits that the endpoint's purpose needs, e.g. unbounded queries or
+       loops driven by input, no rate or size limit on something expensive.
+     - A07 Authentication Failures: endpoints that should need a login but do not, weak session or token
+       checks, user enumeration through different errors.
+     - A08 Software or Data Integrity Failures: unsafe deserialisation or reflection on input, trusting
+       signed data without checking the signature.
+     - A09 Security Logging and Alerting Failures: secrets or personal data logged; security-relevant
+       failures (denied access, bad tokens) not logged at all.
+     - A10 Mishandling of Exceptional Conditions: errors that fail open (an exception skips a check),
+       swallowed exceptions that leave state half-written.
+     A03 Software Supply Chain Failures is about dependencies, not an endpoint's code: skip it here.
+   - Check it too against the OWASP API Security Top 10 (2023). Most overlap with the list above; these
+     need their own look:
+     - API1 Broken Object Level Authorization: an id from the path, query or body (bank, account, view,
+       transaction, consent, user, customer) used without checking the caller may use that object.
+     - API3 Broken Object Property Level Authorization: fields returned that the caller's view or Role
+       should not see; fields accepted in a body that the caller should not set (mass assignment).
+     - API4 Unrestricted Resource Consumption: no limit on page size, list length, body size or the
+       work one call can trigger.
+     - API5 Broken Function Level Authorization: an admin or management action reachable with a weaker
+       Role, or without one.
+     - API6 Unrestricted Access to Sensitive Business Flows: payments, consents, user creation or
+       resets that can be repeated or automated without a limit or check.
+     - API7 Server Side Request Forgery: a URL or host from the input fetched by the server.
+     - API9 Improper Inventory Management: an old version of the endpoint still served with weaker
+       checks than the current one.
+     - API10 Unsafe Consumption of APIs: data from a connector, adapter or third party trusted without
+       validation.
+     API2 and API8 are covered by A07 and A02 above.
+     Report only what the code actually does on this path, not a category that merely could apply.
    - Record it, listing every unit you read for it, the endpoint's own file included (as a plain path:
      only the endpoint's own code in it is recorded):
      `uv run sentinel source done <operation_id> <units> --commit <commit>`. It refuses a big file given
@@ -65,4 +100,5 @@ finding nothing is the usual, good result.
    `uv run sentinel --instance <name> findings list --all` first and reuse the `key` of a finding about the
    same problem. Import it into the first instance the endpoint is served on:
    `uv run sentinel --instance <name> findings import work/source-findings-<timestamp>.json`.
-4. Reply in two or three lines: the endpoints you reviewed, and what you found (or that you found nothing).
+4. If you found nothing, reply with exactly `Nothing to see here.` Otherwise reply in two or three lines:
+   the endpoints you reviewed and what you found.

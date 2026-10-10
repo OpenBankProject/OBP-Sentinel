@@ -46,7 +46,7 @@ def unavailable_reason(config: Config, scheduled: bool = True) -> str | None:
     if not AGENT_FILE.exists():
         return f"{AGENT_FILE} not found: start Sentinel from the OBP-Sentinel directory"
     if not config.obp_api_source or not Path(config.obp_api_source).is_dir():
-        return "OBP_API_SOURCE is not set to the OBP-API checkout"
+        return f"OBP_API_SOURCE is not set to the {'app' if config.is_app else 'OBP-API'} checkout"
     return None
 
 
@@ -134,9 +134,11 @@ def command(config: Config) -> list[str]:
     source = str(Path(config.obp_api_source).resolve())
     tools = ["Read", "Grep", "Glob", "Edit(work/**)", "Bash(uv run sentinel *)"]
     tools += [f"Bash(git -C {source} {c} *)" for c in GIT_READ_COMMANDS]
+    what = (f"the app `{config.name}` ({config.obp_base_url}{config.monitoring_path}), which is not OBP-API but calls it"
+            if config.is_app else f"the OBP-API instance `{config.name}` ({config.obp_base_url})")
     prompt = (
-        f"Run the Sentinel analysis of the OBP-API instance `{config.name}` ({config.obp_base_url}); every "
-        f"`uv run sentinel` command already reads that instance's data. The OBP-API source is at {source}; use that path literally "
+        f"Run the Sentinel analysis of {what}; every "
+        f"`uv run sentinel` command already reads that instance's data. Its source is at {source}; use that path literally "
         f"(e.g. git -C {source} log ...). At least {config.analyse_min_watch_hours:g}h of coverage is enough to go ahead."
     )
     return [
@@ -173,12 +175,12 @@ def describe(event: dict) -> list[tuple[str, str]]:
 
 
 def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped: threading.Event,
-               set_process=lambda process: None) -> tuple[str | None, float | None, str | None]:
+               set_process=lambda process: None) -> tuple[str | None, float | None, str | None, str | None]:
     """Run headless Claude Code to the end, passing each step to `on_step(kind, text)`.
 
-    Returns (error, cost in USD, result text); error is None when it succeeded. `set_process` is told the
+    Returns (error, cost in USD, result text, model); error is None when it succeeded. `set_process` is told the
     process while it runs (and None after), so it can be stopped from another thread."""
-    error, cost, result = None, None, None
+    error, cost, result, model = None, None, None, None
     timed_out = threading.Event()
     try:
         with tempfile.TemporaryFile("w+") as stderr:
@@ -195,6 +197,8 @@ def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped
                         event = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    if event.get("type") == "system" and event.get("subtype") == "init":
+                        model = event.get("model")
                     if event.get("type") == "result":
                         cost = event.get("total_cost_usd")
                         result = (event.get("result") or "")[:2000]
@@ -217,7 +221,7 @@ def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped
             error = (stderr_text or f"Claude Code exited with {code}")[:500]
     except OSError as e:
         error = f"Could not start Claude Code: {e}"[:500]
-    return error, cost, result
+    return error, cost, result, model
 
 
 class Analyst:
@@ -270,7 +274,7 @@ class Analyst:
 
         status, error, cost, result = "failed", None, None, None
         try:
-            error, cost, result = run_claude(
+            error, cost, result, _ = run_claude(
                 command(self.config), {"SENTINEL_INSTANCE": self.config.name}, self.config.analyse_timeout_minutes,
                 add_step, self._stop, self._set_process)
             status = "failed" if error else "done"

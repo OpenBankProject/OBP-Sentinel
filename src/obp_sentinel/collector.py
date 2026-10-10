@@ -126,10 +126,12 @@ class Collector:
         values = [
             (meter["name"], meter["type"], _tags_json(meter.get("tags", {})), stat, value)
             for meter in body.get("meters", [])
-            if meter["name"].startswith(prefixes)
+            if not prefixes or meter["name"].startswith(prefixes)
             for stat, value in meter.get("measurements", {}).items()
         ]
         self.store.record_telemetry(now(), body.get("api_instance_id"), body.get("git_commit"), values)
+        if self.config.is_app:  # an app has no root endpoint: its Telemetry says which commit it runs
+            self.store.record_deployment(body.get("git_commit"))
         self.store.record_poll("telemetry", ok=True, fetched=len(values), new=len(values))
         return f"telemetry {len(values)} values"
 
@@ -183,9 +185,12 @@ class Collector:
         return f"reach {len(reach['endpoints'])} endpoints" + ("" if reach["roles"] is not None else ", Roles held unknown")
 
     def poll_once(self) -> None:
-        self.declare_platform_app()
-        results = [self.poll_root()] + [self.poll_logs(level) for level in self.config.log_levels]
-        results += [self.poll_telemetry(), self.poll_metrics(), self.poll_reach()]
+        if self.config.is_app:  # only the log cache and Telemetry: Scopes are declared by watching OBP-API itself
+            results = [self.poll_logs(level) for level in self.config.log_levels] + [self.poll_telemetry()]
+        else:
+            self.declare_platform_app()
+            results = [self.poll_root()] + [self.poll_logs(level) for level in self.config.log_levels]
+            results += [self.poll_telemetry(), self.poll_metrics(), self.poll_reach()]
         logger.info("Polled: %s", ", ".join(results))
         last_prune = self.store.get_state("last_prune", 0)
         if now() - last_prune > PRUNE_EVERY_SECONDS:
@@ -196,7 +201,7 @@ class Collector:
     def run_forever(self) -> None:
         logger.info(
             "Watching %s every %ss (levels: %s)",
-            self.config.obp_base_url, self.config.poll_seconds, ",".join(self.config.log_levels),
+            self.config.obp_base_url + self.config.monitoring_path, self.config.poll_seconds, ",".join(self.config.log_levels),
         )
         while True:
             started = time.monotonic()

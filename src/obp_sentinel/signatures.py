@@ -3,6 +3,9 @@
 OBP-API writes log cache entries as `[timestamp] [thread] [logger] message`, where the message
 may be followed by a line holding the exception (`Throwable.toString`). Two lines that differ only
 in ids, numbers, amounts or quoted values belong to the same signature.
+
+The apps are JavaScript: the API Manager and Portal write `[timestamp] [LEVEL] [context] message`, API Explorer II
+plain messages, and an error is `TypeError: message` followed by `    at ...` stack lines.
 """
 
 import hashlib
@@ -12,6 +15,8 @@ from datetime import datetime
 
 LINE_RE = re.compile(r"^\[(?P<ts>[^\]]+)\]\s+\[(?P<thread>[^\]]*)\]\s+\[(?P<logger>[^\]]*)\]\s?(?P<body>.*)$", re.S)
 EXCEPTION_RE = re.compile(r"\b((?:[a-zA-Z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error|Throwable|Failure)[\w$]*)")
+# A JavaScript error as Node prints it: `TypeError: ...`, `Error: ...`, `OBPAPIError: ...`
+JS_ERROR_RE = re.compile(r"\b([A-Z][\w$]*Error|Error)(?=: )")
 OBP_PATH_RE = re.compile(r"/obp/v\d+\.\d+\.\d+(?:/[^\s\"'?,;)\]]*)?")
 LITERAL_SEGMENT_RE = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
 
@@ -87,10 +92,11 @@ def normalise_text(text: str) -> str:
 
 
 def find_exception(parsed: ParsedLine) -> str:
-    for text in (parsed.detail, parsed.message):
-        match = EXCEPTION_RE.search(text)
-        if match:
-            return match.group(1)
+    for pattern in (EXCEPTION_RE, JS_ERROR_RE):
+        for text in (parsed.detail, parsed.message):
+            match = pattern.search(text)
+            if match:
+                return match.group(1)
     return ""
 
 

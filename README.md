@@ -100,6 +100,31 @@ root endpoint on every poll, and the analyst reads the source at that commit.
 instance: `sentinel --instance staging status`, or set `SENTINEL_INSTANCE`; with a single instance there
 is nothing to choose.
 
+### Apps: API Explorer II, the API Manager, the Portal
+
+These apps serve their own log cache and Telemetry, in OBP-API's shape, at `/api/monitoring/...` (API Explorer
+II) and `/monitoring/...` (API Manager, Portal). Each is listed on the app's `/status` page. They check
+Sentinel's token with OBP-API (`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`), so they need the same Roles as
+OBP-API's own endpoints: `CanGetSystemLogCache<Level>` (or `CanGetSystemLogCacheAll`) and `CanGetTelemetry`.
+
+Watch an app as an instance with a `MONITORING_PATH` (taken prefixed only):
+
+```properties
+SENTINEL_INSTANCES=local,explorer,manager
+EXPLORER_OBP_BASE_URL=http://localhost:8085
+EXPLORER_MONITORING_PATH=/api/monitoring
+EXPLORER_OBP_API_SOURCE=/path/to/API-Explorer-II
+MANAGER_OBP_BASE_URL=http://localhost:3003
+MANAGER_MONITORING_PATH=/monitoring
+MANAGER_OBP_API_SOURCE=/path/to/OBP-Frontend
+```
+
+An app is polled for its log cache and Telemetry only (all its meters unless `SENTINEL_TELEMETRY_PREFIXES`
+says otherwise); its commit comes from its Telemetry. There are no aggregate metrics, no Scope declaration
+and no source review. Sentinel uses the same OIDC client, so its Scopes are the ones declared while watching
+OBP-API; without an OBP-API instance an administrator grants them by hand. The analyst is told the instance
+is an app and reads the app's source.
+
 ## Running
 
 Sentinel has three parts:

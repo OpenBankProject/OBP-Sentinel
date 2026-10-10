@@ -172,6 +172,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
 .waiting li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-width: 0; }
 .waiting .tpl { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; display: block; margin-top: 2px; }
 .waiting .n { color: var(--muted); }
+.waiting .units { white-space: pre-wrap; }
 .runs { list-style: none; margin: 0; padding: 0; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 .runs li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
 .runs .why { color: var(--muted); overflow-wrap: anywhere; }
@@ -784,8 +785,13 @@ function renderScanner(sc) {
     : sc.on ? `On: ${each}. Next scan around ${clock(sc.next_at)}.`
     : `Stopped. Go reviews ${each}.`;
   $('scan-runs').replaceChildren(...(sc.scans.length ? sc.scans.map((r) => el('li', {}, [
-    `#${r.id} ${dayClock(r.started_at)} · ${r.status}` + (r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ''),
+    `#${r.id} ${dayClock(r.started_at)} · ${r.status}` + (r.model ? ` · ${r.model}` : '')
+      + (r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ''),
     ...(r.error || r.result ? [el('br'), r.error || r.result] : []),
+    ...(r.reviewed.length ? [el('span', { className: 'tpl n units', textContent:
+      'Recorded, not read again until changed:\n' + r.reviewed.map((e) => `${e.operation_id} at ${e.git_commit.slice(0, 12)}\n`
+        + Object.entries(e.units).map(([unit, mark]) => `  ${unit.split('/').pop()}${mark.startsWith('code:') && !unit.includes('#') ? ' (this endpoint only)' : ''}  ${mark.replace('code:', '').slice(0, 12)}`)
+          .join('\n')).join('\n') })] : []),
   ])) : [el('li', { className: 'n', textContent: 'None yet.' })]));
 }
 
