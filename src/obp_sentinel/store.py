@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS findings (
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL,
     title         TEXT NOT NULL,
+    summary       TEXT,                    -- two or three plain sentences: what is wrong and what it means
     category      TEXT NOT NULL,           -- bug | performance | security | reliability | readability | api-contract
     signature_ids TEXT NOT NULL,           -- JSON list
     evidence      TEXT NOT NULL,
@@ -182,7 +183,7 @@ class Store:
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
         have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
-        for column in ("history", "introduced", "trace_status"):  # added after the first databases were made
+        for column in ("summary", "history", "introduced", "trace_status"):  # added after the first databases were made
             if column not in have:
                 self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} TEXT")
 
@@ -285,23 +286,23 @@ class Store:
             raise ValueError("impact and effort must be 1..5, confidence 0..1")
         ts = now()
         fields = (
-            f["title"], f["category"], json.dumps(f.get("signature_ids", [])), f["evidence"], f["hypothesis"],
+            f["title"], f.get("summary"), f["category"], json.dumps(f.get("signature_ids", [])), f["evidence"], f["hypothesis"],
             json.dumps(f.get("files", [])), f["suggested_fix"], impact, confidence, effort, trend,
             priority_of(impact, confidence, effort, trend),
         )
         existing = self.db.execute("SELECT id FROM findings WHERE key = ?", (f["key"],)).fetchone()
         if existing:
             self.db.execute(
-                """UPDATE findings SET updated_at = ?, title = ?, category = ?, signature_ids = ?, evidence = ?,
+                """UPDATE findings SET updated_at = ?, title = ?, summary = ?, category = ?, signature_ids = ?, evidence = ?,
                    hypothesis = ?, files = ?, suggested_fix = ?, impact = ?, confidence = ?, effort = ?, trend = ?,
                    priority = ? WHERE id = ?""",
                 (ts, *fields, existing["id"]),
             )
             return existing["id"]
         cur = self.db.execute(
-            """INSERT INTO findings (key, created_at, updated_at, title, category, signature_ids, evidence, hypothesis,
-               files, suggested_fix, impact, confidence, effort, trend, priority)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO findings (key, created_at, updated_at, title, summary, category, signature_ids, evidence,
+               hypothesis, files, suggested_fix, impact, confidence, effort, trend, priority)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (f["key"], ts, ts, *fields),
         )
         return cur.lastrowid

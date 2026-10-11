@@ -71,6 +71,11 @@ finding nothing is the usual, good result.
        validation.
      API2 and API8 are covered by A07 and A02 above.
      Report only what the code actually does on this path, not a category that merely could apply.
+   - TODO, FIXME, XXX and HACK comments in the code you read: search for them in each unit
+     (`git -C <source path> grep -n -E "TODO|FIXME|XXX|HACK" <commit> -- <path>`). Report one only when it
+     marks something missing or knowingly wrong on this path that a caller can reach (a check not done, a case
+     not handled, a workaround that skips validation), and say what the code does meanwhile. A TODO about
+     naming, tidying or a future feature is not a finding.
    - Record it, listing every unit you read for it, the endpoint's own file included (as a plain path:
      only the endpoint's own code in it is recorded):
      `uv run sentinel source done <operation_id> <units> --commit <commit>`. It refuses a big file given
@@ -82,6 +87,7 @@ finding nothing is the usual, good result.
    {
      "key": "stable-kebab-slug-for-this-problem",
      "title": "One line a developer understands",
+     "summary": "Two or three plain sentences: what is wrong, who can reach it and what it means. No commit hashes or file paths.",
      "category": "security | bug | api-contract | readability | performance | reliability",
      "signature_ids": [],
      "evidence": "Whilst reading the source code at <commit> I noticed ... : what the code does and how a caller reaches it (the endpoint, its Roles).",

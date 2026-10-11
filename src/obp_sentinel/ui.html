@@ -31,8 +31,9 @@ header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .chip span { color: var(--muted); }
 .chip b { font-family: var(--mono); font-weight: 500; }
 nav.instances { max-width: 1280px; margin: 0 auto; padding: 0 16px; border-bottom: 0; }
-nav.instances button { font-size: 15px; }
-nav.instances button.app { font-size: 13px; margin-left: -4px; }
+nav.instances button { font-size: 18px; font-weight: 600; }
+nav.instances button.app { font-size: 13px; font-weight: 400; margin-left: -4px; }
+nav.instances button.app[aria-pressed="true"] { font-weight: 600; }
 main { max-width: 1280px; margin: 0 auto; padding: 24px 16px; }
 .title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 16px; }
 h1 { margin: 0; font-size: 26px; letter-spacing: -0.015em; }
@@ -60,6 +61,7 @@ article .key { font-family: var(--mono); }
 h2 { margin: 8px 0 20px; font-size: 22px; line-height: 1.3; letter-spacing: -0.01em; }
 .titlebar { display: flex; align-items: flex-start; gap: 12px; }
 .titlebar h2 { flex: 1; }
+.summary { margin: -8px 0 20px; font-size: 16px; line-height: 1.5; }
 button.icon { flex: none; min-width: 44px; min-height: 44px; margin-top: 2px; padding: 0; display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
 button.icon:hover { color: var(--ink); }
@@ -228,6 +230,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
           </svg>
         </button>
       </div>
+      <p class="summary" id="d-summary" hidden></p>
       <div class="scores">
         <div class="p"><small>Priority</small><b id="d-priority"></b></div>
         <div><small>Impact</small><b id="d-impact"></b></div>
@@ -433,6 +436,8 @@ function render() {
   $('d-when').textContent = current.first_suggested ? `First suggested ${fmtDate(current.first_suggested)}`
                                                     : `Found ${fmtDate(current.created_at)}`;
   $('d-title').textContent = current.title;
+  $('d-summary').textContent = current.summary || '';
+  $('d-summary').hidden = !current.summary;
   $('d-priority').textContent = current.priority.toFixed(2);
   $('d-impact').textContent = `${current.impact}/5`;
   $('d-confidence').textContent = `${Math.round(current.confidence * 100)}%`;
@@ -505,6 +510,7 @@ function findingText(f) {
   return [
     `# ${f.title}`,
     `Sentinel finding #${f.id} (${f.key}), ${f.category}, on ${state.instance}`,
+    ...(f.summary ? ['', f.summary] : []),
     '', '## Evidence', evidence,
     '', '## Why it happens', f.hypothesis,
     '', '## Where', ...f.files.map((x) => `- ${x}`),

@@ -60,6 +60,7 @@ perfectly good result.
    {
      "key": "stable-kebab-slug-for-this-problem",
      "title": "One line a developer understands",
+     "summary": "Two or three plain sentences: what is wrong, who can reach it and what it means. No commit hashes or file paths.",
      "category": "bug | performance | security | reliability | readability | api-contract",
      "signature_ids": ["abc123def456"],
      "evidence": "Numbers from the summary: counts, buckets, trend, endpoints, latencies.",
