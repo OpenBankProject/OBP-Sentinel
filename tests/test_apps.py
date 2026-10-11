@@ -17,9 +17,10 @@ def test_an_instance_with_a_monitoring_path_is_an_app_that_keeps_all_its_telemet
     monkeypatch.setenv("MONITORING_PATH", "/ignored")  # only taken prefixed: never makes OBP-API an app
     monkeypatch.setenv("EXPLORER_OBP_BASE_URL", "http://localhost:5173")
     monkeypatch.setenv("EXPLORER_MONITORING_PATH", "/api/monitoring/")
-    monkeypatch.delenv("SENTINEL_TELEMETRY_PREFIXES", raising=False)
+    monkeypatch.setenv("SENTINEL_TELEMETRY_PREFIXES", "obp.api.")  # OBP-API's: an app does not inherit them
+    monkeypatch.setenv("SENTINEL_IGNORE_REGEX", "system/log-cache")
     local, explorer = Config.all_from_env()
-    assert not local.is_app and local.telemetry_prefixes
+    assert not local.is_app and local.telemetry_prefixes == ["obp.api."]
     assert explorer.is_app and explorer.monitoring_path == "/api/monitoring"
     assert explorer.telemetry_prefixes == [] and explorer.ignore_regex == "monitoring/"
 

@@ -84,7 +84,7 @@ finding nothing is the usual, good result.
      "title": "One line a developer understands",
      "category": "security | bug | api-contract | readability | performance | reliability",
      "signature_ids": [],
-     "evidence": "What the code does, at which commit, and how a caller reaches it (the endpoint, its Roles).",
+     "evidence": "Whilst reading the source code at <commit> I noticed ... : what the code does and how a caller reaches it (the endpoint, its Roles).",
      "hypothesis": "Why it is a problem, pointing at specific code.",
      "files": ["obp-api/src/main/scala/code/...scala:123"],
      "suggested_fix": "A concrete change, small enough to review.",
@@ -94,6 +94,9 @@ finding nothing is the usual, good result.
      "trend": "new"
    }
    ```
+
+   Start `evidence` with "Whilst reading the source code at <commit> I noticed": the commit is the code you
+   read, not the one that introduced the problem. Name the commit that did only if `git log` shows it.
 
    `impact` 1–5 (5 = exposes data or breaks important functionality), `confidence` 0–1 (honest: below 0.5
    if you are not sure the path is reachable), `effort` 1–5 (1 = a few lines in one file). Check

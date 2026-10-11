@@ -9,7 +9,8 @@ there is one instance, "default", using sentinel.db and digests/ as before.
 
 An instance can also be an app that serves its own log cache and Telemetry in OBP-API's shape (API Explorer II,
 the API Manager, the Portal): set its MONITORING_PATH (e.g. EXPLORER_MONITORING_PATH=/api/monitoring, MANAGER_MONITORING_PATH=/monitoring)
-and its OBP_BASE_URL to the app's own URL. MONITORING_PATH is only taken prefixed, like SENTINEL_DB.
+and its OBP_BASE_URL to the app's own URL. MONITORING_PATH is only taken prefixed, like SENTINEL_DB, and an app
+takes SENTINEL_TELEMETRY_PREFIXES and SENTINEL_IGNORE_REGEX only prefixed: the plain ones are for OBP-API.
 """
 
 import os
@@ -26,6 +27,8 @@ def _list(value: str) -> list[str]:
 DEFAULT_INSTANCE = "default"
 INSTANCE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 OWN_PER_INSTANCE = {"SENTINEL_DB", "SENTINEL_DIGEST_DIR", "MONITORING_PATH"}
+# Written for OBP-API's meters and log lines: an app takes them only prefixed
+OBP_API_ONLY = {"SENTINEL_TELEMETRY_PREFIXES", "SENTINEL_IGNORE_REGEX"}
 
 
 class ConfigError(Exception):
@@ -113,11 +116,13 @@ class Config:
             if not named:
                 return os.environ.get(key, default)
             value = os.environ.get(prefix + key)
-            if value is None and key not in OWN_PER_INSTANCE:
+            if value is None and key not in OWN_PER_INSTANCE and not (is_app and key in OBP_API_ONLY):
                 value = os.environ.get(key)
             return default if value is None else value
 
+        is_app = False
         monitoring_path = env("MONITORING_PATH", "").rstrip("/")
+        is_app = bool(monitoring_path)
         return cls(
             name=name,
             obp_base_url=env("OBP_BASE_URL", "http://localhost:8080").rstrip("/"),

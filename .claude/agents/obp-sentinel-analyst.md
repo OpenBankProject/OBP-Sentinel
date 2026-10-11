@@ -53,7 +53,7 @@ perfectly good result.
    history with `git -C "$OBP_API_SOURCE" log -p --since=... -- <file>`. The summary gives the
    `git_commit` the instance runs (from its root endpoint). The checkout may be at a different
    commit: if so, read the code as deployed with `git -C "$OBP_API_SOURCE" show <git_commit>:<path>`
-   and say which commit your findings refer to.
+   and say which commit your findings refer to, as "Whilst reading the source code at <commit> I noticed ...".
 5. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
 
    ```json

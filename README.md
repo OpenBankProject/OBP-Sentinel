@@ -119,8 +119,8 @@ MANAGER_MONITORING_PATH=/monitoring
 MANAGER_OBP_API_SOURCE=/path/to/OBP-Frontend
 ```
 
-An app is polled for its log cache and Telemetry only (all its meters unless `SENTINEL_TELEMETRY_PREFIXES`
-says otherwise); its commit comes from its Telemetry. There are no aggregate metrics, no Scope declaration
+An app is polled for its log cache and Telemetry only (all its meters unless its own prefixed
+`SENTINEL_TELEMETRY_PREFIXES` says otherwise: the plain one, like the plain `SENTINEL_IGNORE_REGEX`, is for OBP-API); its commit comes from its Telemetry. There are no aggregate metrics, no Scope declaration
 and no source review. Sentinel uses the same OIDC client, so its Scopes are the ones declared while watching
 OBP-API; without an OBP-API instance an administrator grants them by hand. The analyst is told the instance
 is an app and reads the app's source.
@@ -216,7 +216,7 @@ OBP-Sandbox-Populator against it.
 
 `sentinel run` (or `sentinel ui` on its own) serves a page on http://127.0.0.1:8765 (`SENTINEL_UI_HOST`, `SENTINEL_UI_PORT`) listing
 the findings by status, each with its evidence, the files in OBP-API and the suggested change. Accept, Later,
-Some action taken, Already fixed and Dismiss record the same feedback as `sentinel feedback`. With several
+Some action taken, Should be fixed now and Dismiss record the same feedback as `sentinel feedback`. With several
 instances it has a tab for each, showing how old the commit it runs (from its root endpoint) is.
 
 When something stops Sentinel from watching an instance (missing OIDC settings, a token OBP-API rejects, missing
