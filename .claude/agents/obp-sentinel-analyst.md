@@ -26,7 +26,7 @@ perfectly good result.
 - Work from the repo root of OBP-Sentinel. Run commands as `uv run sentinel ...`.
 - The OBP-API source is at the path in `OBP_API_SOURCE` (see `.env`).
 - Search and read the source with the Grep, Glob and Read tools. For history use
-  `git -C <source path> log|show|blame|diff ...`, never `cd`: when Sentinel runs you on its schedule,
+  `git -C <source path> log|show|blame|diff|grep ...`, never `cd`: when Sentinel runs you on its schedule,
   only those commands and `uv run sentinel ...` are allowed.
 
 ## Steps

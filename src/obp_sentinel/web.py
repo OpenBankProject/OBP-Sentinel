@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
+from . import history
 from .analyst import Analyst, decide, unavailable_reason
 from .config import Config
 from .health import health
@@ -35,6 +36,7 @@ STEPS_SHOWN = 40
 WAITING_SHOWN = 5
 WORDS = re.compile(r"[A-Za-z]{3}")
 FEEDBACK_PATH = re.compile(r"^/api/findings/(\d+)/feedback$")
+TRACE_PATH = re.compile(r"^/api/findings/(\d+)/trace$")
 MAX_BODY_BYTES = 10_000
 COMMIT_HASH = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")  # at least one letter: not a plain number
 _commits: dict[tuple[str, str], dict | None] = {}  # commits never change, so neither do their dates and authors
@@ -73,7 +75,8 @@ def running_commit(store: Store, config: Config) -> dict | None:
 
 def instance_status(store: Store, config: Config) -> dict:
     """For the instance tabs: which commit each runs, how old it is, and how many problems stop Sentinel."""
-    return {"name": config.name, "obp_base_url": config.obp_base_url, "commit": running_commit(store, config),
+    return {"name": config.name, "parent": config.parent, "obp_base_url": config.obp_base_url + config.monitoring_path,
+            "commit": running_commit(store, config),
             "problems": len(health(store, config)["problems"])}
 
 
@@ -219,6 +222,9 @@ def findings(store: Store, config: Config) -> list[dict]:
         item = dict(f)
         item["files"] = json.loads(item["files"])
         item["signature_ids"] = json.loads(item["signature_ids"])
+        item["history"] = json.loads(item["history"]) if item.get("history") else None
+        if item.get("trace_status") == "running" and not history.is_running(config.name, f["id"]):
+            item["trace_status"] = "failed"  # Sentinel stopped while judging
         item["first_suggested"] = first_suggested.get(f["id"])
         item["feedback"] = latest_feedback.get(f["id"])
         item["evidence_commits"] = {
@@ -316,6 +322,13 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             path = urlsplit(self.path).path
             if path == "/api/source/scanner":
                 return self._turn_scanner()
+            if trace := TRACE_PATH.match(path):
+                if config := self._instance():
+                    try:
+                        return self._json(HTTPStatus.OK, history.trace(config, int(trace.group(1))))
+                    except ValueError as e:
+                        return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+                return
             match = FEEDBACK_PATH.match(path)
             if path != "/api/analysis/run" and not match:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})

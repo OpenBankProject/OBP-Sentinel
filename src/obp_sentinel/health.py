@@ -54,8 +54,8 @@ def diagnose(source: str, error: str, config: Config) -> dict:
             return {"key": "missing-scopes", "title": "Sentinel lacks Scopes", "roles": [roles] if roles else []}
         if status == 404:
             return {"key": "not-served", "title": f"The app does not serve {m['url']}",
-                    "action": f"Check {p}MONITORING_PATH ({config.monitoring_path}) and {p}OBP_BASE_URL "
-                              f"({config.obp_base_url}), or upgrade the app to one with monitoring endpoints."}
+                    "action": f"Check the app's URL ({config.obp_base_url}, from {config.parent}'s app directory), "
+                              "or upgrade the app to one with monitoring endpoints."}
         if status == 503:
             return {"key": "server-error", "title": "The app cannot check Sentinel's token with OBP-API",
                     "action": "See what Sentinel got below: the app cannot reach OBP-API, or does not know where it is."}

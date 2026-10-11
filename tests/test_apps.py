@@ -5,6 +5,7 @@ from dataclasses import replace
 import httpx
 
 from obp_sentinel.collector import Collector
+from obp_sentinel import config as config_module
 from obp_sentinel.config import Config
 from obp_sentinel.health import health
 from obp_sentinel.obp_client import OBPClient
@@ -12,17 +13,39 @@ from obp_sentinel.signatures import parse_line, signature_of
 from obp_sentinel.store import Store
 
 
-def test_an_instance_with_a_monitoring_path_is_an_app_that_keeps_all_its_telemetry(config, monkeypatch):
-    monkeypatch.setenv("SENTINEL_INSTANCES", "local,explorer")
-    monkeypatch.setenv("MONITORING_PATH", "/ignored")  # only taken prefixed: never makes OBP-API an app
-    monkeypatch.setenv("EXPLORER_OBP_BASE_URL", "http://localhost:5173")
-    monkeypatch.setenv("EXPLORER_MONITORING_PATH", "/api/monitoring/")
+def test_each_instance_has_the_apps_its_app_directory_lists_using_its_settings(config, monkeypatch, app_directories):
+    monkeypatch.setenv("SENTINEL_INSTANCES", "local,ogcr")
+    monkeypatch.setenv("LOCAL_OBP_BASE_URL", "http://localhost:8080")
+    monkeypatch.setenv("OGCR_OBP_BASE_URL", "https://obp.ogcr")
+    monkeypatch.setenv("LOCAL_OIDC_CLIENT_ID", "local-client")
+    monkeypatch.setenv("OGCR_OIDC_CLIENT_ID", "ogcr-client")
+    monkeypatch.setenv("EXPLORER_SOURCE", "/src/explorer")
+    monkeypatch.setenv("FRONTEND_SOURCE", "/src/frontend")
     monkeypatch.setenv("SENTINEL_TELEMETRY_PREFIXES", "obp.api.")  # OBP-API's: an app does not inherit them
     monkeypatch.setenv("SENTINEL_IGNORE_REGEX", "system/log-cache")
-    local, explorer = Config.all_from_env()
-    assert not local.is_app and local.telemetry_prefixes == ["obp.api."]
-    assert explorer.is_app and explorer.monitoring_path == "/api/monitoring"
-    assert explorer.telemetry_prefixes == [] and explorer.ignore_regex == "monitoring/"
+    app_directories["http://localhost:8080"] = {
+        "public_obp_api_explorer_url": "http://localhost:5173/", "public_obp_portal_url": "http://localhost:5174",
+        "public_obp_hola_url": "http://localhost:8087"}  # not an app Sentinel watches
+    app_directories["https://obp.ogcr"] = {"public_obp_api_explorer_url": "https://explorer.ogcr"}
+    configs = {c.name: c for c in Config.all_from_env()}
+    assert list(configs) == ["local", "local-explorer", "local-portal", "ogcr", "ogcr-explorer"]
+    assert not configs["local"].is_app and configs["local"].telemetry_prefixes == ["obp.api."]
+    explorer, portal, ogcr_explorer = configs["local-explorer"], configs["local-portal"], configs["ogcr-explorer"]
+    assert (explorer.parent, explorer.obp_base_url, explorer.monitoring_path) == ("local", "http://localhost:5173", "/api/monitoring")
+    assert portal.monitoring_path == "/monitoring" and portal.obp_api_source == "/src/frontend"
+    assert explorer.obp_api_source == "/src/explorer" and explorer.oidc_client_id == "local-client"
+    assert ogcr_explorer.oidc_client_id == "ogcr-client" and ogcr_explorer.db_path == "sentinel-ogcr-explorer.db"
+    assert explorer.telemetry_prefixes == [] and ogcr_explorer.ignore_regex == "monitoring/"
+
+
+def test_apps_found_before_are_kept_when_obp_api_cannot_be_reached(config, monkeypatch, app_directories):
+    monkeypatch.setenv("SENTINEL_INSTANCES", "local")
+    monkeypatch.setenv("LOCAL_OBP_BASE_URL", "http://localhost:8080")
+    app_directories["http://localhost:8080"] = {"public_obp_api_manager_url": "http://localhost:3003"}
+    assert [c.name for c in Config.all_from_env()] == ["local", "local-manager"]
+    app_directories.clear()  # OBP-API is down at the next start
+    monkeypatch.setattr(config_module, "_directories", {})
+    assert [c.name for c in Config.all_from_env()] == ["local", "local-manager"]
 
 
 def test_the_client_reads_the_apps_monitoring_endpoints_with_the_same_token(config):

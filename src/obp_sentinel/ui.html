@@ -32,6 +32,7 @@ header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .chip b { font-family: var(--mono); font-weight: 500; }
 nav.instances { max-width: 1280px; margin: 0 auto; padding: 0 16px; border-bottom: 0; }
 nav.instances button { font-size: 15px; }
+nav.instances button.app { font-size: 13px; margin-left: -4px; }
 main { max-width: 1280px; margin: 0 auto; padding: 24px 16px; }
 .title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 16px; }
 h1 { margin: 0; font-size: 26px; letter-spacing: -0.015em; }
@@ -83,6 +84,12 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .status { margin: 14px 0 0; font-size: 14px; color: var(--accent); min-height: 1.5em; }
 .status.error { color: var(--danger); }
 .previous { font-size: 14px; color: var(--muted); margin: 0 0 14px; }
+.history { margin: 0 0 20px; }
+.history p { margin: 0 0 8px; }
+.history .file { font-family: var(--mono); font-size: 13px; margin: 8px 0 2px; overflow-wrap: anywhere; }
+.history ol { margin: 0 0 8px; padding-left: 20px; font-size: 13px; }
+.history ol li { overflow-wrap: anywhere; }
+.history .first { color: var(--muted); }
 
 /* Activity */
 :root { --good: #1E7B34; --warn: #8A5A00; --bad: var(--danger); }
@@ -216,6 +223,12 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
         <div><small>Trend</small><b id="d-trend"></b></div>
       </div>
       <h3>Evidence</h3><p id="d-evidence"></p>
+      <h3>History</h3>
+      <div class="history">
+        <p id="d-introduced" hidden></p>
+        <div id="d-history"></div>
+        <button type="button" id="trace-btn">Trace history</button>
+      </div>
       <h3>Why it happens</h3><p id="d-hypothesis"></p>
       <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
       <h3>Suggested change</h3><p id="d-fix"></p>
@@ -416,6 +429,7 @@ function render() {
   const commits = current.evidence_commits || {};
   $('d-evidence').textContent = (current.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
     (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)})` : sha);
+  renderHistory(current);
   $('d-hypothesis').textContent = current.hypothesis;
   $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
   $('d-fix').textContent = current.suggested_fix;
@@ -425,6 +439,50 @@ function render() {
     $('d-previous').textContent = `Marked ${fb.verdict} on ${fmtDate(fb.ts)}` + (fb.comment ? `: “${fb.comment}”` : '');
   }
 }
+
+// Trace history: the commits that changed the finding's lines (git, at once), oldest first, and which one introduced
+// the problem (judged by Claude in the background, kept with the finding)
+function renderHistory(f) {
+  const judging = f.trace_status === 'running';
+  const verdict = f.introduced || (judging ? 'Working out which commit introduced it…'
+    : f.trace_status === 'failed' ? 'Could not work out which commit introduced it.' : '');
+  $('d-introduced').hidden = !verdict;
+  $('d-introduced').replaceChildren(el('b', { textContent: 'Claude, reading the diffs: ' }), verdict);
+  $('d-history').replaceChildren(...(f.history ? [el('b', { textContent: 'Commits that changed these lines (git log -L):' })] : []),
+                                 ...(f.history || []).flatMap((h) => [
+    el('div', { className: 'file', textContent: h.file }),
+    h.commits.length
+      ? el('ol', {}, h.commits.map((c, i) => el('li', {}, [
+          `${c.commit} ${c.date} ${c.author}: ${c.subject}`,
+          ...(i === 0 ? [el('span', { className: 'first', textContent: ' (lines first written here)' })] : []),
+        ])))
+      : el('p', { textContent: h.error ? `No history: ${h.error}` : 'No history found.' }),
+  ]));
+  $('trace-btn').disabled = judging;
+  $('trace-btn').textContent = f.history ? 'Trace history again' : 'Trace history';
+}
+
+$('trace-btn').addEventListener('click', async () => {
+  const id = state.selected;
+  $('trace-btn').disabled = true;
+  try {
+    const traced = await api(`/api/findings/${id}/trace`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                             body: '{}' });
+    const f = state.findings.find((x) => x.id === id);
+    if (f) Object.assign(f, traced);
+    render();
+    // The judgement takes a minute or so: look again until it is made
+    const poll = setInterval(async () => {
+      const findings = await api('/api/findings').catch(() => null);
+      const g = findings && findings.find((x) => x.id === id);
+      if (!g || g.trace_status !== 'running') clearInterval(poll);
+      if (findings) { state.findings = findings; if (document.activeElement?.id !== 'comment') render(); }
+    }, 5000);
+  } catch (e) {
+    setStatus(`Could not trace the history: ${e.message}`, true);
+    $('trace-btn').disabled = false;
+  }
+});
 
 function setStatus(text, error = false) {
   $('status').textContent = text;
@@ -465,14 +523,15 @@ async function load() {
   }
 }
 
-// One tab per OBP-API instance (none when there is only one); the open one is kept in the URL's #
+// One tab per OBP-API instance (none when there is only one), each followed by its apps; the open one is kept in the URL's #
 function renderInstances() {
   const nav = $('instances');
   nav.hidden = state.instances.length < 2;
   nav.replaceChildren(...state.instances.map((i) => {
     const age = commitAge(i.commit);
     const b = el('button', { type: 'button', title: `${i.obp_base_url}` + (i.commit ? ` · commit ${i.commit.git_commit.slice(0, 12)}` : '')
-      + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : '') }, [i.name]);
+      + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : ''),
+      className: i.parent ? 'app' : '' }, [i.parent ? i.name.slice(i.parent.length + 1) : i.name]);
     if (age) b.append(el('span', { className: 'age', textContent: age }));
     if (i.problems) b.append(el('span', { className: 'flag', role: 'img', ariaLabel: `${i.problems} to fix` }));
     b.setAttribute('aria-pressed', String(state.instance === i.name));

@@ -34,7 +34,7 @@ RERUN_ANYWAY_SECONDS = 86400
 RISING_FACTOR = 2
 RISING_MIN_COUNT = 5
 STEP_TEXT_MAX = 300
-GIT_READ_COMMANDS = ("log", "show", "blame", "diff", "rev-parse")
+GIT_READ_COMMANDS = ("log", "show", "blame", "diff", "grep", "rev-parse")
 
 
 def unavailable_reason(config: Config, scheduled: bool = True) -> str | None:

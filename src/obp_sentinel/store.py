@@ -109,7 +109,10 @@ CREATE TABLE IF NOT EXISTS findings (
     trend         TEXT NOT NULL,           -- new | rising | stable | falling
     priority      REAL NOT NULL,
     status        TEXT NOT NULL DEFAULT 'open',  -- open | suggested | accepted | acted | dismissed | later | fixed
-    snoozed_until INTEGER
+    snoozed_until INTEGER,
+    history       TEXT,                    -- JSON: per file, the commits that changed its lines (Trace history)
+    introduced    TEXT,                    -- which commit introduced the problem, as judged by Trace history
+    trace_status  TEXT                     -- running | done | failed
 );
 
 -- What was shown to people, and when.
@@ -178,6 +181,10 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
+        have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
+        for column in ("history", "introduced", "trace_status"):  # added after the first databases were made
+            if column not in have:
+                self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} TEXT")
 
     def close(self) -> None:
         self.db.close()

@@ -107,23 +107,24 @@ II) and `/monitoring/...` (API Manager, Portal). Each is listed on the app's `/s
 Sentinel's token with OBP-API (`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`), so they need the same Roles as
 OBP-API's own endpoints: `CanGetSystemLogCache<Level>` (or `CanGetSystemLogCacheAll`) and `CanGetTelemetry`.
 
-Watch an app as an instance with a `MONITORING_PATH` (taken prefixed only):
+Sentinel finds each OBP-API instance's apps in its public app directory (`GET /obp/v6.0.0/app-directory`:
+`public_obp_api_explorer_url`, `public_obp_api_manager_url`, `public_obp_portal_url`), read at startup and kept in
+the instance's database for when OBP-API cannot be reached. Each app becomes an instance of its own, named
+`<instance>-<app>` (`local-explorer`) and shown as a tab after its OBP-API instance. The only settings are the
+checkouts the analyst reads, shared by all instances:
 
 ```properties
-SENTINEL_INSTANCES=local,explorer,manager
-EXPLORER_OBP_BASE_URL=http://localhost:8085
-EXPLORER_MONITORING_PATH=/api/monitoring
-EXPLORER_OBP_API_SOURCE=/path/to/API-Explorer-II
-MANAGER_OBP_BASE_URL=http://localhost:3003
-MANAGER_MONITORING_PATH=/monitoring
-MANAGER_OBP_API_SOURCE=/path/to/OBP-Frontend
+EXPLORER_SOURCE=/path/to/API-Explorer-II
+FRONTEND_SOURCE=/path/to/OBP-Frontend
 ```
 
-An app is polled for its log cache and Telemetry only (all its meters unless its own prefixed
-`SENTINEL_TELEMETRY_PREFIXES` says otherwise: the plain one, like the plain `SENTINEL_IGNORE_REGEX`, is for OBP-API); its commit comes from its Telemetry. There are no aggregate metrics, no Scope declaration
-and no source review. Sentinel uses the same OIDC client, so its Scopes are the ones declared while watching
-OBP-API; without an OBP-API instance an administrator grants them by hand. The analyst is told the instance
-is an app and reads the app's source.
+An app uses its OBP-API instance's settings, OIDC client included, so its Scopes are the ones declared while
+watching that OBP-API. It is polled for its log cache and Telemetry only; its commit comes from its Telemetry.
+There are no aggregate metrics, no Scope declaration and no source review. It keeps all its meters and ignores
+lines about `monitoring/`: the plain `SENTINEL_TELEMETRY_PREFIXES` and `SENTINEL_IGNORE_REGEX` are for OBP-API,
+and an app takes them only prefixed with its own name (`LOCAL_PORTAL_SENTINEL_IGNORE_REGEX`). Each has its own
+database (`sentinel-local-portal.db`) and digests (`digests/local-portal/`). An app added to the directory is
+watched from the next start. The analyst is told the instance is an app and reads the app's source.
 
 ## Running
 
@@ -218,6 +219,10 @@ OBP-Sandbox-Populator against it.
 the findings by status, each with its evidence, the files in OBP-API and the suggested change. Accept, Later,
 Some action taken, Should be fixed now and Dismiss record the same feedback as `sentinel feedback`. With several
 instances it has a tab for each, showing how old the commit it runs (from its root endpoint) is.
+
+Trace history on a finding lists the commits that changed the lines it names (`git log -L`, from the commit its
+evidence names, oldest first), and starts a short Claude run (at most $0.30, git read commands only) that reads their
+diffs and says which commit introduced the problem. Both are kept with the finding.
 
 When something stops Sentinel from watching an instance (missing OIDC settings, a token OBP-API rejects, missing
 Scopes, an OBP-API too old for an endpoint), the page lists what to fix, most blocking first, with what OBP-API

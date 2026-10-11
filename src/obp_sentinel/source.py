@@ -331,7 +331,7 @@ def progress(configs: list[Config], reviews: Reviews, recent: int = 8) -> dict:
         (recent,)).fetchall()
     return {"total": sum(t["total"] for t in tiers), "reviewed": sum(t["reviewed"] for t in tiers), **reviews.counts(),
             "tiers": [t for t in tiers if t["total"]], "recent": [dict(r) for r in rows],
-            "instances": [scanned(config) for config in configs]}
+            "instances": [scanned(config) for config in configs if not config.is_app]}
 
 
 def scanned(config: Config) -> dict:

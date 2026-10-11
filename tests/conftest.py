@@ -1,8 +1,28 @@
 from dataclasses import replace
 
+import httpx
+
 import pytest
 
+from obp_sentinel import config as config_module
 from obp_sentinel.config import Config
+
+
+@pytest.fixture(autouse=True)
+def app_directories(monkeypatch):
+    """No test reaches a real OBP-API: an instance's app directory lists what a test puts here, by its URL."""
+    listed: dict[str, dict[str, str]] = {}
+
+    def get(url, timeout):
+        base = url.removesuffix("/obp/v6.0.0/app-directory")
+        if base not in listed:
+            raise httpx.ConnectError("no OBP-API in tests")
+        entries = [{"name": k, "value": v} for k, v in listed[base].items()]
+        return httpx.Response(200, json={"app_directory": entries}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", get)
+    monkeypatch.setattr(config_module, "_directories", {})
+    return listed
 
 
 @pytest.fixture
