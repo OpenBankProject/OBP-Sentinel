@@ -58,6 +58,11 @@ article { flex: 999 1 560px; min-width: 0; background: var(--surface); border: 1
 article .head { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); }
 article .key { font-family: var(--mono); }
 h2 { margin: 8px 0 20px; font-size: 22px; line-height: 1.3; letter-spacing: -0.01em; }
+.titlebar { display: flex; align-items: flex-start; gap: 12px; }
+.titlebar h2 { flex: 1; }
+button.icon { flex: none; min-width: 44px; min-height: 44px; margin-top: 2px; padding: 0; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+button.icon:hover { color: var(--ink); }
 .scores { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--line);
   border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
 .scores div { background: var(--surface); padding: 10px 12px; }
@@ -214,7 +219,15 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     <section class="list" aria-label="Suggestions" id="list"></section>
     <article id="detail" hidden>
       <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-when"></span></div>
-      <h2 id="d-title"></h2>
+      <div class="titlebar">
+        <h2 id="d-title"></h2>
+        <button type="button" id="copy-btn" class="icon" aria-label="Copy for the agent">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
+          </svg>
+        </button>
+      </div>
       <div class="scores">
         <div class="p"><small>Priority</small><b id="d-priority"></b></div>
         <div><small>Impact</small><b id="d-impact"></b></div>
@@ -223,15 +236,15 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
         <div><small>Trend</small><b id="d-trend"></b></div>
       </div>
       <h3>Evidence</h3><p id="d-evidence"></p>
+      <h3>Why it happens</h3><p id="d-hypothesis"></p>
+      <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
+      <h3>Suggested change</h3><p id="d-fix"></p>
       <h3>History</h3>
       <div class="history">
         <p id="d-introduced" hidden></p>
         <div id="d-history"></div>
         <button type="button" id="trace-btn">Trace history</button>
       </div>
-      <h3>Why it happens</h3><p id="d-hypothesis"></p>
-      <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
-      <h3>Suggested change</h3><p id="d-fix"></p>
       <div class="respond">
         <p class="previous" id="d-previous" hidden></p>
         <label for="comment">Comment for the analyst <span>(optional)</span></label>
@@ -481,6 +494,33 @@ $('trace-btn').addEventListener('click', async () => {
   } catch (e) {
     setStatus(`Could not trace the history: ${e.message}`, true);
     $('trace-btn').disabled = false;
+  }
+});
+
+// The finding as text for the agent working on it: what, why, where, the change, and when it came in. No scores.
+function findingText(f) {
+  const commits = f.evidence_commits || {};
+  const evidence = (f.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
+    (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)})` : sha);
+  return [
+    `# ${f.title}`,
+    `Sentinel finding #${f.id} (${f.key}), ${f.category}, on ${state.instance}`,
+    '', '## Evidence', evidence,
+    '', '## Why it happens', f.hypothesis,
+    '', '## Where', ...f.files.map((x) => `- ${x}`),
+    '', '## Suggested change', f.suggested_fix,
+    ...(f.introduced ? ['', '## History', f.introduced] : []),
+  ].join('\n');
+}
+
+$('copy-btn').addEventListener('click', async () => {
+  const f = state.findings.find((x) => x.id === state.selected);
+  if (!f) return;
+  try {
+    await navigator.clipboard.writeText(findingText(f));
+    setStatus(`Copied #${f.id} for the agent.`);
+  } catch (e) {
+    setStatus(`Could not copy: ${e.message}`, true);
   }
 });
 
