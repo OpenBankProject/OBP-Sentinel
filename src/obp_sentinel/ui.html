@@ -32,8 +32,12 @@ header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .chip b { font-family: var(--mono); font-weight: 500; }
 nav.instances { max-width: 1280px; margin: 0 auto; padding: 0 16px; border-bottom: 0; }
 nav.instances button { font-size: 18px; font-weight: 600; }
-nav.instances button.app { font-size: 13px; font-weight: 400; margin-left: -4px; }
-nav.instances button.app[aria-pressed="true"] { font-weight: 600; }
+nav.instances[hidden] { display: none; }
+nav.instances.apps button { font-size: 14px; font-weight: 400; }
+nav.instances.apps button[aria-pressed="true"] { font-weight: 600; }
+.host { max-width: 1280px; margin: 0 auto; padding: 12px 16px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 32px; }
+#watching { font-size: 15px; overflow-wrap: anywhere; }
+#watching b { font-weight: 600; }
 main { max-width: 1280px; margin: 0 auto; padding: 24px 16px; }
 .title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 16px; }
 h1 { margin: 0; font-size: 26px; letter-spacing: -0.015em; }
@@ -199,11 +203,15 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     <div class="brand">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
            stroke-linejoin="round" aria-hidden="true" style="color: var(--accent)"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"></path><circle cx="12" cy="11" r="2.5"></circle></svg>
-      <div><strong>Sentinel</strong><div class="sub" id="watching">Loading…</div></div>
+      <strong>Sentinel</strong>
     </div>
-    <div class="chips" id="chips"></div>
   </div>
   <nav class="instances" id="instances" aria-label="OBP-API instances" hidden></nav>
+  <nav class="instances apps" id="apps" aria-label="Apps of this instance" hidden></nav>
+  <div class="host">
+    <div id="watching">Loading…</div>
+    <div class="chips" id="chips"></div>
+  </div>
 </header>
 <main>
   <section class="activity setup" id="setup" aria-labelledby="setup-title" hidden>
@@ -375,7 +383,8 @@ function renderHeader() {
   const c = o.commit;
   const why = !c ? '' : c.commit_ts ? ` (${commitAge(c, true)})`
     : ' (age unknown: not in the OBP-API checkout nor on GitHub)';
-  $('watching').textContent = `Watching ${o.obp_base_url}` + (c ? ` · commit ${c.git_commit.slice(0, 12)}${why}` : '');
+  $('watching').replaceChildren(el('b', { textContent: `Watching ${o.obp_base_url}` }),
+    c ? ` · commit ${c.git_commit.slice(0, 12)}${why}` : '');
   const w = o.api_usage.window, p = o.api_usage.previous_window;
   const chips = [
     ['Watched', `${o.coverage.watched_hours}h`, ` of ${o.window_hours}h`],
@@ -569,17 +578,34 @@ async function load() {
   }
 }
 
-// One tab per OBP-API instance (none when there is only one), each followed by its apps; the open one is kept in the URL's #
+// Two rows of tabs: the OBP-API instances (none when there is only one), then the open instance and its apps
+// (none when it has no apps); the open one is kept in the URL's #
+function instanceTab(i, label) {
+  const age = commitAge(i.commit);
+  const b = el('button', { type: 'button', title: `${i.obp_base_url}` + (i.commit ? ` · commit ${i.commit.git_commit.slice(0, 12)}` : '')
+    + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : '') }, [label]);
+  if (age) b.append(el('span', { className: 'age', textContent: age }));
+  if (i.problems) b.append(el('span', { className: 'flag', role: 'img', ariaLabel: `${i.problems} to fix` }));
+  return b;
+}
+
 function renderInstances() {
+  const open = state.instances.find((i) => i.name === state.instance);
+  const top = open ? (open.parent || open.name) : null;
+  const obps = state.instances.filter((i) => !i.parent);
   const nav = $('instances');
-  nav.hidden = state.instances.length < 2;
-  nav.replaceChildren(...state.instances.map((i) => {
-    const age = commitAge(i.commit);
-    const b = el('button', { type: 'button', title: `${i.obp_base_url}` + (i.commit ? ` · commit ${i.commit.git_commit.slice(0, 12)}` : '')
-      + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : ''),
-      className: i.parent ? 'app' : '' }, [i.parent ? i.name.slice(i.parent.length + 1) : i.name]);
-    if (age) b.append(el('span', { className: 'age', textContent: age }));
-    if (i.problems) b.append(el('span', { className: 'flag', role: 'img', ariaLabel: `${i.problems} to fix` }));
+  nav.hidden = obps.length < 2;
+  nav.replaceChildren(...obps.map((i) => {
+    const b = instanceTab(i, i.name);
+    b.setAttribute('aria-pressed', String(top === i.name));
+    b.onclick = () => openInstance(i.name);
+    return b;
+  }));
+  const apps = state.instances.filter((i) => i.parent && i.parent === top);
+  const row = $('apps');
+  row.hidden = !apps.length;
+  row.replaceChildren(...[state.instances.find((i) => i.name === top), ...apps].filter(Boolean).map((i) => {
+    const b = instanceTab(i, !i.parent ? 'OBP-API' : i.name.startsWith(i.parent + '-') ? i.name.slice(i.parent.length + 1) : i.name);
     b.setAttribute('aria-pressed', String(state.instance === i.name));
     b.onclick = () => openInstance(i.name);
     return b;

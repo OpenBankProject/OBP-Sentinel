@@ -8,13 +8,13 @@ SENTINEL_DIGEST_DIR are only taken prefixed, so instances never share them. With
 there is one instance, "default", using sentinel.db and digests/ as before.
 
 Each OBP-API instance can have apps that serve their own log cache and Telemetry in OBP-API's shape: API
-Explorer II, the API Manager and the Portal. They are found in the instance's public app directory
+Explorer II, the API Manager, the Portal and OBP-OIDC. They are found in the instance's public app directory
 (GET /obp/v6.0.0/app-directory), read at startup and kept in the instance's database for when OBP-API cannot be
 reached. Each becomes an instance of its own, named <instance>-<app> (local-explorer), with its own database and
 digests. It uses its OBP-API instance's settings, OIDC client included, except SENTINEL_TELEMETRY_PREFIXES and
 SENTINEL_IGNORE_REGEX, which are written for OBP-API: an app takes those only prefixed with its own name
-(LOCAL_EXPLORER_SENTINEL_IGNORE_REGEX). Its source is EXPLORER_SOURCE (API Explorer II) or FRONTEND_SOURCE
-(OBP-Frontend, for the API Manager and the Portal), shared by all instances.
+(LOCAL_EXPLORER_SENTINEL_IGNORE_REGEX). Its source is EXPLORER_SOURCE (API Explorer II), FRONTEND_SOURCE
+(OBP-Frontend, for the API Manager and the Portal) or OIDC_SOURCE (OBP-OIDC), shared by all instances.
 """
 
 import logging
@@ -48,6 +48,7 @@ APPS = {
     "explorer": App("public_obp_api_explorer_url", "/api/monitoring", "EXPLORER_SOURCE", "OpenBankProject/API-Explorer-II"),
     "manager": App("public_obp_api_manager_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
     "portal": App("public_obp_portal_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
+    "oidc": App("public_obp_oidc_url", "/monitoring", "OIDC_SOURCE", "OpenBankProject/OBP-OIDC"),
 }
 APP_DIRECTORY_STATE = "app_directory"
 logger = logging.getLogger(__name__)

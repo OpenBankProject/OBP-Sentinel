@@ -1,6 +1,6 @@
 """The few OBP-API calls Sentinel makes, as a Platform App: the log cache, Telemetry, aggregate metrics and its
 Scope declaration. Plus the public root endpoint, for the git commit the instance runs. An app (API Explorer II,
-the API Manager, the Portal) serves its own log cache and Telemetry at its monitoring path, checking the same token
+the API Manager, the Portal, OBP-OIDC) serves its own log cache and Telemetry at its monitoring path, checking the same token
 and Roles with OBP-API.
 
 Sentinel calls OBP as its own application (OAuth2 client credentials from OBP-OIDC), not as a User.

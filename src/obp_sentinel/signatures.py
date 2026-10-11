@@ -5,7 +5,8 @@ may be followed by a line holding the exception (`Throwable.toString`). Two line
 in ids, numbers, amounts or quoted values belong to the same signature.
 
 The apps are JavaScript: the API Manager and Portal write `[timestamp] [LEVEL] [context] message`, API Explorer II
-plain messages, and an error is `TypeError: message` followed by `    at ...` stack lines.
+plain messages, and an error is `TypeError: message` followed by `    at ...` stack lines. OBP-OIDC (Scala) writes
+`logger - message` or plain messages, an exception followed by its `\tat ...` stack lines.
 """
 
 import hashlib
