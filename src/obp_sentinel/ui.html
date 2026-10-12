@@ -6,18 +6,30 @@
 <title>Sentinel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+// The theme chosen with the header's switch, if any, before the page is drawn
+try { const t = localStorage.getItem('sentinel-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
 <style>
 :root {
   --bg: #F4F5F2; --surface: #FFFFFF; --ink: #16181D; --muted: #5A5F66; --line: #D9DCD5; --line-strong: #C4C8C0;
-  --accent: #0B5F5B; --danger: #9A3A0A;
+  --accent: #0B5F5B; --danger: #9A3A0A; --good: #1E7B34; --warn: #8A5A00; --on-accent: #FFFFFF;
   --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
+/* Dark: the system's choice, unless the header's switch chose (data-theme on <html>) */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #121416; --surface: #1B1E21; --ink: #E8EAE4; --muted: #A2A8AE; --line: #2E3338; --line-strong: #444A50;
-    --accent: #4FB3AC; --danger: #F0925C;
+    --accent: #4FB3AC; --danger: #F0925C; --good: #5CC27A; --warn: #E3B341; --on-accent: #0B0C0E;
   }
 }
+:root[data-theme="dark"] {
+  --bg: #121416; --surface: #1B1E21; --ink: #E8EAE4; --muted: #A2A8AE; --line: #2E3338; --line-strong: #444A50;
+  --accent: #4FB3AC; --danger: #F0925C; --good: #5CC27A; --warn: #E3B341; --on-accent: #0B0C0E;
+}
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
 button, textarea { font: inherit; color: inherit; }
@@ -25,16 +37,27 @@ header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .bar { max-width: 1280px; margin: 0 auto; padding: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand strong { font-size: 18px; letter-spacing: -0.01em; }
+.help-link { margin-left: auto; color: var(--accent); font-size: 14px; }
+#theme { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px;
+  background: none; color: var(--muted); font-size: 13px; cursor: pointer; }
+#theme:hover { color: var(--ink); border-color: var(--line-strong); }
 .sub { font-size: 13px; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .chip { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
 .chip span { color: var(--muted); }
 .chip b { font-family: var(--mono); font-weight: 500; }
+.chip.guard { overflow-wrap: anywhere; }
+.chip.guard .mark { font-family: var(--sans); font-weight: 700; }
+.chip.guard.secured { border-color: var(--good); color: var(--good); }
+.chip.guard.open { border-color: var(--bad); color: var(--bad); font-weight: 600; }
+.chip.guard.unknown { border-color: var(--warn); }
+.chip.guard.unknown .mark { color: var(--warn); }
 nav.instances { max-width: 1280px; margin: 0 auto; padding: 0 16px; border-bottom: 0; }
 nav.instances button { font-size: 18px; font-weight: 600; }
+nav.instances:not(.apps) button[aria-pressed="true"] { font-size: 22px; }
 nav.instances[hidden] { display: none; }
 nav.instances.apps button { font-size: 14px; font-weight: 400; }
-nav.instances.apps button[aria-pressed="true"] { font-weight: 600; }
+nav.instances.apps button[aria-pressed="true"] { font-size: 17px; font-weight: 600; }
 .host { max-width: 1280px; margin: 0 auto; padding: 12px 16px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 32px; }
 #watching { font-size: 15px; overflow-wrap: anywhere; }
 #watching b { font-weight: 600; }
@@ -50,7 +73,7 @@ nav .n { font-family: var(--mono); font-size: 13px; margin-left: 4px; }
 #suggestions { margin-bottom: 28px; }
 .cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
 .list { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.item { display: block; width: 100%; text-align: left; padding: 14px 16px; border-radius: 8px; background: var(--surface);
+.item { display: block; width: 100%; min-width: 0; overflow-wrap: break-word; text-align: left; padding: 14px 16px; border-radius: 8px; background: var(--surface);
   border: 1px solid var(--line); cursor: pointer; }
 .item[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .item .top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
@@ -88,8 +111,7 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .actions button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: var(--surface); font-weight: 500; cursor: pointer; }
-.actions .primary { background: var(--accent); border-color: var(--accent); color: #FFFFFF; font-weight: 600; }
-@media (prefers-color-scheme: dark) { .actions .primary { color: #0B0C0E; } }
+.actions .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .actions .dismiss { color: var(--danger); margin-left: auto; }
 .actions button:disabled { opacity: 0.5; cursor: default; }
 .status { margin: 14px 0 0; font-size: 14px; color: var(--accent); min-height: 1.5em; }
@@ -103,8 +125,7 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .history .first { color: var(--muted); }
 
 /* Activity */
-:root { --good: #1E7B34; --warn: #8A5A00; --bad: var(--danger); }
-@media (prefers-color-scheme: dark) { :root { --good: #5CC27A; --warn: #E3B341; } }
+:root { --bad: var(--danger); }
 .activity { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; margin-bottom: 28px; }
 .pulse-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
 .pulse { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
@@ -201,10 +222,11 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
 <header>
   <div class="bar">
     <div class="brand">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-           stroke-linejoin="round" aria-hidden="true" style="color: var(--accent)"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"></path><circle cx="12" cy="11" r="2.5"></circle></svg>
+      <svg width="28" height="28" role="img" aria-label="Open Bank Project" viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M24.214 12.107C24.214 14.5015 23.504 16.8423 22.1736 18.8333C20.8433 20.8243 18.9524 22.3761 16.7402 23.2925C14.5279 24.2088 12.0936 24.4486 9.74504 23.9814C7.39651 23.5143 5.23924 22.3612 3.54604 20.668C1.85284 18.9748 0.699761 16.8175 0.232608 14.469C-0.234544 12.1205 0.00521459 9.6861 0.921567 7.47383C1.83792 5.26156 3.38971 3.37071 5.3807 2.04037C7.37169 0.710038 9.71246 -3.66952e-06 12.107 -3.66952e-06C13.697 -0.000249893 15.2714 0.312716 16.7405 0.921063C18.2095 1.52941 19.5442 2.42122 20.6685 3.54551C21.7928 4.6698 22.6846 6.00455 23.2929 7.47356C23.9013 8.94256 24.2143 10.517 24.214 12.107Z" fill="#51B265"/><path d="M17.1062 11.5933C20.4127 5.83503 15.7941 4.56228 15.7941 4.56228C10.7856 3.06272 7.49971 5.91754 7.49971 5.91754C5.10792 7.60454 5.13229 11.7283 5.13229 11.7283C4.90173 17.018 8.06392 18.6994 8.06392 18.6994C8.06392 18.6994 11.8878 21.3536 16.8363 19.3104C21.7848 17.2673 17.1137 11.5896 17.1137 11.5896L17.1062 11.5933ZM14.8007 17.361C11.1342 17.8033 9.55222 16.7218 9.55222 16.7218C9.55222 16.7218 7.72276 15.6271 7.66653 12.6093C7.6103 9.59144 8.34508 8.71419 8.34508 8.71419C8.80817 7.96896 9.50283 7.39612 10.3226 7.08344C12.1221 6.39177 14.1465 6.72351 14.1465 6.72351C14.1465 6.72351 17.1456 6.94286 15.2224 9.7564C15.2224 9.7564 11.4604 6.97657 9.81465 9.9588C9.81465 9.9588 8.68998 12.2906 10.2683 14.3469C11.8465 16.4032 15.468 13.4378 15.468 13.4378C15.468 13.4378 18.4764 16.9205 14.8082 17.361H14.8007ZM13.6835 11.6852L12.0958 12.6224C11.6085 11.8988 12.0865 10.9598 12.0865 10.9598L13.6835 11.6852Z" fill="white"/>  </svg>
       <strong>Sentinel</strong>
     </div>
+    <a class="help-link" href="/help">Help</a>
+    <button type="button" id="theme"></button>
   </div>
   <nav class="instances" id="instances" aria-label="OBP-API instances" hidden></nav>
   <nav class="instances apps" id="apps" aria-label="Apps of this instance" hidden></nav>
@@ -258,6 +280,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       </div>
       <div class="respond">
         <p class="previous" id="d-previous" hidden></p>
+        <p class="previous" id="d-recheck" hidden></p>
         <label for="comment">Comment for the analyst <span>(optional)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
@@ -265,6 +288,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
           <button type="button" data-verdict="later" id="later-btn">Later</button>
           <button type="button" data-verdict="acted">Some action taken</button>
           <button type="button" data-verdict="fixed">Should be fixed now</button>
+          <button type="button" id="recheck-btn">Look again: still an issue?</button>
           <button type="button" class="dismiss" data-verdict="dismissed">Dismiss, never suggest again</button>
         </div>
         <p class="status" role="status" id="status"></p>
@@ -394,9 +418,22 @@ function renderHeader() {
   ];
   $('chips').replaceChildren(...chips.map(([label, value, after]) =>
     el('div', { className: 'chip' }, [el('span', { textContent: label + ' ' }), el('b', { textContent: value }),
-                                      el('span', { textContent: after })])));
+                                      el('span', { textContent: after })])), ...securedChip(o.secured));
   $('rules').textContent = `At most ${o.digest_size} per digest, ${o.max_per_week} a week.`;
   $('later-btn').textContent = `Later (${o.snooze_days} days)`;
+}
+
+// Whether the endpoints Sentinel reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
+// call with no token, as checked hourly by the collector
+function securedChip(s) {
+  if (!s) return [];
+  const odd = s.checks.filter((c) => !(s.verdict === 'open' ? c.status !== 200 : [401, 403].includes(c.status)));
+  const [mark, text] = { secured: ['✓', 'Secured: no token, no data'], open: ['✗', 'Open: answers without a token'],
+                         unknown: ['?', 'Secured? Could not tell'] }[s.verdict];
+  return [el('div', { className: `chip guard ${s.verdict}` }, [
+    el('b', { className: 'mark', textContent: mark + ' ' }), text,
+    ...(odd.length ? [el('span', { textContent: ': ' + odd.map((c) => `${c.path} (${c.status ?? 'no answer'})`).join(', ') })] : []),
+  ])];
 }
 
 function visible() {
@@ -418,6 +455,9 @@ function render() {
   const current = items.find((f) => f.id === state.selected) || items[0];
   state.selected = current ? current.id : null;
 
+  // A path in a title may wrap after any /, rather than overflowing the card
+  const breakAfterSlashes = (text) => text.split('/').flatMap((part, i) => i ? ['/', el('wbr'), part] : [part]);
+
   $('list').replaceChildren(...(items.length ? items.map((f) => {
     // A div, not a button: its text must stay selectable and copyable
     const b = el('div', { className: 'item', tabIndex: 0 }, [
@@ -425,7 +465,7 @@ function render() {
         el('span', { className: 'cat', textContent: f.category }),
         el('span', { className: 'prio', textContent: `P ${f.priority.toFixed(2)}` }),
       ]),
-      el('div', { className: 't', textContent: f.title }),
+      el('div', { className: 't' }, breakAfterSlashes(f.title)),
       el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', `#${f.id}`, '·', STATUS[f.status] || f.status]
         .map((s) => el('span', { textContent: s }))),
     ]);
@@ -456,6 +496,7 @@ function render() {
   const commits = current.evidence_commits || {};
   $('d-evidence').textContent = (current.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
     (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)})` : sha);
+  renderRecheck(current);
   renderHistory(current);
   $('d-hypothesis').textContent = current.hypothesis;
   $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
@@ -466,6 +507,46 @@ function render() {
     $('d-previous').textContent = `Marked ${fb.verdict} on ${fmtDate(fb.ts)}` + (fb.comment ? `: “${fb.comment}”` : '');
   }
 }
+
+// Look again: is it still an issue in the code the instance runs now? (Claude, in the background, kept with the finding)
+function renderRecheck(f) {
+  const looking = f.recheck_status === 'running';
+  const p = looking && f.recheck_progress;
+  const answer = looking
+    ? 'Looking again at the code the instance runs now. This takes a few minutes; the answer will show here.'
+      + (p ? ` Started ${ago(Date.now() / 1000 - p.started)}, ${p.steps} command${p.steps === 1 ? '' : 's'} run so far. Now: ${p.step}` : '')
+    : f.recheck_status === 'failed' && !f.recheck ? 'Could not look again.' : f.recheck || '';
+  $('d-recheck').hidden = !answer;
+  $('d-recheck').replaceChildren(
+    el('b', { textContent: looking || !f.rechecked_at ? 'Claude: ' : `Claude, ${fmtDate(f.rechecked_at)}: ` }), answer);
+  $('recheck-btn').disabled = looking;
+}
+
+// Until a background judgement about finding `id` (its `field` is 'running') is made, fetch the findings again
+function pollWhileRunning(id, field) {
+  const poll = setInterval(async () => {
+    const findings = await api('/api/findings').catch(() => null);
+    const g = findings && findings.find((x) => x.id === id);
+    if (!g || g[field] !== 'running') clearInterval(poll);
+    if (findings) { state.findings = findings; if (document.activeElement?.id !== 'comment') render(); }
+  }, 5000);
+}
+
+$('recheck-btn').addEventListener('click', async () => {
+  const id = state.selected;
+  $('recheck-btn').disabled = true;
+  try {
+    const started = await api(`/api/findings/${id}/recheck`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                                body: '{}' });
+    const f = state.findings.find((x) => x.id === id);
+    if (f) Object.assign(f, started);
+    render();
+    pollWhileRunning(id, 'recheck_status');
+  } catch (e) {
+    setStatus(`Could not look again: ${e.message}`, true);
+    $('recheck-btn').disabled = false;
+  }
+});
 
 // Trace history: the commits that changed the finding's lines (git, at once), oldest first, and which one introduced
 // the problem (judged by Claude in the background, kept with the finding)
@@ -498,13 +579,7 @@ $('trace-btn').addEventListener('click', async () => {
     const f = state.findings.find((x) => x.id === id);
     if (f) Object.assign(f, traced);
     render();
-    // The judgement takes a minute or so: look again until it is made
-    const poll = setInterval(async () => {
-      const findings = await api('/api/findings').catch(() => null);
-      const g = findings && findings.find((x) => x.id === id);
-      if (!g || g.trace_status !== 'running') clearInterval(poll);
-      if (findings) { state.findings = findings; if (document.activeElement?.id !== 'comment') render(); }
-    }, 5000);
+    pollWhileRunning(id, 'trace_status');  // the judgement takes a minute or so
   } catch (e) {
     setStatus(`Could not trace the history: ${e.message}`, true);
     $('trace-btn').disabled = false;
@@ -525,6 +600,7 @@ function findingText(f) {
     '', '## Where', ...f.files.map((x) => `- ${x}`),
     '', '## Suggested change', f.suggested_fix,
     ...(f.introduced ? ['', '## History', f.introduced] : []),
+    ...(f.recheck ? ['', '## Still an issue?', f.recheck] : []),
   ].join('\n');
 }
 
@@ -547,7 +623,7 @@ function setStatus(text, error = false) {
 async function respond(verdict) {
   const id = state.selected;
   if (id == null) return;
-  const buttons = document.querySelectorAll('.actions button');
+  const buttons = document.querySelectorAll('.actions button[data-verdict]');
   buttons.forEach((b) => { b.disabled = true; });
   try {
     await api(`/api/findings/${id}/feedback`, {
@@ -566,7 +642,7 @@ async function respond(verdict) {
   }
 }
 
-document.querySelectorAll('.actions button').forEach((b) => { b.onclick = () => respond(b.dataset.verdict); });
+document.querySelectorAll('.actions button[data-verdict]').forEach((b) => { b.onclick = () => respond(b.dataset.verdict); });
 
 async function load() {
   try {
@@ -953,6 +1029,21 @@ loadSource();
   const wanted = decodeURIComponent(location.hash.slice(1));
   openInstance((state.instances.find((i) => i.name === wanted) || state.instances[0]).name);
 })();
+
+// Dark or light, overriding the system's choice; remembered in this browser only
+function isDark() {
+  const t = document.documentElement.dataset.theme;
+  return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function renderTheme() { $('theme').textContent = isDark() ? 'Light mode' : 'Dark mode'; }
+$('theme').addEventListener('click', () => {
+  const t = isDark() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('sentinel-theme', t); } catch {}
+  renderTheme();
+});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderTheme);
+renderTheme();
 
 $('run-now').addEventListener('click', async () => {
   $('run-now').disabled = true;

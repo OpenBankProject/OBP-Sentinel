@@ -26,6 +26,9 @@ REDECLARE_EVERY_SECONDS = 3600
 METRICS_LAG_SECONDS = 120
 # After a pause, catch up at most this many buckets per poll
 METRICS_MAX_BUCKETS_PER_POLL = 8
+# How often to check that the endpoints Sentinel reads refuse a call with no token
+SECURED_CHECK_SECONDS = 3600
+SECURED = "endpoints_secured"
 
 
 def new_entries(current: list[str], previous_head: list[str]) -> tuple[list[str], bool]:
@@ -184,13 +187,40 @@ class Collector:
         self.store.set_state("reach", reach)
         return f"reach {len(reach['endpoints'])} endpoints" + ("" if reach["roles"] is not None else ", Roles held unknown")
 
+    def secured_paths(self) -> list[str]:
+        """The endpoints Sentinel reads with its token: an app's /monitoring ones, or OBP-API's log cache,
+        Telemetry and aggregate metrics."""
+        c = self.config
+        levels = [*c.log_levels, "all"]
+        if c.is_app:
+            return [f"{c.monitoring_path}/log-cache/{level}" for level in levels] + [f"{c.monitoring_path}/telemetry"]
+        return ([f"/obp/{c.log_cache_api_version}/system/log-cache/{level}" for level in levels]
+                + [f"/obp/{c.telemetry_api_version}/management/telemetry",
+                   f"/obp/{c.aggregate_metrics_api_version}/management/aggregate-metrics"])
+
+    def check_secured(self) -> str:
+        """Whether the endpoints Sentinel reads refuse a call with no token, as they must. Hourly.
+        Secured if each refuses (401, 403); open if any answers 200; otherwise it cannot tell (no answer, 404 ...)."""
+        if now() - self.store.get_state(SECURED, {}).get("ts", 0) < SECURED_CHECK_SECONDS:
+            return "secured unchanged"
+        checks = [{"path": path, "status": self.client.status_without_token(self.config.obp_base_url + path)}
+                  for path in self.secured_paths()]
+        statuses = [c["status"] for c in checks]
+        verdict = "open" if 200 in statuses else "secured" if all(s in (401, 403) for s in statuses) else "unknown"
+        self.store.set_state(SECURED, {"ts": now(), "verdict": verdict, "checks": checks})
+        if verdict == "open":
+            logger.warning("Answers without a token: %s",
+                           ", ".join(self.config.obp_base_url + c["path"] for c in checks if c["status"] == 200))
+        return f"endpoints {verdict} without a token"
+
     def poll_once(self) -> None:
         if self.config.is_app:  # only the log cache and Telemetry: Scopes are declared by watching OBP-API itself
             results = [self.poll_logs(level) for level in self.config.log_levels] + [self.poll_telemetry()]
+            results.append(self.check_secured())
         else:
             self.declare_platform_app()
             results = [self.poll_root()] + [self.poll_logs(level) for level in self.config.log_levels]
-            results += [self.poll_telemetry(), self.poll_metrics(), self.poll_reach()]
+            results += [self.poll_telemetry(), self.poll_metrics(), self.poll_reach(), self.check_secured()]
         logger.info("Polled: %s", ", ".join(results))
         last_prune = self.store.get_state("last_prune", 0)
         if now() - last_prune > PRUNE_EVERY_SECONDS:

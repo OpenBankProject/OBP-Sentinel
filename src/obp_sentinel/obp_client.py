@@ -137,6 +137,13 @@ class OBPClient:
             return response.json()
         raise OBPError(f"{method} {url} failed after getting a new token")
 
+    def status_without_token(self, url: str) -> int | None:
+        """The HTTP status of a GET sent with no token, or None if there was no answer."""
+        try:
+            return self.http.get(url).status_code
+        except httpx.HTTPError:
+            return None
+
     def root(self) -> dict:
         """The instance's API info, with the git_commit it runs. Public: no token needed."""
         url = f"{self.config.obp_base_url}/obp/{self.config.root_api_version}/root"

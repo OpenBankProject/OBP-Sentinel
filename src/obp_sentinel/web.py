@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
-from . import history
+from . import history, recheck
 from .analyst import Analyst, decide, unavailable_reason
 from .config import Config
 from .health import health
@@ -37,6 +37,8 @@ WAITING_SHOWN = 5
 WORDS = re.compile(r"[A-Za-z]{3}")
 FEEDBACK_PATH = re.compile(r"^/api/findings/(\d+)/feedback$")
 TRACE_PATH = re.compile(r"^/api/findings/(\d+)/trace$")
+RECHECK_PATH = re.compile(r"^/api/findings/(\d+)/recheck$")
+HELP_GLOSSARY_ITEM = "/obp/v7.0.0/api/glossary/OBP-Sentinel"
 MAX_BODY_BYTES = 10_000
 COMMIT_HASH = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")  # at least one letter: not a plain number
 _commits: dict[tuple[str, str], dict | None] = {}  # commits never change, so neither do their dates and authors
@@ -121,6 +123,7 @@ def overview(store: Store, config: Config) -> dict:
         "digest_size": config.digest_size,
         "max_per_week": config.max_per_week,
         "snooze_days": config.snooze_days,
+        "secured": store.get_state("endpoints_secured"),
     }
 
 
@@ -225,6 +228,10 @@ def findings(store: Store, config: Config) -> list[dict]:
         item["history"] = json.loads(item["history"]) if item.get("history") else None
         if item.get("trace_status") == "running" and not history.is_running(config.name, f["id"]):
             item["trace_status"] = "failed"  # Sentinel stopped while judging
+        if item.get("recheck_status") == "running" and not recheck.is_running(config.name, f["id"]):
+            item["recheck_status"] = "failed"  # Sentinel stopped while looking
+        elif item.get("recheck_status") == "running":
+            item["recheck_progress"] = recheck.progress(config.name, f["id"])
         item["first_suggested"] = first_suggested.get(f["id"])
         item["feedback"] = latest_feedback.get(f["id"])
         item["evidence_commits"] = {
@@ -243,6 +250,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
     Sentinel stops them too.
     """
     page = files("obp_sentinel").joinpath("ui.html").read_bytes()
+    help_page = files("obp_sentinel").joinpath("help.html").read_bytes()
     by_name = {c.name: c for c in configs}
     analysts = {c.name: (analysts or {}).get(c.name) or Analyst(c) for c in configs}
     scanner = scanner or Scanner(configs)  # Go and Stop are kept in its database; it scans where it was started
@@ -298,6 +306,10 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             path = urlsplit(self.path).path
             if path == "/":
                 return self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
+            if path == "/help":
+                return self._send(HTTPStatus.OK, help_page, "text/html; charset=utf-8")
+            if path == "/api/help":
+                return self._json(HTTPStatus.OK, help_text(configs))
             if path == "/api/instances":
                 return self._json(HTTPStatus.OK, [self._with_store(c, lambda s, c=c: instance_status(s, c)) for c in configs])
             if path == "/api/source":  # the source review is shared by all instances
@@ -326,6 +338,15 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 if config := self._instance():
                     try:
                         return self._json(HTTPStatus.OK, history.trace(config, int(trace.group(1))))
+                    except ValueError as e:
+                        return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+                return
+            if again := RECHECK_PATH.match(path):
+                if config := self._instance():
+                    if reason := unavailable_reason(config, scheduled=False):
+                        return self._json(HTTPStatus.CONFLICT, {"error": reason})
+                    try:
+                        return self._json(HTTPStatus.OK, recheck.recheck(config, int(again.group(1))))
                     except ValueError as e:
                         return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
                 return
@@ -399,6 +420,17 @@ def make_server(configs: list[Config], host: str, port: int, extra_hosts: tuple[
     allowed_hosts.update(f"{name}:{port}" for name in names)
     logger.info("Sentinel UI on http://%s:%s", host, port)
     return server
+
+
+def help_text(configs: list[Config]) -> dict:
+    """The help page's text: the OBP-Sentinel glossary item, read from the first OBP-API instance (no token needed)."""
+    obp = next((c for c in configs if not c.is_app), configs[0])
+    url = obp.obp_base_url + HELP_GLOSSARY_ITEM
+    try:
+        with urllib.request.urlopen(url, timeout=15) as response:
+            return {"url": url, "html": json.load(response)["description"]["html"]}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return {"url": url, "error": str(e)[:300]}
 
 
 def serve(configs: list[Config], host: str, port: int, extra_hosts: tuple[str, ...] = (),

@@ -47,6 +47,9 @@ class FakeClient:
     def declare_platform_app(self):
         return {"required_scopes": []}
 
+    def status_without_token(self, url):
+        return 401
+
     def aggregate_metrics(self, from_ts, to_ts):
         return {"count": 0}
 

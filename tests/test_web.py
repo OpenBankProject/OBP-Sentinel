@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from obp_sentinel.store import Store
+from obp_sentinel import web
 from obp_sentinel.web import findings, make_handler
 
 
@@ -59,6 +60,24 @@ def test_page_and_findings(server):
     source = json.loads(data)
     assert status == 200 and source["total"] == 0 and source["instances"] == [{"name": "default", "listed_at": None}]
     assert source["scanner"]["on"] is False and source["scanner"]["scans"] == []
+
+
+def test_help_reads_the_glossary_item_from_obp_api(server, config, monkeypatch):
+    status, page = request(server, "GET", "/help")
+    assert status == 200 and b"<title>Sentinel Help</title>" in page
+    asked = []
+
+    class Answer:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return json.dumps({"description": {"html": "<h1>OBP-Sentinel</h1>"}}).encode()
+
+    monkeypatch.setattr(web.urllib.request, "urlopen", lambda url, timeout: asked.append(url) or Answer())
+    status, data = request(server, "GET", "/api/help")
+    assert json.loads(data)["html"] == "<h1>OBP-Sentinel</h1>"
+    assert asked == [config.obp_base_url + "/obp/v7.0.0/api/glossary/OBP-Sentinel"]
+    monkeypatch.setattr(web.urllib.request, "urlopen", lambda url, timeout: (_ for _ in ()).throw(OSError("refused")))
+    assert json.loads(request(server, "GET", "/api/help")[1])["error"] == "refused"
 
 
 def test_feedback_is_recorded(server, config):

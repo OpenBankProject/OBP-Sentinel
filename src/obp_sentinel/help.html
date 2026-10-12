@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel Help</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+// The theme chosen on the main page, if any
+try { const t = localStorage.getItem('sentinel-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+<style>
+:root {
+  --bg: #F4F5F2; --surface: #FFFFFF; --ink: #16181D; --muted: #5A5F66; --line: #D9DCD5; --accent: #0B5F5B;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121416; --surface: #1B1E21; --ink: #E8EAE4; --muted: #A2A8AE; --line: #2E3338; --accent: #4FB3AC;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121416; --surface: #1B1E21; --ink: #E8EAE4; --muted: #A2A8AE; --line: #2E3338; --accent: #4FB3AC;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans); }
+header { background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar { max-width: 760px; margin: 0 auto; padding: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.bar strong { font-size: 18px; }
+a { color: var(--accent); }
+main { max-width: 760px; margin: 0 auto; padding: 8px 16px 64px; overflow-wrap: break-word; }
+h1 { font-size: 28px; line-height: 1.2; margin: 24px 0 8px; }
+h2 { font-size: 20px; margin: 40px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 24px 0 4px; }
+.lead { color: var(--muted); font-size: 18px; margin: 0 0 16px; }
+code { font: 14px var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+pre { font: 13px/1.4 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  padding: 12px; overflow-x: auto; }
+table { border-collapse: collapse; } th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+li { margin: 4px 0; }
+.source { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; margin-top: 40px; }
+h2:first-child, #help > h1:first-child { margin-top: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <strong>Sentinel</strong>
+    <a href="/">Back to the suggestions</a>
+  </div>
+</header>
+<main>
+<div id="help"><p class="lead">Loading the OBP-Sentinel glossary item from OBP-API…</p></div>
+<p class="source" id="source"></p>
+</main>
+<script>
+// The text is OBP-API's glossary item OBP-Sentinel, read by Sentinel. Only plain text formatting is kept from its HTML.
+const KEEP = new Set(['H1', 'H2', 'H3', 'H4', 'P', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'CODE', 'PRE', 'A',
+                      'BLOCKQUOTE', 'BR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
+function clean(node) {
+  const out = document.createDocumentFragment();
+  for (const child of node.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) { out.append(child.textContent); continue; }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue;
+    if (!KEEP.has(child.tagName)) { out.append(clean(child)); continue; }
+    const copy = document.createElement(child.tagName);
+    const href = child.tagName === 'A' && child.getAttribute('href');
+    if (href && /^https?:\/\//.test(href)) copy.href = href;  // links into other sites only: relative ones would point here
+    copy.append(clean(child));
+    out.append(copy);
+  }
+  return out;
+}
+(async () => {
+  const help = await fetch('/api/help').then((r) => r.json()).catch((e) => ({ error: e.message }));
+  if (help.error) {
+    document.getElementById('help').replaceChildren(Object.assign(document.createElement('p'), {
+      textContent: `Could not read the OBP-Sentinel glossary item from OBP-API: ${help.error}. ` +
+        'This OBP-API may be older than the version that added it. The README describes Sentinel too.' }));
+  } else {
+    document.getElementById('help').replaceChildren(clean(new DOMParser().parseFromString(help.html, 'text/html').body));
+  }
+  if (help.url) document.getElementById('source').textContent = `From OBP-API's glossary: ${help.url}`;
+})();
+</script>
+</body>
+</html>

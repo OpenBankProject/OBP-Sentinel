@@ -113,7 +113,10 @@ CREATE TABLE IF NOT EXISTS findings (
     snoozed_until INTEGER,
     history       TEXT,                    -- JSON: per file, the commits that changed its lines (Trace history)
     introduced    TEXT,                    -- which commit introduced the problem, as judged by Trace history
-    trace_status  TEXT                     -- running | done | failed
+    trace_status  TEXT,                    -- running | done | failed
+    recheck       TEXT,                    -- whether it is still an issue, as judged by Look again
+    recheck_status TEXT,                   -- running | done | failed
+    rechecked_at  INTEGER
 );
 
 -- What was shown to people, and when.
@@ -183,9 +186,11 @@ class Store:
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
         have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
-        for column in ("summary", "history", "introduced", "trace_status"):  # added after the first databases were made
+        added = {"summary": "TEXT", "history": "TEXT", "introduced": "TEXT", "trace_status": "TEXT", "recheck": "TEXT",
+                 "recheck_status": "TEXT", "rechecked_at": "INTEGER"}  # after the first databases were made
+        for column, kind in added.items():
             if column not in have:
-                self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} TEXT")
+                self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} {kind}")
 
     def close(self) -> None:
         self.db.close()

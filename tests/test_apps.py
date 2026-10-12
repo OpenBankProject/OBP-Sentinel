@@ -86,6 +86,9 @@ class AppClient:
                 "meters": [{"name": "manager.http.requests", "type": "timer", "tags": {"route": "/status"},
                             "measurements": {"count": 3}}]}
 
+    def status_without_token(self, url):
+        return 401
+
     def __getattr__(self, name):  # root, metrics, reach and Scope declaration are OBP-API's only
         raise AssertionError(f"an app has no {name}")
 
