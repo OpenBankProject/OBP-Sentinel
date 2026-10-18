@@ -1,6 +1,7 @@
 """Sentinel's memory: a SQLite database. All times are Unix epoch seconds (UTC)."""
 
 import json
+import re
 import sqlite3
 import time
 
@@ -113,14 +114,32 @@ CREATE TABLE IF NOT EXISTS findings (
     snoozed_until INTEGER,
     history       TEXT,                    -- JSON: per file, the commits that changed its lines (Trace history)
     introduced    TEXT,                    -- which commit introduced the problem, as judged by Trace history
+    introduced_commit TEXT,                -- the same, split out: the commit's short hash
+    introduced_when   TEXT,                --   its author date, YYYY-MM-DD
+    introduced_who    TEXT,                --   its author
+    introduced_where  TEXT,                --   the file it changed (answers before 2026-10-19 have none)
     trace_status  TEXT,                    -- running | done | failed
     recheck       TEXT,                    -- whether it is still an issue, as judged by Look again
     recheck_status TEXT,                   -- running | done | failed
     rechecked_at  INTEGER,
     fix_status    TEXT,                    -- queued | running | committed | skipped | failed (Fix this)
     fix           TEXT,                    -- Fix this: the commit, or why not, and Claude's one line
-    fix_at        INTEGER
+    fix_at        INTEGER,
+    fix_message   TEXT,                    -- the commit message Claude suggests, for a person to edit
+    fix_files     TEXT,                    -- JSON list of the files the staged fix changes
+    fix_patch     TEXT                     -- the staged fix, to take it back out (Discard)
 );
+
+-- Fix this: everything Claude did for a finding's latest fix, tool results too (kind: thinking | note | tool |
+-- result | sentinel)
+CREATE TABLE IF NOT EXISTS fix_steps (
+    id         INTEGER PRIMARY KEY,
+    finding_id INTEGER NOT NULL REFERENCES findings(id),
+    ts         INTEGER NOT NULL,
+    kind       TEXT NOT NULL,
+    text       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fix_steps_finding ON fix_steps(finding_id);
 
 -- What was shown to people, and when.
 CREATE TABLE IF NOT EXISTS suggestions (
@@ -173,6 +192,17 @@ VERDICTS = ("accepted", "acted", "dismissed", "later", "fixed")
 CATEGORIES = {"bug", "performance", "security", "reliability", "readability", "api-contract"}
 
 
+INTRODUCED = re.compile(r"^Introduced in (?P<commit>[0-9a-f]{7,40}) \((?P<when>\d{4}-\d{2}-\d{2}), (?P<who>[^)]+)\)"
+                        r"(?: in (?P<where>\S+?))?: ")
+
+
+def introduced_parts(answer: str | None) -> tuple[str | None, str | None, str | None, str | None]:
+    """Trace history's "Introduced in <commit> (<when>, <who>) in <where>: ..." as (commit, when, who, where);
+    all None for any other answer ("Predates ...", "Could not tell ...")."""
+    m = INTRODUCED.match(answer or "")
+    return (m["commit"], m["when"], m["who"].strip(), m["where"]) if m else (None, None, None, None)
+
+
 def now() -> int:
     return int(time.time())
 
@@ -191,10 +221,17 @@ class Store:
         have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
         added = {"summary": "TEXT", "history": "TEXT", "introduced": "TEXT", "trace_status": "TEXT", "recheck": "TEXT",
                  "recheck_status": "TEXT", "rechecked_at": "INTEGER", "fix_status": "TEXT", "fix": "TEXT",
-                 "fix_at": "INTEGER"}  # after the first databases were made
+                 "fix_at": "INTEGER", "fix_message": "TEXT", "fix_files": "TEXT", "fix_patch": "TEXT",
+                 "introduced_commit": "TEXT", "introduced_when": "TEXT", "introduced_who": "TEXT",
+                 "introduced_where": "TEXT"}  # after the first databases were made
         for column, kind in added.items():
             if column not in have:
                 self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} {kind}")
+        if "introduced_commit" not in have:  # split the answers Trace history gave before these columns
+            for r in self.db.execute("SELECT id, introduced FROM findings WHERE introduced IS NOT NULL").fetchall():
+                self.db.execute("UPDATE findings SET introduced_commit = ?, introduced_when = ?, introduced_who = ?, "
+                                "introduced_where = ? WHERE id = ?", (*introduced_parts(r["introduced"]), r["id"]))
+            self.db.commit()
 
     def close(self) -> None:
         self.db.close()

@@ -52,3 +52,13 @@ def test_trace_records_the_history_at_once_and_starts_judging(config, tmp_path, 
     store = Store(cfg.db_path)
     row = store.db.execute("SELECT history, trace_status FROM findings WHERE id = ?", (fid,)).fetchone()
     assert json.loads(row["history"])[0]["file"] == "A.scala:2" and row["trace_status"] == "running"
+
+
+def test_who_when_commit_and_where_are_split_out_of_the_answer():
+    from obp_sentinel.store import introduced_parts
+    assert introduced_parts("Introduced in d7bd34844 (2025-04-24, Ada) in obp-api/src/A.scala: it removed the role.") \
+        == ("d7bd34844", "2025-04-24", "Ada", "obp-api/src/A.scala")
+    assert introduced_parts("Introduced in bab4919ff (2018-10-22, Grace Hopper): Added endpoint.") \
+        == ("bab4919ff", "2018-10-22", "Grace Hopper", None)
+    assert introduced_parts("Predates abc1234 (2019-01-01): it was there.") == (None, None, None, None)
+

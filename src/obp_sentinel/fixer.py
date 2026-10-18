@@ -1,15 +1,18 @@
-"""Fix this: Claude fixes the findings a person queued, unattended, one commit each.
+"""Fix this: Claude fixes the findings a person queued, and stages each fix in that person's working tree.
 
-Queued with the Fix this button on the page. One at a time, in the background, Claude works in its own git worktree
-of OBP-API (SENTINEL_FIX_WORKTREE, on a branch such as sentinel/fixes), never in the checkout a person uses. It first
-checks that the problem is really in the code, then makes the smallest change, compiles and runs the test suites
-that cover it. It may edit files in the worktree, run Maven offline there and read git; nothing else (no commit, no
-push, no network). Sentinel itself compiles again and, if that passes, commits the change as `Fix #<id>: <title>`
-and marks the finding acted on. Nothing is pushed: a person reviews the branch. A change that does not compile, or
-that Claude gives up on, is thrown away.
+Queued with the Fix this button on the page. One at a time, in the background, Claude works in Sentinel's own git
+worktree of OBP-API (SENTINEL_FIX_WORKTREE), set to the commit the person's checkout (OBP_API_SOURCE) is at, with its
+own build and its own test database. It first checks that the problem is really in the code, then makes the
+smallest change, compiles and runs the test suites that cover it. It may edit files in the worktree, run Maven
+offline there and read git; nothing else (no commit, no push, no network). Sentinel itself compiles again and, if
+that passes, applies the change to the person's checkout and stages it (git apply --index, which refuses rather
+than touch a file with changes of their own), so it shows in their IDE. On the page they edit the suggested commit
+message and Commit, or Discard. The next fix waits until they have: one commit per fix. Everything Claude did,
+tool results too, is kept with the finding (fix_steps) and shown on the page as it happens.
 """
 
 import fcntl
+import json
 import logging
 import re
 import subprocess
@@ -18,21 +21,22 @@ import time
 from pathlib import Path
 
 from .analyst import run_claude
-from .history import LIFT_REFERENCE
 from .config import Config
+from .history import LIFT_REFERENCE
 from .store import Store, now
 
 logger = logging.getLogger(__name__)
 
 TIMEOUT_MINUTES = 45
 COMPILE_TIMEOUT_SECONDS = 1200
-SOURCE_DIRS = ("obp-api/src", "obp-commons/src")  # what a fix may change, and what is committed
+SOURCE_DIRS = ("obp-api/src", "obp-commons/src")  # what a fix may change
 GIT_READ_COMMANDS = ("status", "diff", "log", "show", "grep")
 LOCK_FILE = "work/fixer.lock"  # one fix at a time across Sentinel processes: they share the worktree
 _lock = threading.Lock()  # and across this process's instances
-COMMIT_MAX = 60  # the commit message: one short line, as Simon writes them
+COMMIT_MAX = 60  # the commit message: one short line
 LIMIT = re.compile(r"hit your .{0,30}limit|reached your .{0,30}limit|usage limit|rate.limit", re.I)  # Claude's plan
 PAUSE_MINUTES = 30  # at the plan's usage limit the queue waits, rather than failing every finding left in it
+WAIT_SECONDS = 30  # how often a queue waiting for a Commit or Discard looks again
 _workers: set[str] = set()  # instances whose queue is being worked through
 _progress: dict[tuple[str, int], dict] = {}  # (instance, finding id) being fixed → its progress
 
@@ -45,12 +49,18 @@ def unavailable_reason(config: Config) -> str | None:
         return "SENTINEL_FIX_WORKTREE is not set to a git worktree of OBP-API"
     if not (Path(config.fix_worktree) / ".git").exists():
         return f"{config.fix_worktree} is not a git worktree"
+    if not config.obp_api_source or not (Path(config.obp_api_source) / ".git").exists():
+        return "OBP_API_SOURCE is not set to the OBP-API checkout the fixes are staged in"
     return None
 
 
-def git(worktree: str, *args: str, check: bool = True) -> str:
-    out = subprocess.run(["git", "-C", worktree, *args], capture_output=True, text=True, timeout=120)
-    if check and out.returncode != 0:
+def run_git(cwd: str, *args: str, data: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", cwd, *args], input=data, capture_output=True, text=True, timeout=120)
+
+
+def git(cwd: str, *args: str) -> str:
+    out = run_git(cwd, *args)
+    if out.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {out.stderr.strip()[:300]}")
     return out.stdout.strip()
 
@@ -61,7 +71,9 @@ def maven(worktree: str) -> list[str]:
 
 
 def discard(worktree: str) -> None:
-    """Throw away what a fix left uncommitted in the source; the build output stays, so the next compile is quick."""
+    """Throw away what a fix left uncommitted in the worktree's source; the build output stays, so the next compile
+    is quick."""
+    git(worktree, "reset", "-q")
     git(worktree, "checkout", "-q", "--", ".")
     git(worktree, "clean", "-fdq", "--", *SOURCE_DIRS)
 
@@ -102,7 +114,7 @@ def prompt(finding: dict, worktree: str) -> str:
         "   Add or change a test scenario only if that is the clearest proof of the fix. Never run every suite.\n"
         "Allowed: Read, Grep, Glob; Edit and Write in the worktree; the Maven command above; git -C "
         f"{worktree} followed by {', '.join(GIT_READ_COMMANDS)}. One command at a time: a pipe, &&, ;, cd or a "
-        "redirect is refused. Do not commit: Sentinel commits when you are done.\n\n"
+        "redirect is refused. Do not commit: a person reviews and commits the change.\n\n"
         "Reply with one line only, either\n"
         "Fixed: <one sentence: what you changed>. Tests: <the suites you ran, or none>.\n"
         "followed by a second line, the commit message: one short line in plain words, at most "
@@ -133,7 +145,7 @@ def queue(config: Config, finding_id: int) -> dict:
         row = store.db.execute("SELECT fix_status FROM findings WHERE id = ?", (finding_id,)).fetchone()
         if not row:
             raise ValueError(f"No finding {finding_id}")
-        if row["fix_status"] not in ("queued", "running", "committed"):
+        if row["fix_status"] not in ("queued", "running", "staged", "committed"):
             store.db.execute("UPDATE findings SET fix_status = 'queued', fix = NULL, fix_at = ? WHERE id = ?",
                              (now(), finding_id))
             store.commit()
@@ -181,9 +193,26 @@ def _next(config: Config) -> int | None:
         store.close()
 
 
+def waiting(config: Config) -> str | None:
+    """Why the next fix waits for a person, or None if it need not: one commit per fix."""
+    store = Store(config.db_path)
+    try:
+        row = store.db.execute("SELECT id FROM findings WHERE fix_status = 'staged' LIMIT 1").fetchone()
+    finally:
+        store.close()
+    if row:
+        return f"#{row[0]} is staged in your working tree: Commit or Discard it first"
+    if git(config.obp_api_source, "diff", "--cached", "--name-only"):
+        return "your working tree has staged changes: commit or unstage them first"
+    return None
+
+
 def _work(config: Config) -> None:
     try:
         while (finding_id := _next(config)) is not None:
+            if waiting(config):
+                time.sleep(WAIT_SECONDS)
+                continue
             Path(LOCK_FILE).parent.mkdir(exist_ok=True)
             with open(LOCK_FILE, "w") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)  # waits while another instance or process is fixing
@@ -201,12 +230,13 @@ def _work(config: Config) -> None:
 
 
 def _record(config: Config, finding_id: int, status: str, answer: str | None, comment: str | None = None,
-            at: int | None = None) -> None:
-    """`at` 0 puts a finding back at the head of the queue."""
+            at: int | None = None, **columns) -> None:
+    """`at` 0 puts a finding back at the head of the queue; `columns` are other fix_ columns to set."""
     store = Store(config.db_path)
     try:
-        store.db.execute("UPDATE findings SET fix_status = ?, fix = ?, fix_at = ? WHERE id = ?",
-                         (status, answer, now() if at is None else at, finding_id))
+        sets = "".join(f", fix_{k} = ?" for k in columns)
+        store.db.execute(f"UPDATE findings SET fix_status = ?, fix = ?, fix_at = ?{sets} WHERE id = ?",
+                         (status, answer, now() if at is None else at, *columns.values(), finding_id))
         if comment:
             store.add_feedback(finding_id, "acted", comment, config.snooze_days)
         store.commit()
@@ -216,60 +246,133 @@ def _record(config: Config, finding_id: int, status: str, answer: str | None, co
 
 def fix(config: Config, finding_id: int) -> str:
     """Fix one finding, here and now, and record the outcome with it. Returns its fix_status."""
-    worktree = config.fix_worktree
-    store = Store(config.db_path)
-    try:
-        finding = dict(store.db.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone())
-        store.db.execute("UPDATE findings SET fix_status = 'running', fix_at = ? WHERE id = ?", (now(), finding_id))
-        store.commit()
-    finally:
-        store.close()
+    worktree, source = config.fix_worktree, config.obp_api_source
+    store = Store(config.db_path)  # this thread's, for the log
+    finding = dict(store.db.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone())
+    store.db.execute("UPDATE findings SET fix_status = 'running', fix_at = ? WHERE id = ?", (now(), finding_id))
+    store.db.execute("DELETE FROM fix_steps WHERE finding_id = ?", (finding_id,))  # the log is of the latest fix
+    store.commit()
     key = (config.name, finding_id)
     with _lock:
         _progress[key] = {"started": now(), "steps": 0, "step": "Starting"}
+
+    def log(kind: str, text: str) -> None:
+        store.db.execute("INSERT INTO fix_steps (finding_id, ts, kind, text) VALUES (?, ?, ?, ?)",
+                         (finding_id, now(), kind, text))
+        store.commit()
+        if kind in ("tool", "sentinel"):
+            logger.info("Fixing finding %s (%s): %s", finding_id, config.name, text.splitlines()[0][:200])
+            with _lock:
+                _progress[key]["steps"] += kind == "tool"
+                _progress[key]["step"] = text.splitlines()[0].replace(f"{Path(worktree).resolve()}/", "")[:200]
+
     try:
         discard(worktree)  # whatever an interrupted fix left behind
+        head = git(source, "rev-parse", "HEAD")
+        git(worktree, "checkout", "-q", "--detach", head)
+        log("sentinel", f"Sentinel set its worktree to {head[:12]}, the commit your working tree is at")
 
-        def on_step(kind: str, step: str) -> None:
-            if kind == "tool":
-                logger.info("Fixing finding %s (%s): %s", finding_id, config.name, step)
-                with _lock:
-                    _progress[key]["steps"] += 1
-                    _progress[key]["step"] = step.replace(f"{Path(worktree).resolve()}/", "")[:200]
-
-        error, cost, result, _ = run_claude(command(config, prompt(finding, worktree)), {}, TIMEOUT_MINUTES, on_step,
-                                            threading.Event())
+        error, cost, result, _ = run_claude(command(config, prompt(finding, worktree)), {}, TIMEOUT_MINUTES, log,
+                                            threading.Event(), full=True)
         logger.info("Fixing finding %s (%s) cost $%.2f", finding_id, config.name, cost or 0)
         if error and LIMIT.search(f"{error} {result or ''}"):
             discard(worktree)
             again = time.strftime("%H:%M", time.localtime(now() + PAUSE_MINUTES * 60))
+            log("sentinel", f"Claude's usage limit: paused until {again}")
             _record(config, finding_id, "queued", f"Paused at Claude's usage limit; trying again at {again}.", at=0)
-            logger.warning("Fix this paused for %s min at Claude's usage limit (%s)", PAUSE_MINUTES, config.name)
             return "paused"
         answer = (result or "").strip().splitlines()[0][:600] if result and result.strip() else None
         changed = git(worktree, "status", "--porcelain", "--", *SOURCE_DIRS)
         if error or not answer or not answer.startswith("Fixed:") or not changed:
             discard(worktree)
             status = "skipped" if answer and answer.startswith("Not an issue:") else "failed"
+            log("sentinel", f"Nothing to stage: {answer or error or 'no answer'}")
             _record(config, finding_id, status, answer or error or "No answer")
             return status
-        with _lock:
-            _progress[key]["step"] = "Sentinel compiles the change again"
+        log("sentinel", "Sentinel compiles the change again")
         if broken := compiles(worktree):
             discard(worktree)
+            log("sentinel", f"Does not compile, thrown away:\n{broken}")
             _record(config, finding_id, "failed", f"Does not compile, thrown away. {answer}"[:600])
-            logger.warning("Fix for finding %s (%s) does not compile: %s", finding_id, config.name, broken)
             return "failed"
         git(worktree, "add", "-A", "--", *(d for d in SOURCE_DIRS if (Path(worktree) / d).is_dir()))
-        git(worktree, "commit", "-q", "-m", commit_message(result, finding))
-        commit = git(worktree, "rev-parse", "--short", "HEAD")
-        branch = git(worktree, "rev-parse", "--abbrev-ref", "HEAD")
-        _record(config, finding_id, "committed", f"{commit} on {branch}. {answer}"[:600],
-                f"Fix this: committed {commit} on {branch}, not pushed. {answer}"[:2000])
-        return "committed"
+        patch = run_git(worktree, "diff", "--cached", "--binary").stdout
+        files = git(worktree, "diff", "--cached", "--name-only").splitlines()
+        discard(worktree)
+        if why := waiting(config):
+            log("sentinel", f"Not staged: {why}")
+            _record(config, finding_id, "failed", f"Not staged: {why}. {answer}"[:600])
+            return "failed"
+        applied = run_git(source, "apply", "--index", "-", data=patch)
+        if applied.returncode != 0:
+            log("sentinel", f"Does not apply to your working tree:\n{applied.stderr.strip()[:1000]}")
+            _record(config, finding_id, "failed",
+                    f"Does not apply to your working tree (you have changes in {', '.join(files)}?). {answer}"[:600])
+            return "failed"
+        message = commit_message(result, finding)
+        log("sentinel", f"Staged in your working tree: {', '.join(files)}")
+        _record(config, finding_id, "staged", answer, message=message, files=json.dumps(files), patch=patch)
+        return "staged"
     finally:
         with _lock:
             _progress.pop(key, None)
+        store.close()
+
+
+def _staged(store: Store, finding_id: int):
+    row = store.db.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone()
+    if not row:
+        raise ValueError(f"No finding {finding_id}")
+    if row["fix_status"] != "staged":
+        raise ValueError(f"#{finding_id} has no fix staged")
+    return row
+
+
+def commit(config: Config, finding_id: int, message: str) -> dict:
+    """Commit what is staged in the person's working tree (the fix, and whatever they changed in it), with their
+    message, and let the queue go on."""
+    message = " ".join((message or "").split())
+    if not message:
+        raise ValueError("The commit message is empty")
+    store = Store(config.db_path)
+    try:
+        _staged(store, finding_id)
+    finally:
+        store.close()
+    source = config.obp_api_source
+    if not git(source, "diff", "--cached", "--name-only"):
+        raise ValueError("Nothing is staged in your working tree")
+    done = run_git(source, "commit", "-q", "-m", message)
+    if done.returncode != 0:
+        raise ValueError(f"git commit: {(done.stderr or done.stdout).strip()[:300]}")
+    sha = git(source, "rev-parse", "--short", "HEAD")
+    branch = git(source, "rev-parse", "--abbrev-ref", "HEAD")
+    _record(config, finding_id, "committed", f"{sha} on {branch}: {message}",
+            f"Fix this: committed {sha} on {branch}: {message}", message=message, patch=None)
+    start(config)
+    return {"fix_status": "committed", "commit": sha}
+
+
+def take_back(config: Config, finding_id: int) -> dict:
+    """Discard: take the staged fix back out of the person's working tree, and let the queue go on."""
+    store = Store(config.db_path)
+    try:
+        row = _staged(store, finding_id)
+    finally:
+        store.close()
+    out = run_git(config.obp_api_source, "apply", "-R", "--index", "-", data=row["fix_patch"])
+    if out.returncode != 0:
+        raise ValueError("Could not take it back out: the files changed since it was staged. Undo it in your IDE, "
+                         f"then Discard again. {out.stderr.strip()[:300]}")
+    _record(config, finding_id, "discarded", row["fix"], patch=None)
+    start(config)
+    return {"fix_status": "discarded"}
+
+
+def log_of(store: Store, finding_id: int) -> list[dict]:
+    """Everything Claude and Sentinel did for the finding's latest fix, oldest first."""
+    return [dict(r) for r in store.db.execute(
+        "SELECT ts, kind, text FROM fix_steps WHERE finding_id = ? ORDER BY id", (finding_id,))]
 
 
 def is_running(instance: str, finding_id: int) -> bool:

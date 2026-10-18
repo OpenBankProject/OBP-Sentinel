@@ -34,6 +34,7 @@ RERUN_ANYWAY_SECONDS = 86400
 RISING_FACTOR = 2
 RISING_MIN_COUNT = 5
 STEP_TEXT_MAX = 300
+FULL_TEXT_MAX = 4000  # a step of the full log (Fix this): a tool result, or what an edit changed
 GIT_READ_COMMANDS = ("log", "show", "blame", "diff", "grep", "rev-parse")
 
 
@@ -150,10 +151,20 @@ def command(config: Config) -> list[str]:
     ]
 
 
-def describe(event: dict) -> list[tuple[str, str]]:
-    """(kind, text) steps worth showing for one stream-json event. Tool results are never stored."""
+def describe(event: dict, full: bool = False) -> list[tuple[str, str]]:
+    """(kind, text) steps worth showing for one stream-json event. Tool results, and what an edit changed, only
+    in the `full` log (Fix this); the analyst's steps never have them."""
     if event.get("type") == "system" and event.get("subtype") == "thinking_tokens":
         return [("thinking", "Thinking")]
+    if full and event.get("type") == "user":
+        results = []
+        for block in event.get("message", {}).get("content", []):
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                content = block.get("content")
+                text = content if isinstance(content, str) else "\n".join(
+                    c.get("text", "") for c in content or [] if isinstance(c, dict))
+                results.append(("result", (text.strip() or "(no output)")[:FULL_TEXT_MAX]))
+        return results
     if event.get("type") != "assistant":
         return []
     steps = []
@@ -170,12 +181,16 @@ def describe(event: dict) -> list[tuple[str, str]]:
                 "Grep": " in ".join(filter(None, [args.get("pattern"), args.get("path")])),
                 "Glob": args.get("pattern"),
             }.get(name) or json.dumps(args)
+            if full and name == "Edit":
+                detail += f"\n- {args.get('old_string', '')}\n+ {args.get('new_string', '')}"
+            elif full and name == "Write":
+                detail += f"\n{args.get('content', '')}"
             steps.append(("tool", f"{name}: {detail}"))
-    return [(kind, text[:STEP_TEXT_MAX]) for kind, text in steps]
+    return [(kind, text[:FULL_TEXT_MAX if full else STEP_TEXT_MAX]) for kind, text in steps]
 
 
 def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped: threading.Event,
-               set_process=lambda process: None) -> tuple[str | None, float | None, str | None, str | None]:
+               set_process=lambda process: None, full: bool = False) -> tuple[str | None, float | None, str | None, str | None]:
     """Run headless Claude Code to the end, passing each step to `on_step(kind, text)`.
 
     Returns (error, cost in USD, result text, model); error is None when it succeeded. `set_process` is told the
@@ -205,7 +220,7 @@ def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped
                         if event.get("is_error") or event.get("subtype") != "success":
                             error = f"Claude Code stopped: {event.get('subtype')}"
                         continue
-                    for kind, text in describe(event):
+                    for kind, text in describe(event, full):
                         on_step(kind, text)
                 code = process.wait()
             finally:

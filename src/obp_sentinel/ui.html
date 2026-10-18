@@ -128,6 +128,12 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .history ol { margin: 0 0 8px; padding-left: 20px; font-size: 13px; }
 .history ol li { overflow-wrap: anywhere; }
 .history .first { color: var(--muted); }
+.introduced { margin: 0 0 12px; }
+.introduced[hidden] { display: none; }
+.introduced dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0 0 8px; }
+.introduced dt { font-weight: 600; }
+.introduced dd { margin: 0; overflow-wrap: anywhere; }
+.introduced .mono { font-family: var(--mono); font-size: 13px; }
 
 /* Activity */
 :root { --bad: var(--danger); }
@@ -211,6 +217,13 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
 .steps .note { white-space: pre-line; overflow-wrap: anywhere; }
 .steps .thinking { color: var(--muted); font-style: italic; }
 .steps .more { color: var(--muted); justify-content: center; }
+.steps .result { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.steps .sentinel { font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
+.steps.fixlog { max-height: 480px; margin-bottom: 16px; }
+.staged { margin: 0 0 16px; }
+.staged[hidden] { display: none; }
+.staged input { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit;
+  font-size: 14px; color: var(--ink); background: var(--bg); margin-bottom: 10px; }
 .thinking-now::after { content: "…"; display: inline-block; width: 1.2em; animation: dots 1.4s steps(4, end) infinite;
   overflow: hidden; vertical-align: bottom; }
 @keyframes dots { 0% { width: 0; } 100% { width: 1.2em; } }
@@ -289,7 +302,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <h3>Suggested change</h3><p id="d-fix"></p>
       <h3>History</h3>
       <div class="history">
-        <p id="d-introduced" hidden></p>
+        <div class="introduced" id="d-introduced" hidden></div>
         <div id="d-history"></div>
         <button type="button" id="trace-btn">Trace history</button>
         <span class="desc">Lists the commits that changed these lines, back into the Lift code; Claude then says which one introduced the problem (up to $0.30 at API prices).</span>
@@ -298,17 +311,31 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
         <p class="previous" id="d-previous" hidden></p>
         <p class="previous" id="d-recheck" hidden></p>
         <p class="previous" id="d-fixing" hidden></p>
+        <div class="staged" id="d-staged" hidden>
+          <h3>Staged in your working tree</h3>
+          <ul class="files" id="d-staged-files"></ul>
+          <label for="fix-message">Commit message</label>
+          <input type="text" id="fix-message" maxlength="200">
+          <div class="actions">
+            <div class="act"><button type="button" class="primary" id="commit-btn">Commit</button>
+              <span class="desc">Commits what is staged in your working tree, this fix and anything you changed in it, with the message above. Not pushed. Then the next queued fix starts.</span></div>
+            <div class="act"><button type="button" id="discard-btn">Discard</button>
+              <span class="desc">Takes this fix back out of your working tree. Then the next queued fix starts.</span></div>
+          </div>
+        </div>
         <label for="comment">Comment for the analyst <span>(optional)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
           <div class="act" id="fix-row"><button type="button" id="fix-btn">Fix this</button>
-            <span class="desc" id="fix-desc">Queues it. Claude fixes it unattended in Sentinel's own OBP-API worktree; Sentinel compiles and commits it on its branch, never pushed.</span></div>
+            <span class="desc" id="fix-desc">Queues it. Claude fixes and tests it in Sentinel's own OBP-API worktree; Sentinel then stages it in your working tree for you to commit.</span></div>
           <div class="act"><button type="button" data-verdict="fixed">Should be fixed now</button>
             <span class="desc">You think it is fixed. Moves to Done; the analyst checks that its log errors dropped, and says so if not.</span></div>
           <div class="act"><button type="button" id="recheck-btn">Look again: still an issue?</button>
             <span class="desc">Claude reads the code the instance runs now and answers in one line, shown above (up to $0.50 at API prices). Nothing else changes.</span></div>
         </div>
         <p class="status" role="status" id="status"></p>
+        <h3 id="fix-log-title" hidden>What Claude did for Fix this</h3>
+        <ol class="steps fixlog" id="d-fix-log" aria-live="polite" hidden></ol>
       </div>
     </article>
   </div>
@@ -389,8 +416,8 @@ const TABS = [
 const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Falling' };
 const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted', acted: 'Some action taken',
                  fixed: 'Fixed', dismissed: 'Dismissed' };
-const FIX_STATUS = { queued: 'Queued for fixing', running: 'Being fixed', committed: 'Fix committed', skipped: 'Not fixed: no issue found',
-                     failed: 'Fix failed' };
+const FIX_STATUS = { queued: 'Queued for fixing', running: 'Being fixed', staged: 'Fix staged', committed: 'Fix committed',
+                     skipped: 'Not fixed: no issue found', failed: 'Fix failed', discarded: 'Fix discarded' };
 const CAT_COLOR = { bug: 'var(--danger)', reliability: 'var(--danger)', security: 'var(--danger)' };
 const state = { instance: null, instances: [], tab: 'review', selected: null, findings: [], overview: null };
 
@@ -441,8 +468,8 @@ function renderHeader() {
     el('div', { className: 'chip' }, [el('span', { textContent: label + ' ' }), el('b', { textContent: value }),
                                       el('span', { textContent: after })])), ...securedChip(o.secured));
   $('rules').textContent = `At most ${o.digest_size} per digest, ${o.max_per_week} a week.`;
-  $('fix-desc').textContent = 'Queues it. Claude fixes it unattended in Sentinel\'s own OBP-API worktree; Sentinel compiles and commits '
-    + `it on its branch, never pushed (up to $${o.fix_budget_usd} each at API prices).`;
+  $('fix-desc').textContent = 'Queues it. Claude fixes and tests it in Sentinel\'s own OBP-API worktree; Sentinel then stages it in '
+    + `your working tree for you to commit (up to $${o.fix_budget_usd} each at API prices).`;
 }
 
 // Whether the endpoints Sentinel reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
@@ -571,17 +598,65 @@ function renderFix(f) {
   const p = f.fix_status === 'running' && f.fix_progress;
   const text = {
     queued: f.fix || 'Queued. Claude fixes one finding at a time; this one starts when those before it are done.',
-    running: 'Claude is fixing it in the worktree: check it is real, change, compile, run its tests.'
+    running: 'Claude is fixing it in Sentinel\'s worktree: check it is real, change, compile, run its tests.'
       + (p ? ` Started ${ago(Date.now() / 1000 - p.started)}, ${p.steps} command${p.steps === 1 ? '' : 's'} run so far. Now: ${p.step}` : ''),
   }[f.fix_status] || f.fix || '';
+  const staged = f.fix_status === 'staged';
+  $('d-staged').hidden = !staged;
+  if (staged) {
+    $('d-staged-files').replaceChildren(...(f.fix_files || []).map((name) => el('li', { textContent: name })));
+    if (state.fixMessageFor !== f.id) { $('fix-message').value = f.fix_message || ''; state.fixMessageFor = f.id; }
+  }
+  loadFixLog(f);
   $('d-fixing').hidden = !text;
   $('d-fixing').replaceChildren(el('b', { textContent: `${FIX_STATUS[f.fix_status] || 'Fix'}${f.fix_at && !['queued', 'running'].includes(f.fix_status) ? `, ${fmtDate(f.fix_at)}` : ''}: ` }),
                                 ...withFindingLinks(text));
   const btn = $('fix-btn');
   $('fix-row').hidden = Boolean(why);
-  btn.disabled = ['queued', 'running', 'committed'].includes(f.fix_status);
-  btn.textContent = ['skipped', 'failed'].includes(f.fix_status) ? 'Try fixing again' : 'Fix this';
+  btn.disabled = ['queued', 'running', 'staged', 'committed'].includes(f.fix_status);
+  btn.textContent = ['skipped', 'failed', 'discarded'].includes(f.fix_status) ? 'Try fixing again' : 'Fix this';
 }
+
+// Everything Claude did for the finding's latest fix: notes, tool calls and their results, and Sentinel's own
+// steps. Fetched again while it is being fixed (each refresh), else once.
+const FIX_LOG_KIND = { thinking: 'Thinking', note: 'Claude', tool: 'Tool', result: 'Result', sentinel: 'Sentinel' };
+async function loadFixLog(f) {
+  const show = Boolean(f.fix_status) && f.fix_status !== 'queued';
+  $('fix-log-title').hidden = $('d-fix-log').hidden = !show;
+  if (!show) { state.fixLogFor = null; return; }
+  if (state.fixLogFor === f.id && f.fix_status !== 'running') return;
+  state.fixLogFor = f.id;
+  const steps = await api(`/api/findings/${f.id}/fix-log`).catch(() => null);
+  if (!steps || state.selected !== f.id) return;
+  const list = $('d-fix-log');
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+  list.replaceChildren(...(steps.length ? steps.map((s) => el('li', {}, [
+    el('time', { textContent: clock(s.ts) }),
+    el('span', { className: s.kind, textContent: s.kind === 'thinking' ? 'Thinking' : `${FIX_LOG_KIND[s.kind] || s.kind}: ${s.text}` }),
+  ])) : [el('li', { className: 'more', textContent: 'Nothing recorded yet.' })]));
+  if (atBottom || f.fix_status === 'running') list.scrollTop = list.scrollHeight;
+}
+
+async function fixAction(action, body) {
+  const id = state.selected;
+  $('commit-btn').disabled = $('discard-btn').disabled = true;
+  try {
+    const done = await api(`/api/findings/${id}/fix/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                                  body: JSON.stringify(body) });
+    state.findings = await api('/api/findings');
+    state.fixLogFor = null;
+    render();
+    setStatus(action === 'commit' ? `Committed ${done.commit} for #${id}.` : `Took the fix for #${id} out of your working tree.`);
+    const next = state.findings.find((x) => x.fix_status === 'queued');
+    if (next) pollWhileRunning(next.id, 'fix_status');
+  } catch (e) {
+    setStatus(`Could not ${action}: ${e.message}`, true);
+  } finally {
+    $('commit-btn').disabled = $('discard-btn').disabled = false;
+  }
+}
+$('commit-btn').addEventListener('click', () => fixAction('commit', { message: $('fix-message').value }));
+$('discard-btn').addEventListener('click', () => fixAction('discard', {}));
 
 // The Fix this queue across all tabs: which finding is being fixed, how many wait, and how the others ended
 function renderFixQueue() {
@@ -589,12 +664,17 @@ function renderFixQueue() {
   const of = (s) => fs.filter((f) => f.fix_status === s);
   const running = of('running')[0];
   const paused = of('queued').find((f) => (f.fix || '').startsWith('Paused'));
+  const staged = of('staged')[0];
+  const waiting = !running && !staged && of('queued').length && state.overview && state.overview.fix_waiting;
   const parts = [
     running ? `#${running.id} being fixed` : paused ? `paused at Claude's usage limit (#${paused.id} next)` : null,
+    staged ? `#${staged.id} staged in your working tree: Commit or Discard it to go on` : null,
+    waiting ? `waiting: ${waiting}` : null,
     of('queued').length ? `${of('queued').length} queued` : null,
     of('committed').length ? `${of('committed').length} committed` : null,
     of('skipped').length ? `${of('skipped').length} not an issue` : null,
     of('failed').length ? `${of('failed').length} failed` : null,
+    of('discarded').length ? `${of('discarded').length} discarded` : null,
   ].filter(Boolean);
   $('fix-queue').hidden = !parts.length;
   $('fix-queue').replaceChildren('Fix this: ', ...withFindingLinks(parts.join(', ')));
@@ -686,14 +766,29 @@ function renderHistory(f) {
   const verdict = f.introduced || (judging ? 'Working out which commit introduced it…'
     : f.trace_status === 'failed' ? 'Could not work out which commit introduced it.' : '');
   $('d-introduced').hidden = !verdict;
-  $('d-introduced').replaceChildren(el('b', { textContent: 'Claude, reading the diffs: ' }), verdict);
-  $('d-history').replaceChildren(...(f.history ? [el('b', { textContent: 'Commits that changed these lines (git log -L):' })] : []),
+  // Who, When, Commit and Where are kept split out with the finding (introduced_*); the rest of the answer follows
+  const m = f.introduced_commit && f.introduced === verdict
+    && [null, f.introduced_commit, f.introduced_when, f.introduced_who, f.introduced_where, verdict.replace(/^Introduced in [^:]*: /, '')];
+  const years = (date) => {
+    const days = Math.floor((Date.now() - Date.parse(date)) / 86400000);
+    return days >= 730 ? `${Math.floor(days / 365)} years ago` : days >= 60 ? `${Math.floor(days / 30)} months ago` : daysAgo(Date.parse(date) / 1000);
+  };
+  $('d-introduced').replaceChildren(...(m ? [
+    el('dl', {}, [
+      el('dt', { textContent: 'Who' }), el('dd', { textContent: m[3] }),
+      el('dt', { textContent: 'When' }), el('dd', { textContent: `${m[2]} (${years(m[2])})` }),
+      el('dt', { textContent: 'Commit' }), el('dd', { className: 'mono', textContent: m[1] }),
+      ...(m[4] ? [el('dt', { textContent: 'Where' }), el('dd', { className: 'mono', textContent: m[4] })] : []),
+    ]),
+    el('p', { textContent: m[5] }),
+  ] : [el('p', {}, [el('b', { textContent: 'Claude, reading the diffs: ' }), verdict])]));
+  $('d-history').replaceChildren(...(f.history ? [el('b', { textContent: 'Every commit that changed these lines in today\'s files (git log -L):' })] : []),
                                  ...(f.history || []).flatMap((h) => [
     el('div', { className: 'file', textContent: h.file }),
     h.commits.length
       ? el('ol', {}, h.commits.map((c, i) => el('li', {}, [
           `${c.commit} ${c.date} ${c.author}: ${c.subject}`,
-          ...(i === 0 ? [el('span', { className: 'first', textContent: ' (lines first written here)' })] : []),
+          ...(i === 0 ? [el('span', { className: 'first', textContent: ' (oldest in this file, often a move from elsewhere)' })] : []),
         ])))
       : el('p', { textContent: h.error ? `No history: ${h.error}` : 'No history found.' }),
   ]));

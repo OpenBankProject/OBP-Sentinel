@@ -39,6 +39,8 @@ FEEDBACK_PATH = re.compile(r"^/api/findings/(\d+)/feedback$")
 TRACE_PATH = re.compile(r"^/api/findings/(\d+)/trace$")
 RECHECK_PATH = re.compile(r"^/api/findings/(\d+)/recheck$")
 FIX_PATH = re.compile(r"^/api/findings/(\d+)/fix$")
+FIX_ACTION_PATH = re.compile(r"^/api/findings/(\d+)/fix/(commit|discard)$")
+FIX_LOG_PATH = re.compile(r"^/api/findings/(\d+)/fix-log$")
 SWEEP_PATH = "/api/findings/recheck-security"
 HELP_GLOSSARY_ITEM = "/obp/v7.0.0/api/glossary/OBP-Sentinel"
 MAX_BODY_BYTES = 10_000
@@ -128,6 +130,7 @@ def overview(store: Store, config: Config) -> dict:
         "secured": store.get_state("endpoints_secured"),
         "sweep": recheck.sweep_progress(config.name),
         "fix_unavailable": fixer.unavailable_reason(config),
+        "fix_waiting": None if fixer.unavailable_reason(config) else fixer.waiting(config),
         "fix_budget_usd": config.fix_budget_usd,
     }
 
@@ -239,6 +242,8 @@ def findings(store: Store, config: Config) -> list[dict]:
             item["recheck_progress"] = recheck.progress(config.name, f["id"])
         if item.get("fix_status") == "running":
             item["fix_progress"] = fixer.progress(config.name, f["id"])
+        item["fix_files"] = json.loads(item["fix_files"]) if item.get("fix_files") else None
+        item.pop("fix_patch", None)  # kept for Discard, not shown
         item["first_suggested"] = first_suggested.get(f["id"])
         item["feedback"] = latest_feedback.get(f["id"])
         item["evidence_commits"] = {
@@ -328,6 +333,10 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     return self._json(HTTPStatus.OK, {**progress(configs, reviews), "scanner": scanner.status()})
                 finally:
                     reviews.close()
+            if log := FIX_LOG_PATH.match(path):
+                if config := self._instance():
+                    self._json(HTTPStatus.OK, self._with_store(config, lambda s: fixer.log_of(s, int(log.group(1)))))
+                return
             views = {"/api/overview": overview, "/api/activity": activity, "/api/analysis": analysis,
                      "/api/findings": findings, "/api/health": health}
             if path not in views:
@@ -365,6 +374,24 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                         return self._json(HTTPStatus.OK, recheck.recheck(config, int(again.group(1))))
                     except ValueError as e:
                         return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+                return
+            if action := FIX_ACTION_PATH.match(path):
+                if config := self._instance():
+                    if reason := fixer.unavailable_reason(config):
+                        return self._json(HTTPStatus.CONFLICT, {"error": reason})
+                    length = int(self.headers.get("Content-Length") or 0)
+                    if length > MAX_BODY_BYTES:
+                        return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Too large"})
+                    try:
+                        body = json.loads(self.rfile.read(length) or b"{}")
+                        finding_id = int(action.group(1))
+                        done = (fixer.commit(config, finding_id, str(body.get("message", "")))
+                                if action.group(2) == "commit" else fixer.take_back(config, finding_id))
+                    except (json.JSONDecodeError, AttributeError):
+                        return self._json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})
+                    except ValueError as e:
+                        return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
+                    return self._json(HTTPStatus.OK, done)
                 return
             if fix := FIX_PATH.match(path):
                 if config := self._instance():

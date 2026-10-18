@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .analyst import GIT_READ_COMMANDS, run_claude
 from .config import Config
-from .store import Store
+from .store import Store, introduced_parts
 
 logger = logging.getLogger(__name__)
 
@@ -83,11 +83,14 @@ def prompt(finding: dict, history: list[dict], source: str) -> str:
         "-U3, --stat, -n). To read code before a commit: git show <commit>^:<path>, or git grep -n <text> <commit>^ -- <path>.\n"
         "Endpoints were moved from Lift to http4s in May 2026, so the oldest commit may be that move: then follow "
         f"the problem into the Lift code (Read {LIFT_REFERENCE}: the last live Lift commit per API version, and the "
-        "checks Lift did by itself) and judge there which commit introduced it.\n\n"
+        "checks Lift did by itself) and judge there which commit introduced it.\n"
+        "The point is who introduced the problem, and when: if it is older than the oldest commit you can see (code "
+        "moved from another file), follow it back (git log -S<text> -- <older path>, git blame <commit>^ -- <path>) "
+        "to the commit that first wrote it.\n\n"
         "Reply with one line only, either\n"
-        "Introduced in <short hash> (<date>, <author>): <its subject>. <One sentence: what that change did that "
-        "introduced the problem.>\nor, if the problem was already there before the oldest commit you can see (code "
-        "moved from another file counts),\n"
+        "Introduced in <short hash> (<author date as YYYY-MM-DD>, <author>) in <path of the file it changed>: <its "
+        "subject>. <One sentence: what that change did that introduced the problem.>\nor, only if you could not follow "
+        "it back,\n"
         "Predates <short hash> (<date>): <one sentence: what you saw before it>.\nor\nCould not tell: <one sentence why>."
     )
 
@@ -142,6 +145,9 @@ def _judge(config: Config, finding_id: int, finding: dict, history: list[dict]) 
         try:
             store.db.execute("UPDATE findings SET introduced = COALESCE(?, introduced), trace_status = ? WHERE id = ?",
                              (introduced, "failed" if error or not introduced else "done", finding_id))
+            if introduced:
+                store.db.execute("UPDATE findings SET introduced_commit = ?, introduced_when = ?, introduced_who = ?, "
+                                 "introduced_where = ? WHERE id = ?", (*introduced_parts(introduced), finding_id))
             store.commit()
         finally:
             store.close()
