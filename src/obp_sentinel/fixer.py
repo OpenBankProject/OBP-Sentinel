@@ -193,8 +193,32 @@ def _next(config: Config) -> int | None:
         store.close()
 
 
+def settle(config: Config) -> None:
+    """A staged fix the person committed or took out without the page (in their IDE, with git): record it as
+    committed (the latest commit to its files) or discarded, so the queue goes on. Only when nothing is staged."""
+    source = config.obp_api_source
+    if git(source, "diff", "--cached", "--name-only"):
+        return  # still staged, or being committed in pieces: the person decides
+    store = Store(config.db_path)
+    try:
+        rows = store.db.execute("SELECT * FROM findings WHERE fix_status = 'staged'").fetchall()
+    finally:
+        store.close()
+    for row in rows:
+        patch, files = row["fix_patch"] or "", json.loads(row["fix_files"] or "[]")
+        if patch and run_git(source, "apply", "--cached", "-R", "--check", "-", data=patch).returncode == 0:
+            sha = git(source, "log", "-1", "--format=%h", "--", *files)
+            subject = git(source, "log", "-1", "--format=%s", sha)
+            branch = git(source, "rev-parse", "--abbrev-ref", "HEAD")
+            _record(config, row["id"], "committed", f"{sha} on {branch}: {subject}",
+                    f"Fix this: committed {sha} on {branch} (outside Sentinel): {subject}", message=subject, patch=None)
+        elif not patch or run_git(source, "apply", "--cached", "--check", "-", data=patch).returncode == 0:
+            _record(config, row["id"], "discarded", row["fix"], patch=None)
+
+
 def waiting(config: Config) -> str | None:
     """Why the next fix waits for a person, or None if it need not: one commit per fix."""
+    settle(config)
     store = Store(config.db_path)
     try:
         row = store.db.execute("SELECT id FROM findings WHERE fix_status = 'staged' LIMIT 1").fetchone()

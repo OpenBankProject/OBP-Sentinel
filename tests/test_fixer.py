@@ -183,3 +183,20 @@ def test_the_full_log_has_tool_results_and_edits_but_the_analysts_steps_do_not()
     assert describe(edit, full=True) == [("tool", "Edit: A.scala\n- a\n+ b")]
     assert describe(result, full=True) == [("result", "BUILD SUCCESS")]
     assert describe(edit) == [("tool", "Edit: A.scala")] and describe(result) == []
+
+
+def test_a_fix_committed_or_taken_out_outside_sentinel_lets_the_queue_go_on(cfg, trees, monkeypatch):
+    source, worktree = trees
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
+    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    committed, taken_out = new_finding(cfg), new_finding(cfg)
+    assert fixer.fix(cfg, committed) == "staged"
+    git(source, "commit", "-qm", "Committed in the IDE")
+    assert fixer.waiting(cfg) is None
+    f = row(cfg, committed)
+    assert f["fix_status"] == "committed" and f["fix_message"] == "Committed in the IDE" and f["status"] == "acted"
+    (source / "obp-api/src/A.scala").write_text("broken\n")  # back to how it was, for the next fix to change
+    git(source, "commit", "-qam", "back")
+    assert fixer.fix(cfg, taken_out) == "staged"
+    git(source, "reset", "-q", "--hard")  # taken out with git, not Discard
+    assert fixer.waiting(cfg) is None and row(cfg, taken_out)["fix_status"] == "discarded"
