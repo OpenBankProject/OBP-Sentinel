@@ -186,6 +186,9 @@ class Config:
     scan_budget_usd: float  # most one scan may spend
     scan_endpoints: int  # endpoints reviewed per scan
 
+    fix_worktree: str  # Fix this: a git worktree of OBP-API that Claude fixes findings in, one commit each
+    fix_budget_usd: float  # most one fix may spend
+
     @property
     def is_app(self) -> bool:
         """An app with its own /monitoring endpoints rather than OBP-API: no metrics, root, Scopes or source review."""
@@ -270,4 +273,6 @@ class Config:
             scan_minutes=int(env("SENTINEL_SCAN_MINUTES", "10")),
             scan_budget_usd=float(env("SENTINEL_SCAN_BUDGET_USD", "0.5")),
             scan_endpoints=int(env("SENTINEL_SCAN_ENDPOINTS", "2")),
+            fix_worktree=env("SENTINEL_FIX_WORKTREE", ""),
+            fix_budget_usd=float(env("SENTINEL_FIX_BUDGET_USD", "3")),
         )

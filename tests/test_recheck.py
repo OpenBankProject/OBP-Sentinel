@@ -53,3 +53,32 @@ def test_the_answer_is_kept_with_the_finding(config, monkeypatch):
     store = Store(config.db_path)
     row = store.db.execute("SELECT recheck, recheck_status, rechecked_at FROM findings WHERE id = ?", (fid,)).fetchone()
     assert row["recheck"].startswith("Fixed at abc") and row["recheck_status"] == "done" and row["rechecked_at"] <= now()
+
+
+def test_looking_again_at_the_security_findings_to_review_moves_the_fixed_ones_to_done(config, monkeypatch):
+    store = Store(config.db_path)
+    ids = {}
+    for key, category, status in [("fixed", "security", "suggested"), ("still", "security", "suggested"),
+                                  ("open", "security", "open"), ("bug", "bug", "suggested")]:
+        ids[key] = store.upsert_finding({"key": key, "title": key, "category": category, "signature_ids": [],
+                                         "evidence": "e", "hypothesis": "h", "files": [], "suggested_fix": "f",
+                                         "impact": 1, "confidence": 0.5, "effort": 1, "trend": "new"})
+        store.db.execute("UPDATE findings SET status = ? WHERE id = ?", (status, ids[key]))
+    store.commit()
+    store.close()
+    looked = []
+    monkeypatch.setattr(recheck, "_start", lambda cfg, fid: f"prompt {fid}")
+    monkeypatch.setattr(recheck, "_look", lambda cfg, fid, text: looked.append(fid) or (
+        "Fixed at abc by abc (2026-10-12, Ada): it checks." if fid == ids["fixed"] else "Still an issue at abc: no check."))
+    monkeypatch.setattr(recheck.threading, "Thread",
+                        lambda target, args, **kw: type("T", (), {"start": lambda self: target(*args)})())
+    assert recheck.sweep(config)["total"] == 2
+    assert sorted(looked) == sorted([ids["fixed"], ids["still"]])  # only security findings to review
+    shown = recheck.sweep_progress(config.name)
+    assert shown["running"] is False and shown["done"] == 2 and shown["fixed"] == 1
+    store = Store(config.db_path)
+    status = dict(store.db.execute("SELECT key, status FROM findings").fetchall())
+    assert status == {"fixed": "fixed", "still": "suggested", "open": "open", "bug": "suggested"}
+    comment = store.db.execute("SELECT comment FROM feedback WHERE finding_id = ?", (ids["fixed"],)).fetchone()[0]
+    assert comment.startswith("Look again: Fixed at abc")
+    recheck._sweeps.clear()

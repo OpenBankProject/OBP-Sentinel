@@ -62,6 +62,11 @@ def test_page_and_findings(server):
     assert source["scanner"]["on"] is False and source["scanner"]["scans"] == []
 
 
+def test_the_fixed_page_is_served(server):
+    status, page = request(server, "GET", "/fixed")
+    assert status == 200 and b"<title>Sentinel Fixed</title>" in page
+
+
 def test_help_reads_the_glossary_item_from_obp_api(server, config, monkeypatch):
     status, page = request(server, "GET", "/help")
     assert status == 200 and b"<title>Sentinel Help</title>" in page

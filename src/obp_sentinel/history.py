@@ -11,6 +11,7 @@ import logging
 import re
 import subprocess
 import threading
+from pathlib import Path
 
 from .analyst import GIT_READ_COMMANDS, run_claude
 from .config import Config
@@ -23,6 +24,7 @@ FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 LINES_AFTER = 8  # a file reference names one line: follow the few after it too, where the code usually is
 BUDGET_USD = 0.3
 TIMEOUT_MINUTES = 10
+LIFT_REFERENCE = Path("lift-reference.md").resolve()  # where each API version's Lift code was last live
 _running: set[tuple[str, int]] = set()  # (instance, finding id) whose judgement is being made
 _lock = threading.Lock()
 
@@ -78,7 +80,10 @@ def prompt(finding: dict, history: list[dict], source: str) -> str:
         "introduced the problem: often the oldest, but a later one may have removed a check or changed what the code "
         f"does. Only git -C {source} followed by {', '.join(GIT_READ_COMMANDS)} is allowed, one command at a time: "
         "a pipe, &&, ; , cd or a redirect is refused. Keep output short with git's own options instead (-- <path>, "
-        "-U3, --stat, -n). To read code before a commit: git show <commit>^:<path>, or git grep -n <text> <commit>^ -- <path>.\n\n"
+        "-U3, --stat, -n). To read code before a commit: git show <commit>^:<path>, or git grep -n <text> <commit>^ -- <path>.\n"
+        "Endpoints were moved from Lift to http4s in May 2026, so the oldest commit may be that move: then follow "
+        f"the problem into the Lift code (Read {LIFT_REFERENCE}: the last live Lift commit per API version, and the "
+        "checks Lift did by itself) and judge there which commit introduced it.\n\n"
         "Reply with one line only, either\n"
         "Introduced in <short hash> (<date>, <author>): <its subject>. <One sentence: what that change did that "
         "introduced the problem.>\nor, if the problem was already there before the oldest commit you can see (code "

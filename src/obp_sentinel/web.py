@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
-from . import history, recheck
+from . import fixer, history, recheck
 from .analyst import Analyst, decide, unavailable_reason
 from .config import Config
 from .health import health
@@ -38,6 +38,8 @@ WORDS = re.compile(r"[A-Za-z]{3}")
 FEEDBACK_PATH = re.compile(r"^/api/findings/(\d+)/feedback$")
 TRACE_PATH = re.compile(r"^/api/findings/(\d+)/trace$")
 RECHECK_PATH = re.compile(r"^/api/findings/(\d+)/recheck$")
+FIX_PATH = re.compile(r"^/api/findings/(\d+)/fix$")
+SWEEP_PATH = "/api/findings/recheck-security"
 HELP_GLOSSARY_ITEM = "/obp/v7.0.0/api/glossary/OBP-Sentinel"
 MAX_BODY_BYTES = 10_000
 COMMIT_HASH = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")  # at least one letter: not a plain number
@@ -124,6 +126,9 @@ def overview(store: Store, config: Config) -> dict:
         "max_per_week": config.max_per_week,
         "snooze_days": config.snooze_days,
         "secured": store.get_state("endpoints_secured"),
+        "sweep": recheck.sweep_progress(config.name),
+        "fix_unavailable": fixer.unavailable_reason(config),
+        "fix_budget_usd": config.fix_budget_usd,
     }
 
 
@@ -232,6 +237,8 @@ def findings(store: Store, config: Config) -> list[dict]:
             item["recheck_status"] = "failed"  # Sentinel stopped while looking
         elif item.get("recheck_status") == "running":
             item["recheck_progress"] = recheck.progress(config.name, f["id"])
+        if item.get("fix_status") == "running":
+            item["fix_progress"] = fixer.progress(config.name, f["id"])
         item["first_suggested"] = first_suggested.get(f["id"])
         item["feedback"] = latest_feedback.get(f["id"])
         item["evidence_commits"] = {
@@ -251,6 +258,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
     """
     page = files("obp_sentinel").joinpath("ui.html").read_bytes()
     help_page = files("obp_sentinel").joinpath("help.html").read_bytes()
+    fixed_page = files("obp_sentinel").joinpath("fixed.html").read_bytes()
     by_name = {c.name: c for c in configs}
     analysts = {c.name: (analysts or {}).get(c.name) or Analyst(c) for c in configs}
     scanner = scanner or Scanner(configs)  # Go and Stop are kept in its database; it scans where it was started
@@ -308,6 +316,8 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 return self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
             if path == "/help":
                 return self._send(HTTPStatus.OK, help_page, "text/html; charset=utf-8")
+            if path == "/fixed":
+                return self._send(HTTPStatus.OK, fixed_page, "text/html; charset=utf-8")
             if path == "/api/help":
                 return self._json(HTTPStatus.OK, help_text(configs))
             if path == "/api/instances":
@@ -341,12 +351,27 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     except ValueError as e:
                         return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
                 return
+            if path == SWEEP_PATH:
+                if config := self._instance():
+                    if reason := unavailable_reason(config, scheduled=False):
+                        return self._json(HTTPStatus.CONFLICT, {"error": reason})
+                    return self._json(HTTPStatus.OK, recheck.sweep(config))
+                return
             if again := RECHECK_PATH.match(path):
                 if config := self._instance():
                     if reason := unavailable_reason(config, scheduled=False):
                         return self._json(HTTPStatus.CONFLICT, {"error": reason})
                     try:
                         return self._json(HTTPStatus.OK, recheck.recheck(config, int(again.group(1))))
+                    except ValueError as e:
+                        return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+                return
+            if fix := FIX_PATH.match(path):
+                if config := self._instance():
+                    if reason := fixer.unavailable_reason(config) or unavailable_reason(config, scheduled=False):
+                        return self._json(HTTPStatus.CONFLICT, {"error": reason})
+                    try:
+                        return self._json(HTTPStatus.OK, fixer.queue(config, int(fix.group(1))))
                     except ValueError as e:
                         return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
                 return
@@ -415,6 +440,8 @@ def make_server(configs: list[Config], host: str, port: int, extra_hosts: tuple[
     """`extra_hosts` are other names the page is reached by (e.g. behind a proxy)."""
     allowed_hosts: set[str] = set()
     server = ThreadingHTTPServer((host, port), make_handler(configs, allowed_hosts, analysts, scanner))
+    for c in configs:
+        fixer.resume(c)  # findings queued for Fix this before Sentinel stopped
     port = server.server_address[1]
     names = {host, *extra_hosts} | ({"localhost", "127.0.0.1"} if host in ("127.0.0.1", "localhost") else set())
     allowed_hosts.update(f"{name}:{port}" for name in names)

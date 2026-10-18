@@ -33,11 +33,13 @@ try { const t = localStorage.getItem('sentinel-theme'); if (t) document.document
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
 button, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
 header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .bar { max-width: 1280px; margin: 0 auto; padding: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand strong { font-size: 18px; letter-spacing: -0.01em; }
 .help-link { margin-left: auto; color: var(--accent); font-size: 14px; }
+.help-link + .help-link { margin-left: 0; }
 #theme { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px;
   background: none; color: var(--muted); font-size: 13px; cursor: pointer; }
 #theme:hover { color: var(--ink); border-color: var(--line-strong); }
@@ -108,11 +110,14 @@ label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
 label span { font-weight: 400; color: var(--muted); }
 textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px;
   resize: vertical; margin-bottom: 14px; background: var(--surface); }
-.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; align-items: center; }
+.actions .act { display: contents; }
+.actions .act[hidden] { display: none; }
+.desc { font-size: 14px; color: var(--muted); }
+@media (max-width: 560px) { .actions { grid-template-columns: 1fr; gap: 4px; } .actions .desc { margin-bottom: 8px; } }
 .actions button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: var(--surface); font-weight: 500; cursor: pointer; }
 .actions .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.actions .dismiss { color: var(--danger); margin-left: auto; }
 .actions button:disabled { opacity: 0.5; cursor: default; }
 .status { margin: 14px 0 0; font-size: 14px; color: var(--accent); min-height: 1.5em; }
 .status.error { color: var(--danger); }
@@ -142,6 +147,9 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .run-now { margin-left: auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
 .run-now:disabled { cursor: default; opacity: 0.55; }
+.sweep { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: -8px 0 20px; }
+.sweep[hidden] { display: none; }
+.sweep .run-now { margin-left: 0; }
 .totals { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 14px; color: var(--muted); }
 .totals b { color: var(--ink); font-family: var(--mono); font-weight: 500; }
 .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -225,6 +233,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <svg width="28" height="28" role="img" aria-label="Open Bank Project" viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M24.214 12.107C24.214 14.5015 23.504 16.8423 22.1736 18.8333C20.8433 20.8243 18.9524 22.3761 16.7402 23.2925C14.5279 24.2088 12.0936 24.4486 9.74504 23.9814C7.39651 23.5143 5.23924 22.3612 3.54604 20.668C1.85284 18.9748 0.699761 16.8175 0.232608 14.469C-0.234544 12.1205 0.00521459 9.6861 0.921567 7.47383C1.83792 5.26156 3.38971 3.37071 5.3807 2.04037C7.37169 0.710038 9.71246 -3.66952e-06 12.107 -3.66952e-06C13.697 -0.000249893 15.2714 0.312716 16.7405 0.921063C18.2095 1.52941 19.5442 2.42122 20.6685 3.54551C21.7928 4.6698 22.6846 6.00455 23.2929 7.47356C23.9013 8.94256 24.2143 10.517 24.214 12.107Z" fill="#51B265"/><path d="M17.1062 11.5933C20.4127 5.83503 15.7941 4.56228 15.7941 4.56228C10.7856 3.06272 7.49971 5.91754 7.49971 5.91754C5.10792 7.60454 5.13229 11.7283 5.13229 11.7283C4.90173 17.018 8.06392 18.6994 8.06392 18.6994C8.06392 18.6994 11.8878 21.3536 16.8363 19.3104C21.7848 17.2673 17.1137 11.5896 17.1137 11.5896L17.1062 11.5933ZM14.8007 17.361C11.1342 17.8033 9.55222 16.7218 9.55222 16.7218C9.55222 16.7218 7.72276 15.6271 7.66653 12.6093C7.6103 9.59144 8.34508 8.71419 8.34508 8.71419C8.80817 7.96896 9.50283 7.39612 10.3226 7.08344C12.1221 6.39177 14.1465 6.72351 14.1465 6.72351C14.1465 6.72351 17.1456 6.94286 15.2224 9.7564C15.2224 9.7564 11.4604 6.97657 9.81465 9.9588C9.81465 9.9588 8.68998 12.2906 10.2683 14.3469C11.8465 16.4032 15.468 13.4378 15.468 13.4378C15.468 13.4378 18.4764 16.9205 14.8082 17.361H14.8007ZM13.6835 11.6852L12.0958 12.6224C11.6085 11.8988 12.0865 10.9598 12.0865 10.9598L13.6835 11.6852Z" fill="white"/>  </svg>
       <strong>Sentinel</strong>
     </div>
+    <a class="help-link" href="/fixed">Fixed</a>
     <a class="help-link" href="/help">Help</a>
     <button type="button" id="theme"></button>
   </div>
@@ -246,7 +255,13 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     <h1>Suggested improvements</h1>
     <p id="rules"></p>
   </div>
+  <p class="sub" id="fix-queue" hidden></p>
   <nav aria-label="Filter suggestions" id="tabs"></nav>
+  <div class="sweep" id="sweep" hidden>
+    <button type="button" class="run-now" id="sweep-btn">Look again at the security findings to review</button>
+    <span class="desc">Claude looks again, one at a time, at each security finding in To review; those it finds fixed move to Done.</span>
+    <span class="sub" id="sweep-state"></span>
+  </div>
   <div class="cols">
     <section class="list" aria-label="Suggestions" id="list"></section>
     <article id="detail" hidden>
@@ -277,19 +292,21 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
         <p id="d-introduced" hidden></p>
         <div id="d-history"></div>
         <button type="button" id="trace-btn">Trace history</button>
+        <span class="desc">Lists the commits that changed these lines, back into the Lift code; Claude then says which one introduced the problem (up to $0.30 at API prices).</span>
       </div>
       <div class="respond">
         <p class="previous" id="d-previous" hidden></p>
         <p class="previous" id="d-recheck" hidden></p>
+        <p class="previous" id="d-fixing" hidden></p>
         <label for="comment">Comment for the analyst <span>(optional)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
-          <button type="button" class="primary" data-verdict="accepted">Accept</button>
-          <button type="button" data-verdict="later" id="later-btn">Later</button>
-          <button type="button" data-verdict="acted">Some action taken</button>
-          <button type="button" data-verdict="fixed">Should be fixed now</button>
-          <button type="button" id="recheck-btn">Look again: still an issue?</button>
-          <button type="button" class="dismiss" data-verdict="dismissed">Dismiss, never suggest again</button>
+          <div class="act" id="fix-row"><button type="button" id="fix-btn">Fix this</button>
+            <span class="desc" id="fix-desc">Queues it. Claude fixes it unattended in Sentinel's own OBP-API worktree; Sentinel compiles and commits it on its branch, never pushed.</span></div>
+          <div class="act"><button type="button" data-verdict="fixed">Should be fixed now</button>
+            <span class="desc">You think it is fixed. Moves to Done; the analyst checks that its log errors dropped, and says so if not.</span></div>
+          <div class="act"><button type="button" id="recheck-btn">Look again: still an issue?</button>
+            <span class="desc">Claude reads the code the instance runs now and answers in one line, shown above (up to $0.50 at API prices). Nothing else changes.</span></div>
         </div>
         <p class="status" role="status" id="status"></p>
       </div>
@@ -321,6 +338,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <span class="sub" id="n-when"></span>
       <button type="button" class="run-now" id="run-now">Run analysis now</button>
     </div>
+    <p class="desc" id="run-now-desc">Starts the analyst now, whatever its schedule says: it reads what was collected, investigates the source, records findings and writes a digest.</p>
     <div class="analysis-cols">
       <div>
         <h3 id="n-steps-title">What it did</h3>
@@ -342,6 +360,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <button type="button" class="run-now" id="scan-go">Go</button>
       <button type="button" class="run-now" id="scan-stop">Stop</button>
     </div>
+    <p class="desc">Go: Claude reviews the code of the next few endpoints, most reachable first, scan after scan, and records what it finds as findings. Stop: ends the scan that is running, and no more scans.</p>
     <p class="sub" id="scan-state"></p>
     <div class="analysis-cols">
       <div>
@@ -370,6 +389,8 @@ const TABS = [
 const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Falling' };
 const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted', acted: 'Some action taken',
                  fixed: 'Fixed', dismissed: 'Dismissed' };
+const FIX_STATUS = { queued: 'Queued for fixing', running: 'Being fixed', committed: 'Fix committed', skipped: 'Not fixed: no issue found',
+                     failed: 'Fix failed' };
 const CAT_COLOR = { bug: 'var(--danger)', reliability: 'var(--danger)', security: 'var(--danger)' };
 const state = { instance: null, instances: [], tab: 'review', selected: null, findings: [], overview: null };
 
@@ -420,11 +441,12 @@ function renderHeader() {
     el('div', { className: 'chip' }, [el('span', { textContent: label + ' ' }), el('b', { textContent: value }),
                                       el('span', { textContent: after })])), ...securedChip(o.secured));
   $('rules').textContent = `At most ${o.digest_size} per digest, ${o.max_per_week} a week.`;
-  $('later-btn').textContent = `Later (${o.snooze_days} days)`;
+  $('fix-desc').textContent = 'Queues it. Claude fixes it unattended in Sentinel\'s own OBP-API worktree; Sentinel compiles and commits '
+    + `it on its branch, never pushed (up to $${o.fix_budget_usd} each at API prices).`;
 }
 
 // Whether the endpoints Sentinel reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
-// call with no token, as checked hourly by the collector
+// call with no token, as checked hourly by the collector (every poll while it cannot tell)
 function securedChip(s) {
   if (!s) return [];
   const odd = s.checks.filter((c) => !(s.verdict === 'open' ? c.status !== 200 : [401, 403].includes(c.status)));
@@ -434,6 +456,23 @@ function securedChip(s) {
     el('b', { className: 'mark', textContent: mark + ' ' }), text,
     ...(odd.length ? [el('span', { textContent: ': ' + odd.map((c) => `${c.path} (${c.status ?? 'no answer'})`).join(', ') })] : []),
   ])];
+}
+
+// Text with each "#123" that names a known finding turned into a link that opens it
+function withFindingLinks(text) {
+  return String(text ?? '').split(/(#\d+)/).map((part) => {
+    const f = /^#\d+$/.test(part) && state.findings.find((x) => x.id === Number(part.slice(1)));
+    if (!f) return part;
+    const a = el('a', { href: location.hash || '#', textContent: part });
+    a.onclick = (e) => {
+      e.preventDefault();
+      Object.assign(state, { tab: TABS.find((t) => t[2].includes(f.status))[0], selected: f.id });
+      setStatus('');
+      render();
+      $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    return a;
+  });
 }
 
 function visible() {
@@ -451,6 +490,8 @@ function render() {
     return b;
   }));
 
+  renderSweep();
+  renderFixQueue();
   const items = visible();
   const current = items.find((f) => f.id === state.selected) || items[0];
   state.selected = current ? current.id : null;
@@ -466,7 +507,8 @@ function render() {
         el('span', { className: 'prio', textContent: `P ${f.priority.toFixed(2)}` }),
       ]),
       el('div', { className: 't' }, breakAfterSlashes(f.title)),
-      el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', `#${f.id}`, '·', STATUS[f.status] || f.status]
+      el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', `#${f.id}`, '·', STATUS[f.status] || f.status,
+                                         ...(f.fix_status ? ['·', FIX_STATUS[f.fix_status] || f.fix_status] : [])]
         .map((s) => el('span', { textContent: s }))),
     ]);
     b.querySelector('.cat').style.color = CAT_COLOR[f.category] || 'var(--muted)';
@@ -497,6 +539,7 @@ function render() {
   $('d-evidence').textContent = (current.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
     (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)})` : sha);
   renderRecheck(current);
+  renderFix(current);
   renderHistory(current);
   $('d-hypothesis').textContent = current.hypothesis;
   $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
@@ -522,12 +565,100 @@ function renderRecheck(f) {
   $('recheck-btn').disabled = looking;
 }
 
+// Fix this: Claude fixes it in Sentinel's own OBP-API worktree, one queued finding at a time, and Sentinel commits it
+function renderFix(f) {
+  const why = state.overview && state.overview.fix_unavailable;
+  const p = f.fix_status === 'running' && f.fix_progress;
+  const text = {
+    queued: f.fix || 'Queued. Claude fixes one finding at a time; this one starts when those before it are done.',
+    running: 'Claude is fixing it in the worktree: check it is real, change, compile, run its tests.'
+      + (p ? ` Started ${ago(Date.now() / 1000 - p.started)}, ${p.steps} command${p.steps === 1 ? '' : 's'} run so far. Now: ${p.step}` : ''),
+  }[f.fix_status] || f.fix || '';
+  $('d-fixing').hidden = !text;
+  $('d-fixing').replaceChildren(el('b', { textContent: `${FIX_STATUS[f.fix_status] || 'Fix'}${f.fix_at && !['queued', 'running'].includes(f.fix_status) ? `, ${fmtDate(f.fix_at)}` : ''}: ` }),
+                                ...withFindingLinks(text));
+  const btn = $('fix-btn');
+  $('fix-row').hidden = Boolean(why);
+  btn.disabled = ['queued', 'running', 'committed'].includes(f.fix_status);
+  btn.textContent = ['skipped', 'failed'].includes(f.fix_status) ? 'Try fixing again' : 'Fix this';
+}
+
+// The Fix this queue across all tabs: which finding is being fixed, how many wait, and how the others ended
+function renderFixQueue() {
+  const fs = state.findings.filter((f) => f.fix_status);
+  const of = (s) => fs.filter((f) => f.fix_status === s);
+  const running = of('running')[0];
+  const paused = of('queued').find((f) => (f.fix || '').startsWith('Paused'));
+  const parts = [
+    running ? `#${running.id} being fixed` : paused ? `paused at Claude's usage limit (#${paused.id} next)` : null,
+    of('queued').length ? `${of('queued').length} queued` : null,
+    of('committed').length ? `${of('committed').length} committed` : null,
+    of('skipped').length ? `${of('skipped').length} not an issue` : null,
+    of('failed').length ? `${of('failed').length} failed` : null,
+  ].filter(Boolean);
+  $('fix-queue').hidden = !parts.length;
+  $('fix-queue').replaceChildren('Fix this: ', ...withFindingLinks(parts.join(', ')));
+}
+
+$('fix-btn').addEventListener('click', async () => {
+  const id = state.selected;
+  $('fix-btn').disabled = true;
+  try {
+    const queued = await api(`/api/findings/${id}/fix`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const f = state.findings.find((x) => x.id === id);
+    if (f) Object.assign(f, queued);
+    render();
+    setStatus(`#${id} queued for fixing.`);
+    pollWhileRunning(id, 'fix_status');
+  } catch (e) {
+    setStatus(`Could not queue: ${e.message}`, true);
+    $('fix-btn').disabled = false;
+  }
+});
+
+// Look again at every security finding to review, one at a time; those Claude finds fixed move to Done
+function renderSweep() {
+  const sw = state.overview && state.overview.sweep;
+  const toReview = state.findings.filter((f) => f.status === 'suggested' && f.category === 'security').length;
+  $('sweep').hidden = state.tab !== 'review' || (!toReview && !sw);
+  $('sweep-btn').disabled = !toReview || !!(sw && sw.running);
+  $('sweep-state').textContent = !sw ? (toReview ? `${toReview} to look at, one at a time, up to $0.50 each at API prices.` : '')
+    : sw.running ? `Looking again: ${sw.done} of ${sw.total} done, ${sw.fixed} fixed and moved to Done so far. `
+      + 'The finding being looked at shows what Claude is doing.'
+    : `Looked again at ${sw.total} on ${fmtDate(sw.finished)}: ${sw.fixed} fixed and moved to Done. `
+      + 'Each finding shows Claude\'s answer.';
+}
+
+// While a sweep runs, fetch the overview and findings again
+function pollSweep() {
+  const poll = setInterval(async () => {
+    try {
+      [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);
+    } catch { return; }
+    if (!state.overview.sweep || !state.overview.sweep.running) clearInterval(poll);
+    if (document.activeElement?.id !== 'comment') render();
+  }, 5000);
+}
+
+$('sweep-btn').addEventListener('click', async () => {
+  $('sweep-btn').disabled = true;
+  try {
+    state.overview.sweep = await api('/api/findings/recheck-security', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    render();
+    pollSweep();
+  } catch (e) {
+    $('sweep-state').textContent = `Could not look again: ${e.message}`;
+    $('sweep-btn').disabled = false;
+  }
+});
+
 // Until a background judgement about finding `id` (its `field` is 'running') is made, fetch the findings again
 function pollWhileRunning(id, field) {
   const poll = setInterval(async () => {
     const findings = await api('/api/findings').catch(() => null);
     const g = findings && findings.find((x) => x.id === id);
-    if (!g || g[field] !== 'running') clearInterval(poll);
+    if (!g || !['running', 'queued'].includes(g[field])) clearInterval(poll);
     if (findings) { state.findings = findings; if (document.activeElement?.id !== 'comment') render(); }
   }, 5000);
 }
@@ -649,6 +780,11 @@ async function load() {
     [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);
     renderHeader();
     render();
+    if (state.overview.sweep && state.overview.sweep.running) pollSweep();
+    // Refresh until the last finding queued for fixing is done
+    const fixing = state.findings.filter((f) => f.fix_status === 'queued').sort((a, b) => b.fix_at - a.fix_at)[0]
+      || state.findings.find((f) => f.fix_status === 'running');
+    if (fixing) pollWhileRunning(fixing.id, 'fix_status');
   } catch (e) {
     $('watching').textContent = `Could not load: ${e.message}`;
   }
@@ -894,16 +1030,18 @@ function renderAnalysis(n) {
   $('n-steps-title').textContent = running ? 'What it is doing' : run ? `What it did in run #${run.id} (${dayClock(run.started_at)})` : 'What it did';
   const runNow = $('run-now');
   runNow.disabled = running || Boolean(n.by_hand_unavailable);
+  $('run-now-desc').textContent = 'Starts the analyst now, whatever its schedule says: it reads what was collected, investigates the '
+    + `source, records findings and writes a digest (up to $${n.budget_usd} at API prices).`;
   runNow.title = running ? 'An analysis is running' : n.by_hand_unavailable || `Start one now, whatever the schedule says (budget $${n.budget_usd})`;
   const showResult = run && !running && (run.result || run.error);
   $('n-result').hidden = !showResult;
-  if (showResult) $('n-result').textContent = run.error ? `${run.error}${run.result ? '\n' + run.result : ''}` : run.result;
+  if (showResult) $('n-result').replaceChildren(...withFindingLinks(run.error ? `${run.error}${run.result ? '\n' + run.result : ''}` : run.result));
 
   const steps = run ? run.steps : [];
   const items = steps.map((s, i) => {
     const last = i === steps.length - 1;
     const text = s.kind === 'thinking' ? 'Thinking' : s.text;
-    const span = el('span', { className: s.kind + (s.kind === 'thinking' && last && running ? ' thinking-now' : ''), textContent: text });
+    const span = el('span', { className: s.kind + (s.kind === 'thinking' && last && running ? ' thinking-now' : '') }, withFindingLinks(text));
     return el('li', {}, [el('time', { textContent: clock(s.ts) }), span]);
   });
   const hidden = run ? run.steps_total - steps.filter((s) => s.kind !== 'thinking').length : 0;

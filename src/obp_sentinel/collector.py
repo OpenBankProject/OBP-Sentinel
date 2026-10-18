@@ -199,9 +199,11 @@ class Collector:
                    f"/obp/{c.aggregate_metrics_api_version}/management/aggregate-metrics"])
 
     def check_secured(self) -> str:
-        """Whether the endpoints Sentinel reads refuse a call with no token, as they must. Hourly.
-        Secured if each refuses (401, 403); open if any answers 200; otherwise it cannot tell (no answer, 404 ...)."""
-        if now() - self.store.get_state(SECURED, {}).get("ts", 0) < SECURED_CHECK_SECONDS:
+        """Whether the endpoints Sentinel reads refuse a call with no token, as they must. Hourly, or every poll
+        while it cannot tell. Secured if each refuses (401, 403); open if any answers 200; otherwise it cannot tell
+        (no answer, 404 ...)."""
+        last = self.store.get_state(SECURED, {})
+        if last.get("verdict") != "unknown" and now() - last.get("ts", 0) < SECURED_CHECK_SECONDS:
             return "secured unchanged"
         checks = [{"path": path, "status": self.client.status_without_token(self.config.obp_base_url + path)}
                   for path in self.secured_paths()]

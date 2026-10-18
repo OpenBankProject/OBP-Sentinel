@@ -26,6 +26,8 @@ finding nothing is the usual, good result.
 2. For each endpoint:
    - Read its code at that commit and follow its path into what it calls (NewStyle functions, the
      connector, mappers, Doobie queries).
+   - When you find something, read the endpoint as it was in Lift too (`lift-reference.md` lists the commit
+     per API version, and the checks Lift did by itself) and say in the evidence whether it was already there.
    - What you read is recorded as units: a file, or for a file of more than 500 lines each function you
      read in it, written `path#name` (e.g. `obp-api/src/main/scala/code/api/util/NewStyle.scala#getBank`).
      Before reading a unit, `uv run sentinel source seen <units> --commit <commit>`: one already reviewed

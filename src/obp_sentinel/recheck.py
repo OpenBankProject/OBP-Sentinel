@@ -92,8 +92,8 @@ def command(config: Config, text: str) -> list[str]:
     ]
 
 
-def recheck(config: Config, finding_id: int) -> dict:
-    """Start looking at a finding again, unless that is already going. The answer is kept with the finding."""
+def _start(config: Config, finding_id: int) -> str | None:
+    """Mark a finding as being looked at again and return the prompt, or None if that is already going."""
     key, starting = (config.name, finding_id), False
     store = Store(config.db_path)
     try:
@@ -105,14 +105,16 @@ def recheck(config: Config, finding_id: int) -> dict:
             starting = key not in _running
             if starting:
                 _running[key] = {"started": now(), "steps": 0, "step": "Reading the finding and the commits since"}
-        if starting:
-            source = config.obp_api_source
-            found_at, now_at = read_at(source, finding["evidence"]), running_now(store, source)
-            text = prompt(finding, source, found_at, now_at,
-                          changes_since(source, found_at, now_at, json.loads(finding["files"])),
-                          still_seen(store, json.loads(finding["signature_ids"])))
-            store.db.execute("UPDATE findings SET recheck_status = 'running' WHERE id = ?", (finding_id,))
-            store.commit()
+        if not starting:
+            return None
+        source = config.obp_api_source
+        found_at, now_at = read_at(source, finding["evidence"]), running_now(store, source)
+        text = prompt(finding, source, found_at, now_at,
+                      changes_since(source, found_at, now_at, json.loads(finding["files"])),
+                      still_seen(store, json.loads(finding["signature_ids"])))
+        store.db.execute("UPDATE findings SET recheck_status = 'running' WHERE id = ?", (finding_id,))
+        store.commit()
+        return text
     except BaseException:
         if starting:
             with _lock:
@@ -120,13 +122,18 @@ def recheck(config: Config, finding_id: int) -> dict:
         raise
     finally:
         store.close()
-    if starting:
+
+
+def recheck(config: Config, finding_id: int) -> dict:
+    """Start looking at a finding again, unless that is already going. The answer is kept with the finding."""
+    if text := _start(config, finding_id):
         threading.Thread(target=_look, args=(config, finding_id, text), daemon=True,
                          name=f"recheck-{config.name}-{finding_id}").start()
     return {"recheck_status": "running", "recheck_progress": progress(config.name, finding_id)}
 
 
-def _look(config: Config, finding_id: int, text: str) -> None:
+def _look(config: Config, finding_id: int, text: str) -> str | None:
+    """Ask Claude and keep its answer with the finding. Returns the answer (None if there was none)."""
     try:
         def on_step(kind: str, step: str) -> None:
             if kind == "tool":
@@ -149,6 +156,7 @@ def _look(config: Config, finding_id: int, text: str) -> None:
         finally:
             store.close()
         logger.info("Looked again at finding %s (%s) for $%.2f", finding_id, config.name, cost or 0)
+        return answer
     finally:
         with _lock:
             _running.pop((config.name, finding_id), None)
@@ -163,4 +171,69 @@ def progress(instance: str, finding_id: int) -> dict | None:
     """When it started, how many commands Claude has run, and the latest one; None if not looking."""
     with _lock:
         shown = _running.get((instance, finding_id))
+        return dict(shown) if shown else None
+
+
+# --- Look again at all security findings to review ---------------------------------------------------------------
+
+_sweeps: dict[str, dict] = {}  # instance → progress of its sweep
+
+
+def sweep(config: Config) -> dict:
+    """Look again, one at a time in the background, at each security finding to review (suggested). One that Claude
+    finds fixed is marked fixed (Done on the page), with Claude's answer as the comment. Returns the progress."""
+    with _lock:
+        if (going := _sweeps.get(config.name)) and going["running"]:
+            return dict(going)
+    store = Store(config.db_path)
+    try:
+        ids = [r[0] for r in store.db.execute(
+            "SELECT id FROM findings WHERE category = 'security' AND status = 'suggested' ORDER BY priority DESC")]
+    finally:
+        store.close()
+    shown = {"running": True, "started": now(), "total": len(ids), "done": 0, "fixed": 0}
+    with _lock:
+        _sweeps[config.name] = shown
+    threading.Thread(target=_sweep, args=(config, ids), daemon=True, name=f"sweep-{config.name}").start()
+    return dict(shown)
+
+
+def look_and_mark(config: Config, finding_id: int) -> bool:
+    """Look again at one finding, here and now; mark it fixed, with Claude's answer as the comment, if Claude finds
+    it fixed. True if so. A failure is logged, not raised, so one finding does not stop the others."""
+    try:
+        text = _start(config, finding_id)
+        answer = _look(config, finding_id, text) if text else None
+    except Exception as e:
+        logger.warning("Looking again at finding %s (%s) failed: %s", finding_id, config.name, e)
+        return False
+    if not (answer and answer.startswith("Fixed at")):
+        return False
+    store = Store(config.db_path)
+    try:
+        store.add_feedback(finding_id, "fixed", f"Look again: {answer}", config.snooze_days)
+        store.commit()
+    finally:
+        store.close()
+    return True
+
+
+def _sweep(config: Config, ids: list[int]) -> None:
+    shown = _sweeps[config.name]
+    try:
+        for finding_id in ids:
+            if look_and_mark(config, finding_id):
+                with _lock:
+                    shown["fixed"] += 1
+            with _lock:
+                shown["done"] += 1
+    finally:
+        with _lock:
+            shown["running"] = False
+            shown["finished"] = now()
+
+
+def sweep_progress(instance: str) -> dict | None:
+    with _lock:
+        shown = _sweeps.get(instance)
         return dict(shown) if shown else None

@@ -116,7 +116,10 @@ CREATE TABLE IF NOT EXISTS findings (
     trace_status  TEXT,                    -- running | done | failed
     recheck       TEXT,                    -- whether it is still an issue, as judged by Look again
     recheck_status TEXT,                   -- running | done | failed
-    rechecked_at  INTEGER
+    rechecked_at  INTEGER,
+    fix_status    TEXT,                    -- queued | running | committed | skipped | failed (Fix this)
+    fix           TEXT,                    -- Fix this: the commit, or why not, and Claude's one line
+    fix_at        INTEGER
 );
 
 -- What was shown to people, and when.
@@ -187,7 +190,8 @@ class Store:
         self.db.executescript(SCHEMA)
         have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
         added = {"summary": "TEXT", "history": "TEXT", "introduced": "TEXT", "trace_status": "TEXT", "recheck": "TEXT",
-                 "recheck_status": "TEXT", "rechecked_at": "INTEGER"}  # after the first databases were made
+                 "recheck_status": "TEXT", "rechecked_at": "INTEGER", "fix_status": "TEXT", "fix": "TEXT",
+                 "fix_at": "INTEGER"}  # after the first databases were made
         for column, kind in added.items():
             if column not in have:
                 self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} {kind}")

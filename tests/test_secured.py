@@ -56,3 +56,10 @@ def test_it_checks_once_an_hour(config):
     _, asked, collector = check(cfg, lambda path: 401)
     n = len(asked)
     assert collector.check_secured() == "secured unchanged" and len(asked) == n
+
+
+def test_it_checks_again_on_the_next_poll_when_it_could_not_tell(config):
+    cfg = replace(config, obp_base_url="http://obp")
+    _, asked, collector = check(cfg, lambda path: None)
+    n = len(asked)
+    assert collector.check_secured() == "endpoints unknown without a token" and len(asked) == 2 * n
