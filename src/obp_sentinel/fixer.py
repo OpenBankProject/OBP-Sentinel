@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 
 TIMEOUT_MINUTES = 45
 COMPILE_TIMEOUT_SECONDS = 1200
-SOURCE_DIRS = ("obp-api/src", "obp-commons/src")  # what a fix may change
+SOURCE_DIRS = ("obp-api/src", "obp-commons/src", "scripts/resource_doc_baseline")  # what a fix may change: the code,
+# and the reviewed Lift/http4s ResourceDoc differences (parity_allowlist.json) a new error in a ResourceDoc needs
+PARITY_SCRIPTS = ("scripts/check_lift_http4s_resource_doc_parity.py", "scripts/resource_doc_baseline/allowlist_helper.py")
 GIT_READ_COMMANDS = ("status", "diff", "log", "show", "grep")
 LOCK_FILE = "work/fixer.lock"  # one fix at a time across Sentinel processes: they share the worktree
 _lock = threading.Lock()  # and across this process's instances
@@ -105,16 +107,29 @@ def prompt(finding: dict, worktree: str) -> str:
         f"1. Check that the problem is really in the code at {worktree} (Read, Grep, Glob). If it is not, change "
         "nothing and say so.\n"
         "2. Make the smallest change that fixes it, in the style of the code around it, with Edit or Write, only in "
-        f"{worktree}/obp-api/src or {worktree}/obp-commons/src. Leave obp-commons alone unless the fix needs it. Read "
+        f"{', '.join(f'{worktree}/{d}' for d in SOURCE_DIRS)}. Leave obp-commons alone unless the fix needs it. Give "
+        "every line or block you add or change a short comment saying what it does and why (e.g. // the message must "
+        "be in the room in the path, else any participant reads any room), in the comment style of the file. Read "
         f"{worktree}/CLAUDE.md first: it says how endpoints and their tests are written. If the endpoint did this "
         f"right in Lift, do what Lift did (Read {LIFT_REFERENCE} for the commit to git show it at).\n"
-        f"3. Compile: {build} test-compile\n"
-        "4. Run the test suites that cover the code you changed, by fully qualified class name (grep the test sources "
-        f"for the endpoint or class): {build} test -DwildcardSuites=<Suite1,Suite2> -DfailIfNoTests=false\n"
-        "   Add or change a test scenario only if that is the clearest proof of the fix. Never run every suite.\n"
-        "Allowed: Read, Grep, Glob; Edit and Write in the worktree; the Maven command above; git -C "
-        f"{worktree} followed by {', '.join(GIT_READ_COMMANDS)}. One command at a time: a pipe, &&, ;, cd or a "
-        "redirect is refused. Do not commit: a person reviews and commits the change.\n\n"
+        "   A new check that fails returns an OBP error message from ErrorMessages with the HTTP code that matches it: "
+        "404 for something not found, or not belonging to the bank, account or customer in the path (as if it did not "
+        "exist, so nothing is told about other banks' data), 403 for a missing permission, 400 for bad input "
+        "(booleanToFuture(<message>, 404, Some(cc)) { ... }).\n"
+        "3. Every error the endpoint can now return goes in its ResourceDoc's error list. If you changed a ResourceDoc, "
+        f"check it against the Lift baseline: python3 {worktree}/{PARITY_SCRIPTS[0]} <version, e.g. v3_1_0>. For each "
+        f"difference it reports that your change made, print an allowlist entry with python3 {worktree}/{PARITY_SCRIPTS[1]} "
+        "field-mismatch <version> <endpoint> <field> \"<reason: what was added and why>\", add it to "
+        f"{worktree}/scripts/resource_doc_baseline/parity_allowlist.json next to the entries of that version, in the "
+        "file's own JSON layout, and run the check again until it reports nothing new.\n"
+        f"4. Compile: {build} test-compile\n"
+        "5. Add a test scenario for each new check (the request it refuses, and the code and error message it returns), "
+        "in the suite of that endpoint, then run the suites that cover the code you changed, by fully qualified class "
+        f"name (grep the test sources for the endpoint or class): {build} test -DwildcardSuites=<Suite1,Suite2> "
+        "-DfailIfNoTests=false\n   Never run every suite.\n"
+        "Allowed: Read, Grep, Glob; Edit and Write in the worktree; the Maven command above; the two python3 scripts "
+        f"above; git -C {worktree} followed by {', '.join(GIT_READ_COMMANDS)}. One command at a time: a pipe, &&, ;, cd "
+        "or a redirect is refused. Do not commit: a person reviews and commits the change.\n\n"
         "Reply with one line only, either\n"
         "Fixed: <one sentence: what you changed>. Tests: <the suites you ran, or none>.\n"
         "followed by a second line, the commit message: one short line in plain words, at most "
@@ -128,6 +143,7 @@ def prompt(finding: dict, worktree: str) -> str:
 def command(config: Config, text: str) -> list[str]:
     worktree = str(Path(config.fix_worktree).resolve())
     tools = ["Read", "Grep", "Glob", f"Bash({' '.join(maven(worktree))} *)"]
+    tools += [f"Bash(python3 {worktree}/{script} *)" for script in PARITY_SCRIPTS]
     tools += [f"{tool}(/{worktree}/{d}/**)" for tool in ("Edit", "Write") for d in SOURCE_DIRS]
     tools += [f"Bash(git -C {worktree} {c} *)" for c in GIT_READ_COMMANDS]
     return [
