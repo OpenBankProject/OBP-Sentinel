@@ -203,3 +203,21 @@ def test_instances_show_running_commit_age_and_problems(server, config, monkeypa
     assert status == 200 and instance["commit"]["commit_ts"] == 1791000000 and instance["problems"] == 1
     status, data = request(server, "GET", "/api/health")
     assert status == 200 and json.loads(data)["problems"][0]["key"] == "token-rejected"
+
+
+def test_feedback_given_on_the_page_can_be_undone(config):
+    from obp_sentinel.store import Store
+    store = Store(config.db_path)
+    fid = store.upsert_finding({"key": "k", "title": "t", "category": "bug", "signature_ids": [], "evidence": "e",
+                                "hypothesis": "h", "files": [], "suggested_fix": "f", "impact": 1, "confidence": 0.5,
+                                "effort": 1, "trend": "new"})
+    store.add_feedback(fid, "fixed", None, 7)
+    assert store.db.execute("SELECT status FROM findings WHERE id = ?", (fid,)).fetchone()[0] == "fixed"
+    assert store.undo_feedback(fid) == "fixed"
+    assert store.db.execute("SELECT status FROM findings WHERE id = ?", (fid,)).fetchone()[0] == "open"
+    assert store.db.execute("SELECT COUNT(*) FROM feedback WHERE finding_id = ?", (fid,)).fetchone()[0] == 0
+    store.add_feedback(fid, "fixed", "Fix this: committed abc on develop: x", 7)  # recorded by Sentinel: not undone
+    import pytest
+    with pytest.raises(ValueError):
+        store.undo_feedback(fid)
+    store.close()

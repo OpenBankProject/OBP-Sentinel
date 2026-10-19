@@ -239,6 +239,14 @@ def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped
     return error, cost, result, model
 
 
+def ask(config: Config, text: str, budget_usd: float, timeout_minutes: int = 5) -> tuple[str | None, str | None]:
+    """One question to Claude with no tools at all (a judgement from the text given): (error, reply)."""
+    cmd = [config.claude_command, "-p", text, "--output-format", "stream-json", "--verbose",
+           "--permission-mode", "dontAsk", "--strict-mcp-config", "--max-budget-usd", f"{budget_usd:g}"]
+    error, _, result, _ = run_claude(cmd, {}, timeout_minutes, lambda kind, step: None, threading.Event())
+    return error, result
+
+
 class Analyst:
     def __init__(self, config: Config):
         self.config = config

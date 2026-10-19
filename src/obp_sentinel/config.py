@@ -189,6 +189,8 @@ class Config:
     fix_worktree: str  # Fix this: a git worktree of OBP-API that Claude fixes findings in, one commit each
     fix_budget_usd: float  # most one fix may spend
 
+    build_actions_url: str  # the OBP-API build on GitHub Actions, shown at the top of the page (build.py)
+
     @property
     def is_app(self) -> bool:
         """An app with its own /monitoring endpoints rather than OBP-API: no metrics, root, Scopes or source review."""
@@ -275,4 +277,5 @@ class Config:
             scan_endpoints=int(env("SENTINEL_SCAN_ENDPOINTS", "2")),
             fix_worktree=env("SENTINEL_FIX_WORKTREE", ""),
             fix_budget_usd=float(env("SENTINEL_FIX_BUDGET_USD", "3")),
+            build_actions_url="" if is_app else env("OBP_API_BUILD_ACTIONS_URL", ""),
         )

@@ -9,6 +9,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from . import history
 from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
 from .scanner import Scanner
@@ -179,6 +180,8 @@ def cmd_run(args, configs: list[Config]) -> None:
     analysts = analysts_for(args, configs)
     scanner = Scanner(configs)  # the source scanner: scans while Go is on (on the page)
     scanner.start()
+    tracing = threading.Event()  # set to stop Trace history by itself
+    threading.Thread(target=history.trace_forever, args=(configs, tracing), name="trace-history", daemon=True).start()
     first = configs[0]
     server = serve_in_background(configs, args.host or first.ui_host, args.port or first.ui_port,
                                  tuple(args.allow_host), analysts, scanner)
@@ -187,6 +190,7 @@ def cmd_run(args, configs: list[Config]) -> None:
     finally:
         stop(analysts)
         scanner.stop()
+        tracing.set()
         server.shutdown()
         server.server_close()
 

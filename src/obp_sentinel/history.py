@@ -13,17 +13,20 @@ import subprocess
 import threading
 from pathlib import Path
 
-from .analyst import GIT_READ_COMMANDS, run_claude
+from .analyst import GIT_READ_COMMANDS, run_claude, unavailable_reason
 from .config import Config
 from .store import Store, introduced_parts
 
 logger = logging.getLogger(__name__)
 
 FILE_REF = re.compile(r"^(?P<path>[^:\s]+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
+READ_AT = re.compile(r"source code at ([0-9a-f]{7,40})\b")  # the commit the evidence was read at, short or full
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 LINES_AFTER = 8  # a file reference names one line: follow the few after it too, where the code usually is
 BUDGET_USD = 0.3
 TIMEOUT_MINUTES = 10
+AUTO_EVERY_SECONDS = 600  # Trace history runs by itself this often, for a few findings never traced
+AUTO_PER_CHECK = 3  # one at a time, up to BUDGET_USD each: a backlog of findings is traced over some hours
 LIFT_REFERENCE = Path("lift-reference.md").resolve()  # where each API version's Lift code was last live
 _running: set[tuple[str, int]] = set()  # (instance, finding id) whose judgement is being made
 _lock = threading.Lock()
@@ -54,7 +57,7 @@ def line_history(source: str, ref: str, commit: str = "HEAD") -> dict:
 def read_at(source: str, evidence: str) -> str:
     """The commit the finding's lines are numbered at: the first commit its evidence names that the checkout has
     ("Whilst reading the source code at <commit> ..."), else HEAD."""
-    for sha in FULL_SHA.findall(evidence or ""):
+    for sha in READ_AT.findall(evidence or "") + FULL_SHA.findall(evidence or ""):
         if subprocess.run(["git", "-C", source, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0:
             return sha
     return "HEAD"
@@ -106,9 +109,9 @@ def command(config: Config, text: str) -> list[str]:
     ]
 
 
-def trace(config: Config, finding_id: int) -> dict:
-    """Record the git history of a finding's lines, and start judging which commit introduced the problem.
-    Returns the history at once; the judgement is kept with the finding when it is made."""
+def trace(config: Config, finding_id: int, background: bool = True) -> dict:
+    """Record the git history of a finding's lines, and judge which commit introduced the problem: in the
+    background (returning the history at once), or here and now. The judgement is kept with the finding."""
     store = Store(config.db_path)
     try:
         row = store.db.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone()
@@ -126,7 +129,9 @@ def trace(config: Config, finding_id: int) -> dict:
         store.commit()
     finally:
         store.close()
-    if judging:
+    if judging and not background:
+        _judge(config, finding_id, finding, history)
+    elif judging:
         threading.Thread(target=_judge, args=(config, finding_id, finding, history), daemon=True,
                          name=f"trace-{config.name}-{finding_id}").start()
     return {"history": history, "trace_status": "running" if judging else finding.get("trace_status")}
@@ -160,3 +165,39 @@ def _judge(config: Config, finding_id: int, finding: dict, history: list[dict]) 
 def is_running(instance: str, finding_id: int) -> bool:
     with _lock:
         return (instance, finding_id) in _running
+
+
+def untraced(config: Config, limit: int = AUTO_PER_CHECK) -> list[int]:
+    """Findings Trace history has not looked at yet, most important first."""
+    store = Store(config.db_path)
+    try:
+        return [r[0] for r in store.db.execute(
+            "SELECT id FROM findings WHERE trace_status IS NULL AND introduced IS NULL ORDER BY priority DESC, id LIMIT ?",
+            (limit,))]
+    finally:
+        store.close()
+
+
+def trace_forever(configs: list[Config], stopped: threading.Event) -> None:
+    """Trace history by itself: every AUTO_EVERY_SECONDS, a few findings never traced, per instance, one at a time.
+    A new finding is traced within a check or two of being recorded. Then a few findings in Done are given their
+    bug class (classes.py), and a few findings judged on whether using them needs a guessed id (guessing.py)."""
+    from . import classes, guessing
+    delay = 60  # the first check soon after Sentinel starts
+    while not stopped.wait(delay):
+        delay = AUTO_EVERY_SECONDS
+        for config in configs:
+            if unavailable_reason(config, scheduled=False):  # Claude Code and the source, as for Trace history by hand
+                continue
+            for finding_id in untraced(config):
+                if stopped.is_set():
+                    return
+                try:
+                    trace(config, finding_id, background=False)
+                    logger.info("Traced the history of finding %s (%s) by itself", finding_id, config.name)
+                except Exception:
+                    logger.exception("Tracing the history of finding %s (%s) failed", finding_id, config.name)
+        if not stopped.is_set():
+            classes.classify_all(configs)
+        if not stopped.is_set():
+            guessing.judge_all(configs)

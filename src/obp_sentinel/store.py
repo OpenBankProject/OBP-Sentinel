@@ -127,7 +127,11 @@ CREATE TABLE IF NOT EXISTS findings (
     fix_at        INTEGER,
     fix_message   TEXT,                    -- the commit message Claude suggests, for a person to edit
     fix_files     TEXT,                    -- JSON list of the files the staged fix changes
-    fix_patch     TEXT                     -- the staged fix, to take it back out (Discard)
+    fix_patch     TEXT,                    -- the staged fix, to take it back out (Discard)
+    bug_class     TEXT,                    -- the kind of bug, for counting what was fixed (classes.py)
+    fix_tests     INTEGER,                 -- 0: Fix this without tests (the tests are left to CI); else they are run
+    needs_id      INTEGER                  -- 1: an attacker must know an id of another's object they cannot list or
+                                           -- see; lowers the priority (NEEDS_ID_WEIGHT). NULL: not judged yet
 );
 
 -- Fix this: everything Claude did for a finding's latest fix, tool results too (kind: thinking | note | tool |
@@ -154,8 +158,10 @@ CREATE TABLE IF NOT EXISTS feedback (
     id         INTEGER PRIMARY KEY,
     finding_id INTEGER NOT NULL REFERENCES findings(id),
     ts         INTEGER NOT NULL,
-    verdict    TEXT NOT NULL,              -- accepted | acted | dismissed | later | fixed
-    comment    TEXT
+    verdict    TEXT NOT NULL,              -- accepted | acted | dismissed | later | fixed | comment
+    comment    TEXT,
+    previous_status        TEXT,           -- the finding's status before, for Undo
+    previous_snoozed_until INTEGER
 );
 
 -- Each time the analyst ran (headless Claude Code), and the steps it took: tool calls and notes, never tool results.
@@ -189,6 +195,8 @@ CREATE TABLE IF NOT EXISTS state (
 SAMPLES_PER_SIGNATURE = 5
 TREND_WEIGHTS = {"new": 1.5, "rising": 1.3, "stable": 1.0, "falling": 0.6}
 VERDICTS = ("accepted", "acted", "dismissed", "later", "fixed")
+UNDO_SECONDS = 600  # how long feedback given on the page can be taken back
+COMMENT = "comment"  # feedback that is only a comment from a person: the finding's status stays as it is
 CATEGORIES = {"bug", "performance", "security", "reliability", "readability", "api-contract"}
 
 
@@ -207,8 +215,11 @@ def now() -> int:
     return int(time.time())
 
 
-def priority_of(impact: int, confidence: float, effort: int, trend: str) -> float:
-    return round(impact * confidence * TREND_WEIGHTS[trend] / effort, 3)
+NEEDS_ID_WEIGHT = 0.3  # a problem only an attacker who knows or guesses someone else's id can use comes later
+
+
+def priority_of(impact: int, confidence: float, effort: int, trend: str, needs_id: bool = False) -> float:
+    return round(impact * confidence * TREND_WEIGHTS[trend] / effort * (NEEDS_ID_WEIGHT if needs_id else 1), 3)
 
 
 class Store:
@@ -218,12 +229,16 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
+        if "previous_status" not in {r[1] for r in self.db.execute("PRAGMA table_info(feedback)")}:
+            self.db.execute("ALTER TABLE feedback ADD COLUMN previous_status TEXT")
+            self.db.execute("ALTER TABLE feedback ADD COLUMN previous_snoozed_until INTEGER")
         have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
         added = {"summary": "TEXT", "history": "TEXT", "introduced": "TEXT", "trace_status": "TEXT", "recheck": "TEXT",
                  "recheck_status": "TEXT", "rechecked_at": "INTEGER", "fix_status": "TEXT", "fix": "TEXT",
                  "fix_at": "INTEGER", "fix_message": "TEXT", "fix_files": "TEXT", "fix_patch": "TEXT",
                  "introduced_commit": "TEXT", "introduced_when": "TEXT", "introduced_who": "TEXT",
-                 "introduced_where": "TEXT"}  # after the first databases were made
+                 "introduced_where": "TEXT", "bug_class": "TEXT",
+                 "needs_id": "INTEGER", "fix_tests": "INTEGER"}  # after the first databases were made
         for column, kind in added.items():
             if column not in have:
                 self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} {kind}")
@@ -331,27 +346,36 @@ class Store:
         if not (1 <= impact <= 5 and 1 <= effort <= 5 and 0 <= confidence <= 1):
             raise ValueError("impact and effort must be 1..5, confidence 0..1")
         ts = now()
+        existing = self.db.execute("SELECT id, needs_id FROM findings WHERE key = ?", (f["key"],)).fetchone()
+        needs_id = f.get("needs_id")  # left as judged before when the finding does not say
+        needs_id = int(bool(needs_id)) if needs_id is not None else existing["needs_id"] if existing else None
         fields = (
             f["title"], f.get("summary"), f["category"], json.dumps(f.get("signature_ids", [])), f["evidence"], f["hypothesis"],
-            json.dumps(f.get("files", [])), f["suggested_fix"], impact, confidence, effort, trend,
-            priority_of(impact, confidence, effort, trend),
+            json.dumps(f.get("files", [])), f["suggested_fix"], impact, confidence, effort, trend, needs_id,
+            priority_of(impact, confidence, effort, trend, bool(needs_id)),
         )
-        existing = self.db.execute("SELECT id FROM findings WHERE key = ?", (f["key"],)).fetchone()
         if existing:
             self.db.execute(
                 """UPDATE findings SET updated_at = ?, title = ?, summary = ?, category = ?, signature_ids = ?, evidence = ?,
                    hypothesis = ?, files = ?, suggested_fix = ?, impact = ?, confidence = ?, effort = ?, trend = ?,
-                   priority = ? WHERE id = ?""",
+                   needs_id = ?, priority = ? WHERE id = ?""",
                 (ts, *fields, existing["id"]),
             )
             return existing["id"]
         cur = self.db.execute(
             """INSERT INTO findings (key, created_at, updated_at, title, summary, category, signature_ids, evidence,
-               hypothesis, files, suggested_fix, impact, confidence, effort, trend, priority)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               hypothesis, files, suggested_fix, impact, confidence, effort, trend, needs_id, priority)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (f["key"], ts, ts, *fields),
         )
         return cur.lastrowid
+
+    def set_needs_id(self, finding_id: int, needs_id: bool) -> None:
+        """Record whether using the problem needs a guessed id, and work its priority out again."""
+        f = self.db.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone()
+        self.db.execute("UPDATE findings SET needs_id = ?, priority = ? WHERE id = ?",
+                        (int(needs_id), priority_of(f["impact"], f["confidence"], f["effort"], f["trend"], needs_id),
+                         finding_id))
 
     def findings(self, statuses: tuple[str, ...] | None = None) -> list[sqlite3.Row]:
         if statuses:
@@ -367,9 +391,12 @@ class Store:
             raise ValueError(f"No finding with id {finding_id}")
         ts = now()
         self.db.execute(
-            "INSERT INTO feedback (finding_id, ts, verdict, comment) VALUES (?, ?, ?, ?)",
-            (finding_id, ts, verdict, comment),
+            "INSERT INTO feedback (finding_id, ts, verdict, comment, previous_status, previous_snoozed_until) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (finding_id, ts, verdict, comment, finding["status"], finding["snoozed_until"]),
         )
+        if verdict == COMMENT:
+            return
         snoozed_until = ts + snooze_days * 86400 if verdict == "later" else None
         self.db.execute(
             "UPDATE findings SET status = ?, snoozed_until = ? WHERE id = ?", (verdict, snoozed_until, finding_id)
@@ -377,6 +404,22 @@ class Store:
         if verdict == "dismissed":
             for signature_id in json.loads(finding["signature_ids"]):
                 self.set_signature_status(signature_id, "dismissed")
+
+    def undo_feedback(self, finding_id: int, within_seconds: int = UNDO_SECONDS) -> str:
+        """Take back the latest feedback on a finding, given in the last `within_seconds`, and put the finding's
+        status back as it was. Returns the verdict taken back. Not a dismissal (its signatures were dismissed too),
+        nor what Sentinel recorded itself, nor what was recorded before Undo was possible."""
+        row = self.db.execute("SELECT * FROM feedback WHERE finding_id = ? ORDER BY id DESC LIMIT 1",
+                              (finding_id,)).fetchone()
+        if not row or row["ts"] < now() - within_seconds:
+            raise ValueError(f"Nothing to undo on #{finding_id} from the last {within_seconds // 60} minutes")
+        if row["verdict"] == "dismissed" or row["previous_status"] is None \
+                or (row["comment"] or "").startswith(("Fix this:", "Look again:")):
+            raise ValueError(f"The latest feedback on #{finding_id} cannot be undone")
+        self.db.execute("DELETE FROM feedback WHERE id = ?", (row["id"],))
+        self.db.execute("UPDATE findings SET status = ?, snoozed_until = ? WHERE id = ?",
+                        (row["previous_status"], row["previous_snoozed_until"], finding_id))
+        return row["verdict"]
 
     def set_signature_status(self, signature_id: str, status: str) -> bool:
         cur = self.db.execute("UPDATE signatures SET status = ? WHERE id = ?", (status, signature_id))

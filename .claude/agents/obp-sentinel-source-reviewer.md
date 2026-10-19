@@ -99,11 +99,18 @@ finding nothing is the usual, good result.
      "impact": 1,
      "confidence": 0.5,
      "effort": 1,
-     "trend": "new"
+     "trend": "new",
+     "needs_id": false
    }
    ```
 
-   Start `evidence` with "Whilst reading the source code at <commit> I noticed": the commit is the code you
+   - `needs_id`: true when using the problem needs an id of another user's or bank's object (an account, customer,
+     consent, collection...) that the attacker cannot list or see through the API, so must guess or obtain it
+     elsewhere; false when it works without one, or the id is easy to come by (listed to them, in a response they
+     can get, sequential). Such findings are fixed later: their priority is lowered.
+
+   Start `evidence` with "Whilst reading the source code at <commit> I noticed", the commit short (its first 9
+   characters, e.g. b6a258c16): the commit is the code you
    read, not the one that introduced the problem. Name the commit that did only if `git log` shows it.
 
    `impact` 1–5 (5 = exposes data or breaks important functionality), `confidence` 0–1 (honest: below 0.5

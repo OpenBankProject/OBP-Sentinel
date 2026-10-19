@@ -62,3 +62,32 @@ def test_who_when_commit_and_where_are_split_out_of_the_answer():
         == ("bab4919ff", "2018-10-22", "Grace Hopper", None)
     assert introduced_parts("Predates abc1234 (2019-01-01): it was there.") == (None, None, None, None)
 
+
+
+def test_trace_history_runs_by_itself_for_the_findings_never_traced(config, monkeypatch):
+    import threading
+    from obp_sentinel import history
+    from obp_sentinel.store import Store
+    store = Store(config.db_path)
+    ids = [store.upsert_finding({"key": k, "title": "t", "category": "bug", "signature_ids": [], "evidence": "e",
+                                 "hypothesis": "h", "files": [], "suggested_fix": "f", "impact": i, "confidence": 0.5,
+                                 "effort": 1, "trend": "new"}) for k, i in (("low", 1), ("high", 5), ("done", 3))]
+    store.db.execute("UPDATE findings SET trace_status = 'done' WHERE id = ?", (ids[2],))
+    store.commit()
+    store.close()
+    assert history.untraced(config) == [ids[1], ids[0]]  # most important first, the traced one left out
+    stopped, traced = threading.Event(), []
+    monkeypatch.setattr(history, "unavailable_reason", lambda c, scheduled: None)
+    monkeypatch.setattr(history, "trace", lambda c, fid, background: traced.append((fid, background)) or (fid == ids[0] and stopped.set()))
+    monkeypatch.setattr(stopped, "wait", lambda seconds: stopped.is_set())
+    history.trace_forever([config], stopped)
+    assert traced == [(ids[1], False), (ids[0], False)]  # one at a time, here and now
+
+
+def test_the_commit_the_evidence_was_read_at_may_be_short(tmp_path):
+    from obp_sentinel.history import read_at
+    repo = make_repo(tmp_path)
+    full = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD~1"], capture_output=True, text=True).stdout.strip()
+    assert read_at(str(repo), f"Whilst reading the source code at {full[:9]} I noticed 1234567 calls") == full[:9]
+    assert read_at(str(repo), f"Whilst reading the source code at {full} I noticed") == full
+    assert read_at(str(repo), "no commit here, 1234567 times") == "HEAD"

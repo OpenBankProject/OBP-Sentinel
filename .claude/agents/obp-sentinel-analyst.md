@@ -53,7 +53,8 @@ perfectly good result.
    history with `git -C "$OBP_API_SOURCE" log -p --since=... -- <file>`. The summary gives the
    `git_commit` the instance runs (from its root endpoint). The checkout may be at a different
    commit: if so, read the code as deployed with `git -C "$OBP_API_SOURCE" show <git_commit>:<path>`
-   and say which commit your findings refer to, as "Whilst reading the source code at <commit> I noticed ...".
+   and say which commit your findings refer to, as "Whilst reading the source code at <commit> I noticed ...",
+   the commit short (its first 9 characters, e.g. b6a258c16).
    For an endpoint, also read it as it was in Lift (`lift-reference.md` lists the commit per API version, and
    the checks Lift did by itself) and say in the evidence whether the problem was already there in Lift.
 5. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
@@ -72,9 +73,15 @@ perfectly good result.
      "impact": 1,
      "confidence": 0.5,
      "effort": 1,
-     "trend": "new | rising | stable | falling"
+     "trend": "new | rising | stable | falling",
+     "needs_id": false
    }
    ```
+
+   - `needs_id`: true when using the problem needs an id of another user's or bank's object (an account, customer,
+     consent, collection...) that the attacker cannot list or see through the API, so must guess or obtain it
+     elsewhere; false when it works without one, or the id is easy to come by (listed to them, in a response they
+     can get, sequential). Such findings are fixed later: their priority is lowered.
 
    - `impact` 1–5: 5 = breaks important functionality or exposes data; 1 = cosmetic.
    - `confidence` 0–1: be honest. Below 0.5 if you did not find the code path.

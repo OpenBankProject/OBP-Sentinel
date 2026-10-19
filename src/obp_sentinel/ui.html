@@ -79,13 +79,17 @@ nav .n { font-family: var(--mono); font-size: 13px; margin-left: 4px; }
   border: 1px solid var(--line); cursor: pointer; }
 .item[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .item .top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.item .top .prio { margin-left: auto; }
+.item .top .num { font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
 .cat { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
 .prio { font-family: var(--mono); font-size: 13px; color: var(--muted); }
 .item .t { font-weight: 600; margin-top: 4px; }
 .item .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 13px; color: var(--muted); }
 .empty { padding: 24px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); text-align: center; }
 article { flex: 999 1 560px; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
-article .head { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); }
+article .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; font-size: 13px; color: var(--muted); }
+article .head .num { margin: -14px 0 10px auto; font-size: 32px; font-weight: 700; line-height: 1; color: var(--ink);
+  font-variant-numeric: tabular-nums; }
 article .key { font-family: var(--mono); }
 h2 { margin: 8px 0 20px; font-size: 22px; line-height: 1.3; letter-spacing: -0.01em; }
 .titlebar { display: flex; align-items: flex-start; gap: 12px; }
@@ -94,6 +98,7 @@ h2 { margin: 8px 0 20px; font-size: 22px; line-height: 1.3; letter-spacing: -0.0
 button.icon { flex: none; min-width: 44px; min-height: 44px; margin-top: 2px; padding: 0; display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
 button.icon:hover { color: var(--ink); }
+button.icon.copied { color: var(--good); }
 .scores { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--line);
   border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
 .scores div { background: var(--surface); padding: 10px 12px; }
@@ -119,6 +124,8 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
   background: var(--surface); font-weight: 500; cursor: pointer; }
 .actions .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .actions button:disabled { opacity: 0.5; cursor: default; }
+.actions button.busy { cursor: progress; opacity: 1; }
+.actions button.done { background: var(--good); border-color: var(--good); color: var(--on-accent); opacity: 1; }
 .status { margin: 14px 0 0; font-size: 14px; color: var(--accent); min-height: 1.5em; }
 .status.error { color: var(--danger); }
 .previous { font-size: 14px; color: var(--muted); margin: 0 0 14px; }
@@ -221,6 +228,21 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
 .steps .sentinel { font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
 .steps.fixlog { max-height: 480px; margin-bottom: 16px; }
 .staged { margin: 0 0 16px; }
+#d-fixing { white-space: pre-line; }
+.fix-queue { margin: 0 0 16px; font-size: 14px; }
+.fix-queue[hidden] { display: none; }
+.fix-queue p { margin: 0 0 4px; }
+.fix-queue ol { margin: 0 0 4px; padding-left: 24px; }
+.fix-queue li { overflow-wrap: anywhere; }
+.build { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px;
+  overflow-wrap: anywhere; }
+.build[hidden] { display: none; }
+.build.ok { border-left-color: var(--good); }
+.build.ok b { color: var(--good); }
+.build.failing { border-color: var(--bad); }
+.build.failing b { color: var(--bad); }
+.build.running b, .build.unknown b { color: var(--warn); }
+.build.running, .build.unknown { border-left-color: var(--warn); }
 .staged[hidden] { display: none; }
 .staged input { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit;
   font-size: 14px; color: var(--ink); background: var(--bg); margin-bottom: 10px; }
@@ -258,6 +280,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
   </div>
 </header>
 <main>
+  <p class="build" id="build" hidden></p>
   <section class="activity setup" id="setup" aria-labelledby="setup-title" hidden>
     <h2 id="setup-title"></h2>
     <p class="intro" id="setup-intro"></p>
@@ -268,8 +291,9 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     <h1>Suggested improvements</h1>
     <p id="rules"></p>
   </div>
-  <p class="sub" id="fix-queue" hidden></p>
+  <div class="fix-queue" id="fix-queue" hidden></div>
   <nav aria-label="Filter suggestions" id="tabs"></nav>
+  <p class="sub" id="bug-classes" hidden></p>
   <div class="sweep" id="sweep" hidden>
     <button type="button" class="run-now" id="sweep-btn">Look again at the security findings to review</button>
     <span class="desc">Claude looks again, one at a time, at each security finding in To review; those it finds fixed move to Done.</span>
@@ -278,7 +302,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
   <div class="cols">
     <section class="list" aria-label="Suggestions" id="list"></section>
     <article id="detail" hidden>
-      <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-when"></span></div>
+      <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-when"></span><span id="d-class"></span><span class="num" id="d-num"></span></div>
       <div class="titlebar">
         <h2 id="d-title"></h2>
         <button type="button" id="copy-btn" class="icon" aria-label="Copy for the agent">
@@ -318,16 +342,21 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
           <input type="text" id="fix-message" maxlength="200">
           <div class="actions">
             <div class="act"><button type="button" class="primary" id="commit-btn">Commit</button>
-              <span class="desc">Commits what is staged in your working tree, this fix and anything you changed in it, with the message above. Not pushed. Then the next queued fix starts.</span></div>
+              <span class="desc">Commits what is staged in your working tree, this fix and anything you changed in it, with the message above, and moves the finding to Done as fixed. Not pushed. Then the next queued fix starts.</span></div>
             <div class="act"><button type="button" id="discard-btn">Discard</button>
               <span class="desc">Takes this fix back out of your working tree. Then the next queued fix starts.</span></div>
           </div>
         </div>
-        <label for="comment">Comment for the analyst <span>(optional)</span></label>
+        <div id="d-comments" hidden><h3>Your comments</h3><ul class="files" id="d-comment-list"></ul></div>
+        <label for="comment">Comment for Sentinel <span>(optional: Fix this follows it, the analyst reads it)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
-          <div class="act" id="fix-row"><button type="button" id="fix-btn">Fix this</button>
-            <span class="desc" id="fix-desc">Queues it. Claude fixes and tests it in Sentinel's own OBP-API worktree; Sentinel then stages it in your working tree for you to commit.</span></div>
+          <div class="act"><button type="button" data-verdict="comment">Save comment</button>
+            <span class="desc">Keeps your comment with the finding and changes nothing else. Fix this follows every comment on the finding, and the analyst reads them.</span></div>
+          <div class="act" id="fix-row"><button type="button" class="primary" id="fix-btn">Fix this</button>
+            <span class="desc" id="fix-desc">Saves what is in the comment box, then queues it. Claude fixes and tests it in Sentinel's own OBP-API worktree, following your comments; Sentinel stages it in your working tree for you to commit.</span></div>
+          <div class="act" id="fix-fast-row"><button type="button" id="fix-fast-btn">Fix this without tests</button>
+            <span class="desc">The same, faster: Claude adds the test scenarios and compiles, but runs no tests; they run in the cloud (CI) once you push. The fix is marked "tests not run" until then.</span></div>
           <div class="act"><button type="button" data-verdict="fixed">Should be fixed now</button>
             <span class="desc">You think it is fixed. Moves to Done; the analyst checks that its log errors dropped, and says so if not.</span></div>
           <div class="act"><button type="button" id="recheck-btn">Look again: still an issue?</button>
@@ -407,12 +436,18 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
 </main>
 <script>
 // Everything shown comes from sentinel.db, partly derived from OBP-API logs: set as text, never as HTML.
+// In the order a finding moves through them, as on a kanban board
 const TABS = [
-  ['review', 'To review', ['suggested']],
   ['open', 'Not yet suggested', ['open']],
+  ['review', 'To review', ['suggested']],
   ['later', 'Snoozed', ['later']],
+  ['queued', 'Queued', []],  // Fix this, whatever the status (FIX_TABS): waiting its turn,
+  ['fixing', 'Being fixed', []],  // then Claude at work,
+  ['commit', 'To commit', []],  // then staged in the working tree, for a person to Commit or Discard
   ['done', 'Done', ['accepted', 'acted', 'fixed', 'dismissed']],
 ];
+const FIX_TABS = { queued: 'queued', running: 'fixing', staged: 'commit' };
+const tabOf = (f) => FIX_TABS[f.fix_status] || (TABS.find((t) => t[2].includes(f.status)) || TABS[0])[0];
 const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Falling' };
 const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted', acted: 'Some action taken',
                  fixed: 'Fixed', dismissed: 'Dismissed' };
@@ -467,9 +502,22 @@ function renderHeader() {
   $('chips').replaceChildren(...chips.map(([label, value, after]) =>
     el('div', { className: 'chip' }, [el('span', { textContent: label + ' ' }), el('b', { textContent: value }),
                                       el('span', { textContent: after })])), ...securedChip(o.secured));
+  renderBuild(o.build);
   $('rules').textContent = `At most ${o.digest_size} per digest, ${o.max_per_week} a week.`;
-  $('fix-desc').textContent = 'Queues it. Claude fixes and tests it in Sentinel\'s own OBP-API worktree; Sentinel then stages it in '
-    + `your working tree for you to commit (up to $${o.fix_budget_usd} each at API prices).`;
+  $('fix-desc').textContent = 'Saves what is in the comment box, then queues it. Claude fixes and tests it in Sentinel\'s own OBP-API '
+    + 'worktree, following your comments; Sentinel stages it in your working tree for you to commit only if its tests pass '
+    + `(up to $${o.fix_budget_usd} each at API prices).`;
+}
+
+// The OBP-API build on GitHub Actions (OBP_API_BUILD_ACTIONS_URL): green when it passed, red with the cause if not
+function renderBuild(b) {
+  $('build').hidden = !b;
+  if (!b) return;
+  $('build').className = `build ${b.state}`;
+  const [mark, label] = { ok: ['✓', 'OK'], failing: ['✗', 'Build failing'], running: ['…', 'Build running'],
+                          unknown: ['?', 'Build unknown'] }[b.state] || ['?', b.state];
+  $('build').replaceChildren(el('b', { textContent: `${mark} ${label}` }), ' ',
+    b.state === 'ok' ? b.text.replace(/^Build OK: /, '') : b.text, ' · ', el('a', { href: b.url, textContent: 'GitHub Actions' }));
 }
 
 // Whether the endpoints Sentinel reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
@@ -493,7 +541,7 @@ function withFindingLinks(text) {
     const a = el('a', { href: location.hash || '#', textContent: part });
     a.onclick = (e) => {
       e.preventDefault();
-      Object.assign(state, { tab: TABS.find((t) => t[2].includes(f.status))[0], selected: f.id });
+      Object.assign(state, { tab: tabOf(f), selected: f.id });
       setStatus('');
       render();
       $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -503,21 +551,26 @@ function withFindingLinks(text) {
 }
 
 function visible() {
-  const statuses = TABS.find((t) => t[0] === state.tab)[2];
-  return state.findings.filter((f) => statuses.includes(f.status)).sort((a, b) => b.priority - a.priority);
+  const shown = state.findings.filter((f) => tabOf(f) === state.tab);
+  // Most important first; Queued as Fix this works through it: a fix paused at the usage limit first
+  return shown.sort((a, b) => (state.tab === 'queued' ? (b.fix_at === 0) - (a.fix_at === 0) : 0) || b.priority - a.priority);
 }
 
 // Suggestions go above the monitoring sections while something waits for review.
 function render() {
-  $('tabs').replaceChildren(...TABS.map(([id, label, statuses]) => {
+  $('tabs').replaceChildren(...TABS.map(([id, label]) => {
     const b = el('button', { type: 'button' }, [label, el('span', { className: 'n',
-      textContent: state.findings.filter((f) => statuses.includes(f.status)).length })]);
+      textContent: state.findings.filter((f) => tabOf(f) === id).length })]);
     b.setAttribute('aria-pressed', String(state.tab === id));
     b.onclick = () => { state.tab = id; state.selected = null; setStatus(''); render(); };
     return b;
   }));
 
   renderSweep();
+  // On Done: how many of the fixed bugs were of each class, to see which kinds OBP-API had most
+  const bc = (state.overview && state.overview.bug_classes) || [];
+  $('bug-classes').hidden = state.tab !== 'done' || !bc.length;
+  $('bug-classes').textContent = 'Bug classes: ' + bc.map(([name, n]) => `${name} ${n}`).join(' · ');
   renderFixQueue();
   const items = visible();
   const current = items.find((f) => f.id === state.selected) || items[0];
@@ -532,9 +585,12 @@ function render() {
       el('div', { className: 'top' }, [
         el('span', { className: 'cat', textContent: f.category }),
         el('span', { className: 'prio', textContent: `P ${f.priority.toFixed(2)}` }),
+        el('span', { className: 'num', textContent: `#${f.id}` }),
       ]),
       el('div', { className: 't' }, breakAfterSlashes(f.title)),
-      el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', `#${f.id}`, '·', STATUS[f.status] || f.status,
+      el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', STATUS[f.status] || f.status,
+                                         ...(f.needs_id ? ['·', 'Needs a guessed id'] : []),
+                                         ...(f.fix_tests === 0 && f.fix_status ? ['·', 'Tests not run'] : []),
                                          ...(f.fix_status ? ['·', FIX_STATUS[f.fix_status] || f.fix_status] : [])]
         .map((s) => el('span', { textContent: s }))),
     ]);
@@ -551,8 +607,10 @@ function render() {
   $('d-cat').textContent = current.category;
   $('d-cat').style.color = CAT_COLOR[current.category] || 'var(--muted)';
   $('d-key').textContent = current.key;
+  $('d-num').textContent = `#${current.id}`;
   $('d-when').textContent = current.first_suggested ? `First suggested ${fmtDate(current.first_suggested)}`
                                                     : `Found ${fmtDate(current.created_at)}`;
+  $('d-class').textContent = current.bug_class ? `Class: ${current.bug_class}` : '';
   $('d-title').textContent = current.title;
   $('d-summary').textContent = current.summary || '';
   $('d-summary').hidden = !current.summary;
@@ -564,17 +622,20 @@ function render() {
   // Each commit the evidence names gets "(N days ago)"
   const commits = current.evidence_commits || {};
   $('d-evidence').textContent = (current.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
-    (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)})` : sha);
+    (sha) => commits[sha] ? `${sha.slice(0, 9)} (${daysAgo(commits[sha].ts)})` : sha);  // a commit: short, and how old
   renderRecheck(current);
   renderFix(current);
   renderHistory(current);
   $('d-hypothesis').textContent = current.hypothesis;
   $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
   $('d-fix').textContent = current.suggested_fix;
+  $('d-comments').hidden = !(current.comments || []).length;
+  $('d-comment-list').replaceChildren(...(current.comments || []).map((c) => el('li', { textContent: c })));
   const fb = current.feedback;
   $('d-previous').hidden = !fb;
   if (fb) {
-    $('d-previous').textContent = `Marked ${fb.verdict} on ${fmtDate(fb.ts)}` + (fb.comment ? `: “${fb.comment}”` : '');
+    $('d-previous').textContent = fb.verdict === 'comment' ? `Last comment ${fmtDate(fb.ts)}`
+      : `Marked ${fb.verdict} on ${fmtDate(fb.ts)}` + (fb.comment ? `: “${fb.comment}”` : '');
   }
 }
 
@@ -612,14 +673,17 @@ function renderFix(f) {
   $('d-fixing').replaceChildren(el('b', { textContent: `${FIX_STATUS[f.fix_status] || 'Fix'}${f.fix_at && !['queued', 'running'].includes(f.fix_status) ? `, ${fmtDate(f.fix_at)}` : ''}: ` }),
                                 ...withFindingLinks(text));
   const btn = $('fix-btn');
-  $('fix-row').hidden = Boolean(why);
-  btn.disabled = ['queued', 'running', 'staged', 'committed'].includes(f.fix_status);
+  btn.classList.remove('busy', 'done');
+  $('fix-row').hidden = $('fix-fast-row').hidden = Boolean(why);
+  btn.disabled = $('fix-fast-btn').disabled = ['queued', 'running', 'staged', 'committed'].includes(f.fix_status);
+  $('fix-fast-btn').classList.remove('busy', 'done');
+  $('fix-fast-btn').textContent = 'Fix this without tests';
   btn.textContent = ['skipped', 'failed', 'discarded'].includes(f.fix_status) ? 'Try fixing again' : 'Fix this';
 }
 
 // Everything Claude did for the finding's latest fix: notes, tool calls and their results, and Sentinel's own
 // steps. Fetched again while it is being fixed (each refresh), else once.
-const FIX_LOG_KIND = { thinking: 'Thinking', note: 'Claude', tool: 'Tool', result: 'Result', sentinel: 'Sentinel' };
+const FIX_LOG_KIND = { thinking: 'Thinking', note: 'Claude', tool: 'Tool', result: 'Tool output', sentinel: 'Sentinel' };
 async function loadFixLog(f) {
   const show = Boolean(f.fix_status) && f.fix_status !== 'queued';
   $('fix-log-title').hidden = $('d-fix-log').hidden = !show;
@@ -665,36 +729,63 @@ function renderFixQueue() {
   const running = of('running')[0];
   const paused = of('queued').find((f) => (f.fix || '').startsWith('Paused'));
   const staged = of('staged')[0];
-  const waiting = !running && !staged && of('queued').length && state.overview && state.overview.fix_waiting;
-  const parts = [
-    running ? `#${running.id} being fixed` : paused ? `paused at Claude's usage limit (#${paused.id} next)` : null,
-    staged ? `#${staged.id} staged in your working tree: Commit or Discard it to go on` : null,
-    waiting ? `waiting: ${waiting}` : null,
-    of('queued').length ? `${of('queued').length} queued` : null,
+  const queued = of('queued').sort((a, b) => (b.fix_at === 0) - (a.fix_at === 0) || b.priority - a.priority);  // as fixed
+  const waiting = !running && !staged && queued.length && state.overview && state.overview.fix_waiting;
+  const named = (f) => withFindingLinks(`#${f.id}`);
+  const now = running ? ['Being fixed: ', ...named(running)]
+    : staged ? ['Staged in your working tree, Commit or Discard it to go on: ', ...named(staged)]
+    : paused ? [`Paused at Claude's usage limit; next: `, ...named(paused)]
+    : waiting ? [`Waiting: ${waiting}`] : null;
+  const ended = [
     of('committed').length ? `${of('committed').length} committed` : null,
     of('skipped').length ? `${of('skipped').length} not an issue` : null,
     of('failed').length ? `${of('failed').length} failed` : null,
     of('discarded').length ? `${of('discarded').length} discarded` : null,
   ].filter(Boolean);
-  $('fix-queue').hidden = !parts.length;
-  $('fix-queue').replaceChildren('Fix this: ', ...withFindingLinks(parts.join(', ')));
+  $('fix-queue').hidden = !now && !queued.length && !ended.length;
+  $('fix-queue').replaceChildren(
+    el('p', {}, [el('b', { textContent: 'Fix this: ' }), ...(now || ['nothing being fixed'])]),
+    ...(queued.length ? [el('p', {}, [`Queued (${queued.length}), in this order: `,
+                                      ...withFindingLinks(queued.map((f) => `#${f.id}`).join(', '))])] : []),
+    ...(ended.length ? [el('p', { className: 'sub', textContent: `So far: ${ended.join(', ')}` })] : []));
 }
 
-$('fix-btn').addEventListener('click', async () => {
+$('fix-btn').addEventListener('click', () => queueFix($('fix-btn'), true));
+$('fix-fast-btn').addEventListener('click', () => queueFix($('fix-fast-btn'), false));
+
+// Fix this, with its tests run here or (tests false) left to CI
+async function queueFix(btn, tests) {
   const id = state.selected;
-  $('fix-btn').disabled = true;
+  btn.disabled = true;
+  btn.classList.add('busy');
+  btn.textContent = 'Queuing…';
   try {
-    const queued = await api(`/api/findings/${id}/fix`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const comment = $('comment').value.trim();
+    if (comment) {  // what is in the box when Fix this is pressed is saved first, so the fix follows it
+      await api(`/api/findings/${id}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ verdict: 'comment', comment }) });
+      $('comment').value = '';
+    }
+    const queued = await api(`/api/findings/${id}/fix`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify({ tests }) });
     const f = state.findings.find((x) => x.id === id);
     if (f) Object.assign(f, queued);
-    render();
-    setStatus(`#${id} queued for fixing.`);
+    // Green "Queued" on the button for a moment, then the finding moves to the Queued tab and the next one shows
+    const ahead = state.findings.filter((x) => ['queued', 'running'].includes(x.fix_status) && x.id !== id).length;
+    btn.classList.replace('busy', 'done');
+    btn.textContent = '✓ Queued';
+    setStatus(`#${id} queued for fixing${tests ? '' : ' without tests'}${ahead ? `, after ${ahead} more` : ', starting now'}. `
+      + 'It is on the Queued tab.');
+    renderFixQueue();
+    setTimeout(() => { if (state.selected === id) render(); }, 1500);
     pollWhileRunning(id, 'fix_status');
   } catch (e) {
     setStatus(`Could not queue: ${e.message}`, true);
-    $('fix-btn').disabled = false;
+    btn.classList.remove('busy');
+    btn.textContent = tests ? 'Fix this' : 'Fix this without tests';
+    btn.disabled = false;
   }
-});
+}
 
 // Look again at every security finding to review, one at a time; those Claude finds fixed move to Done
 function renderSweep() {
@@ -816,7 +907,7 @@ $('trace-btn').addEventListener('click', async () => {
 function findingText(f) {
   const commits = f.evidence_commits || {};
   const evidence = (f.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
-    (sha) => commits[sha] ? `${sha} (${daysAgo(commits[sha].ts)})` : sha);
+    (sha) => commits[sha] ? `${sha.slice(0, 9)} (${daysAgo(commits[sha].ts)})` : sha);  // a commit: short, and how old
   return [
     `# ${f.title}`,
     `Sentinel finding #${f.id} (${f.key}), ${f.category}, on ${state.instance}`,
@@ -830,12 +921,20 @@ function findingText(f) {
   ].join('\n');
 }
 
+const COPY_ICON = $('copy-btn').innerHTML;
+let copiedTimer;
 $('copy-btn').addEventListener('click', async () => {
   const f = state.findings.find((x) => x.id === state.selected);
   if (!f) return;
   try {
     await navigator.clipboard.writeText(findingText(f));
     setStatus(`Copied #${f.id} for the agent.`);
+    // The icon turns into a green tick for a moment, where you clicked: the status line is further down
+    const btn = $('copy-btn');
+    btn.classList.add('copied');
+    btn.innerHTML = ICONS.ok.replace(/"14"/g, '"18"');
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = COPY_ICON; }, 1500);
   } catch (e) {
     setStatus(`Could not copy: ${e.message}`, true);
   }
@@ -846,9 +945,29 @@ function setStatus(text, error = false) {
   $('status').classList.toggle('error', error);
 }
 
+// Takes back the feedback just given (within 10 minutes): the finding's status goes back as it was
+function undoLink(id) {
+  const a = el('a', { href: location.hash || '#', textContent: 'Undo' });
+  a.onclick = async (e) => {
+    e.preventDefault();
+    try {
+      const done = await api(`/api/findings/${id}/undo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      state.findings = await api('/api/findings');
+      const f = state.findings.find((x) => x.id === id);
+      if (f) Object.assign(state, { tab: tabOf(f), selected: id });
+      render();
+      setStatus(`Undone: “${done.undone}” on #${id}.`);
+    } catch (err) {
+      setStatus(`Could not undo: ${err.message}`, true);
+    }
+  };
+  return a;
+}
+
 async function respond(verdict) {
   const id = state.selected;
   if (id == null) return;
+  if (verdict === 'fixed' && !confirm(`Mark #${id} as fixed? It moves to Done.`)) return;
   const buttons = document.querySelectorAll('.actions button[data-verdict]');
   buttons.forEach((b) => { b.disabled = true; });
   try {
@@ -860,7 +979,8 @@ async function respond(verdict) {
     $('comment').value = '';
     state.findings = await api('/api/findings');
     render();
-    setStatus(`Recorded “${verdict}” for #${id}.`);
+    setStatus(verdict === 'comment' ? `Comment saved for #${id}.` : `Recorded “${verdict}” for #${id}.`);
+    $('status').append(' ', undoLink(id));
   } catch (e) {
     setStatus(`Could not record: ${e.message}`, true);
   } finally {

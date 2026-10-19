@@ -20,13 +20,13 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
-from . import fixer, history, recheck
+from . import build, classes, fixer, history, recheck
 from .analyst import Analyst, decide, unavailable_reason
 from .config import Config
 from .health import health
 from .scanner import Scanner
 from .source import Reviews, progress
-from .store import VERDICTS, Store, now
+from .store import COMMENT, VERDICTS, Store, now
 from .summary import api_usage, coverage, signature_rows
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ STEPS_SHOWN = 40
 WAITING_SHOWN = 5
 WORDS = re.compile(r"[A-Za-z]{3}")
 FEEDBACK_PATH = re.compile(r"^/api/findings/(\d+)/feedback$")
+UNDO_PATH = re.compile(r"^/api/findings/(\d+)/undo$")
 TRACE_PATH = re.compile(r"^/api/findings/(\d+)/trace$")
 RECHECK_PATH = re.compile(r"^/api/findings/(\d+)/recheck$")
 FIX_PATH = re.compile(r"^/api/findings/(\d+)/fix$")
@@ -132,6 +133,8 @@ def overview(store: Store, config: Config) -> dict:
         "fix_unavailable": fixer.unavailable_reason(config),
         "fix_waiting": None if fixer.unavailable_reason(config) else fixer.waiting(config),
         "fix_budget_usd": config.fix_budget_usd,
+        "build": build.status(config),
+        "bug_classes": classes.counts(store),
     }
 
 
@@ -245,6 +248,7 @@ def findings(store: Store, config: Config) -> list[dict]:
         item["fix_files"] = json.loads(item["fix_files"]) if item.get("fix_files") else None
         item.pop("fix_patch", None)  # kept for Discard, not shown
         item["first_suggested"] = first_suggested.get(f["id"])
+        item["comments"] = fixer.comments_of(store, f["id"])  # what people wrote; Fix this follows them
         item["feedback"] = latest_feedback.get(f["id"])
         item["evidence_commits"] = {
             sha: info for sha in set(COMMIT_HASH.findall(item["evidence"] or ""))
@@ -375,6 +379,17 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     except ValueError as e:
                         return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
                 return
+            if undo := UNDO_PATH.match(path):
+                if config := self._instance():
+                    def take_back(store: Store):
+                        verdict = store.undo_feedback(int(undo.group(1)))
+                        store.commit()
+                        return verdict
+                    try:
+                        return self._json(HTTPStatus.OK, {"undone": self._with_store(config, take_back)})
+                    except ValueError as e:
+                        return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
+                return
             if action := FIX_ACTION_PATH.match(path):
                 if config := self._instance():
                     if reason := fixer.unavailable_reason(config):
@@ -398,7 +413,12 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     if reason := fixer.unavailable_reason(config) or unavailable_reason(config, scheduled=False):
                         return self._json(HTTPStatus.CONFLICT, {"error": reason})
                     try:
-                        return self._json(HTTPStatus.OK, fixer.queue(config, int(fix.group(1))))
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(min(length, MAX_BODY_BYTES)) or b"{}")
+                        tests = not (isinstance(body, dict) and body.get("tests") is False)  # Fix this without tests
+                        return self._json(HTTPStatus.OK, fixer.queue(config, int(fix.group(1)), tests))
+                    except json.JSONDecodeError:
+                        return self._json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})
                     except ValueError as e:
                         return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
                 return
@@ -419,8 +439,11 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})
             verdict = body.get("verdict")
             comment = (body.get("comment") or "").strip() or None
-            if verdict not in VERDICTS:
-                return self._json(HTTPStatus.BAD_REQUEST, {"error": f"verdict must be one of {', '.join(VERDICTS)}"})
+            if verdict not in (*VERDICTS, COMMENT):
+                return self._json(HTTPStatus.BAD_REQUEST,
+                                  {"error": f"verdict must be one of {', '.join((*VERDICTS, COMMENT))}"})
+            if verdict == COMMENT and not comment:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error": "The comment is empty"})
 
             def record(store: Store):
                 store.add_feedback(int(match.group(1)), verdict, comment, config.snooze_days)
