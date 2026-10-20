@@ -157,6 +157,20 @@ def test_queueing_works_through_the_queue_in_the_background(cfg, monkeypatch):
     fixer._workers.clear()
 
 
+def test_all_queued_fixes_switch_to_and_from_without_tests_keeping_their_place(cfg, monkeypatch):
+    fid = new_finding(cfg)
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    fixer.queue(cfg, fid)
+    store = Store(cfg.db_path)
+    queued_at = store.db.execute("SELECT fix_at FROM findings WHERE id = ?", (fid,)).fetchone()[0]
+    assert fixer.set_queued_tests(cfg, False) == {"switched": 1}
+    row = store.db.execute("SELECT fix_tests, fix_at FROM findings WHERE id = ?", (fid,)).fetchone()
+    assert tuple(row) == (0, queued_at)
+    fixer.set_queued_tests(cfg, True)
+    assert store.db.execute("SELECT fix_tests FROM findings WHERE id = ?", (fid,)).fetchone()[0] == 1
+    store.close()
+
+
 def test_the_claude_command_may_only_edit_the_worktree_source(config, cfg, trees):
     _, worktree = trees
     cmd = fixer.command(cfg, "prompt")
@@ -257,3 +271,39 @@ def test_fix_this_without_tests_stages_a_fix_whose_tests_were_not_run(cfg, trees
     assert fixer.fix(cfg, fid) == "staged"
     assert "do not run any tests" in prompts[0] and "-DwildcardSuites" not in prompts[0]
     assert "Tests: not run" in row(cfg, fid)["fix"]
+
+
+def test_commit_and_auto_continue_commits_each_next_fix_as_it_is_staged(cfg, trees, monkeypatch):
+    source, worktree = trees
+    first, second = new_finding(cfg), new_finding(cfg)
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
+    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    assert fixer.fix(cfg, first) == "staged"
+    fixer.commit(cfg, first, "First fix", auto=True)
+    assert fixer.is_auto(cfg.name)
+
+    def fix_b(*args, **kwargs):
+        (worktree / "obp-api/src/B.scala").write_text("fixed too\n")
+        return None, 0.5, FIXED, None
+    monkeypatch.setattr(fixer, "run_claude", fix_b)
+    assert fixer.fix(cfg, second) == "committed"
+    assert fixer.git(str(source), "log", "-1", "--format=%s") == "Fix: Update Customer Address checks the bank"
+    assert row(cfg, second)["fix_status"] == "committed"
+    fixer.stop_auto(cfg.name)
+    assert not fixer.is_auto(cfg.name)
+
+
+def test_fix_the_build_puts_a_finding_of_the_failure_at_the_head_of_the_queue(cfg, monkeypatch):
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    queued = new_finding(cfg)
+    fixer.queue(cfg, queued)
+    monkeypatch.setattr(fixer.build, "failure", lambda config: {
+        "run_id": 5, "name": "Build", "sha": "abcdef1234567", "url": "https://github.com/x", "details": "Job compile failed."})
+    fid = fixer.fix_the_build(cfg)["finding_id"]
+    assert fixer._next(cfg) == fid
+    f = row(cfg, fid)
+    assert f["title"] == "Fix the build: Build fails at abcdef123" and "Job compile failed." in f["evidence"]
+    monkeypatch.setattr(fixer.build, "failure", lambda config: None)
+    with pytest.raises(ValueError):
+        fixer.fix_the_build(cfg)

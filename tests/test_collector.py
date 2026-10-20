@@ -141,13 +141,13 @@ def test_root_endpoint_records_which_commit_runs(config, tmp_path):
     store = Store(str(tmp_path / "s.db"))
     client = FakeClient({}, {"meters": []})
     c = Collector(config, store, client)
-    client.root = lambda: {"git_commit": "aaa111"}
+    client.root = lambda: {"git_commit": "aaa1111"}
     c.poll_root()
     c.poll_root()
-    client.root = lambda: {"git_commit": "bbb222"}
+    client.root = lambda: {"git_commit": "bbb2222"}
     c.poll_root()
     deployments = coverage(store, config, 0, 2**40)["deployments"]
-    assert [d["git_commit"] for d in deployments] == ["aaa111", "bbb222"]
+    assert [d["git_commit"] for d in deployments] == ["aaa1111", "bbb2222"]
     store.close()
 
 

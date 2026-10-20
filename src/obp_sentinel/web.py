@@ -20,6 +20,8 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
+import httpx
+
 from . import build, classes, fixer, history, recheck
 from .analyst import Analyst, decide, unavailable_reason
 from .config import Config
@@ -43,6 +45,9 @@ FIX_PATH = re.compile(r"^/api/findings/(\d+)/fix$")
 FIX_ACTION_PATH = re.compile(r"^/api/findings/(\d+)/fix/(commit|discard)$")
 FIX_LOG_PATH = re.compile(r"^/api/findings/(\d+)/fix-log$")
 SWEEP_PATH = "/api/findings/recheck-security"
+QUEUE_TESTS_PATH = "/api/fix-queue/tests"
+QUEUE_STOP_AUTO_PATH = "/api/fix-queue/stop-auto"
+FIX_BUILD_PATH = "/api/fix-queue/fix-the-build"
 HELP_GLOSSARY_ITEM = "/obp/v7.0.0/api/glossary/OBP-Sentinel"
 MAX_BODY_BYTES = 10_000
 COMMIT_HASH = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")  # at least one letter: not a plain number
@@ -132,6 +137,7 @@ def overview(store: Store, config: Config) -> dict:
         "sweep": recheck.sweep_progress(config.name),
         "fix_unavailable": fixer.unavailable_reason(config),
         "fix_waiting": None if fixer.unavailable_reason(config) else fixer.waiting(config),
+        "fix_auto": fixer.is_auto(config.name),
         "fix_budget_usd": config.fix_budget_usd,
         "build": build.status(config),
         "bug_classes": classes.counts(store),
@@ -364,6 +370,31 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     except ValueError as e:
                         return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
                 return
+            if path == FIX_BUILD_PATH:
+                if config := self._instance():
+                    if reason := fixer.unavailable_reason(config) or unavailable_reason(config, scheduled=False):
+                        return self._json(HTTPStatus.CONFLICT, {"error": reason})
+                    try:
+                        return self._json(HTTPStatus.OK, fixer.fix_the_build(config))
+                    except ValueError as e:
+                        return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
+                    except httpx.HTTPError as e:
+                        return self._json(HTTPStatus.BAD_GATEWAY, {"error": f"Could not read the build from GitHub: {e}"})
+                return
+            if path == QUEUE_STOP_AUTO_PATH:
+                if config := self._instance():
+                    return self._json(HTTPStatus.OK, fixer.stop_auto(config.name))
+                return
+            if path == QUEUE_TESTS_PATH:
+                if config := self._instance():
+                    try:
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(min(length, MAX_BODY_BYTES)) or b"{}")
+                    except json.JSONDecodeError:
+                        return self._json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})
+                    tests = not (isinstance(body, dict) and body.get("tests") is False)
+                    return self._json(HTTPStatus.OK, fixer.set_queued_tests(config, tests))
+                return
             if path == SWEEP_PATH:
                 if config := self._instance():
                     if reason := unavailable_reason(config, scheduled=False):
@@ -400,7 +431,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     try:
                         body = json.loads(self.rfile.read(length) or b"{}")
                         finding_id = int(action.group(1))
-                        done = (fixer.commit(config, finding_id, str(body.get("message", "")))
+                        done = (fixer.commit(config, finding_id, str(body.get("message", "")), body.get("auto") is True)
                                 if action.group(2) == "commit" else fixer.take_back(config, finding_id))
                     except (json.JSONDecodeError, AttributeError):
                         return self._json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})

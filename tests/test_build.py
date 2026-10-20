@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from obp_sentinel import build
 
 URL = "https://github.com/ada/OBP-API/actions"
@@ -40,3 +42,22 @@ def test_running_and_unknown(monkeypatch):
     fake(monkeypatch, [run(7, "Build", None, "in_progress")])
     assert build.check(URL, None)["state"] == "running"
     assert build.check("https://example.com/x", None)["state"] == "unknown"
+
+
+def test_failure_gives_the_failed_jobs_steps_and_annotations(monkeypatch, config):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(build, "_branch", lambda source: "develop")
+    def get(url, text=False):
+        if "/annotations" in url:
+            return [{"path": "obp-api/src/A.scala", "start_line": 12, "annotation_level": "failure",
+                     "message": "not found: value x"}, {"annotation_level": "warning", "message": "deprecated"}]
+        if "/jobs" in url:
+            return {"jobs": [{"id": 9, "name": "compile", "conclusion": "failure",
+                              "steps": [{"name": "Build", "conclusion": "failure"}]}]}
+        return {"workflow_runs": [run(5, "Build", "failure")]}
+    monkeypatch.setattr(build, "_get", get)
+    failed = build.failure(replace(config, build_actions_url=URL))
+    assert failed["run_id"] == 5 and failed["sha"] == "abcdef1234567"
+    assert failed["details"] == "Job compile failed at step Build.\n- obp-api/src/A.scala:12 not found: value x"
+    monkeypatch.setattr(build, "_get", lambda url, text=False: {"workflow_runs": [run(6, "Build")]})
+    assert build.failure(replace(config, build_actions_url=URL)) is None

@@ -200,6 +200,7 @@ COMMENT = "comment"  # feedback that is only a comment from a person: the findin
 CATEGORIES = {"bug", "performance", "security", "reliability", "readability", "api-contract"}
 
 
+COMMIT = re.compile(r"[0-9a-f]{7,40}")
 INTRODUCED = re.compile(r"^Introduced in (?P<commit>[0-9a-f]{7,40}) \((?P<when>\d{4}-\d{2}-\d{2}), (?P<who>[^)]+)\)"
                         r"(?: in (?P<where>\S+?))?: ")
 
@@ -304,6 +305,8 @@ class Store:
         )
 
     def record_deployment(self, git_commit: str | None) -> None:
+        if not COMMIT.fullmatch(git_commit or ""):  # e.g. "unknown", from an app that cannot tell which commit it runs
+            return
         ts = now()
         last = self.db.execute("SELECT id, git_commit FROM deployments ORDER BY id DESC LIMIT 1").fetchone()
         if last and last["git_commit"] == git_commit:

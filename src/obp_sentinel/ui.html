@@ -234,9 +234,11 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
 .fix-queue p { margin: 0 0 4px; }
 .fix-queue ol { margin: 0 0 4px; padding-left: 24px; }
 .fix-queue li { overflow-wrap: anywhere; }
+.fix-queue .queue-tests { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .build { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px;
   overflow-wrap: anywhere; }
 .build[hidden] { display: none; }
+.build .fix-build { margin-left: 8px; }
 .build.ok { border-left-color: var(--good); }
 .build.ok b { color: var(--good); }
 .build.failing { border-color: var(--bad); }
@@ -343,6 +345,8 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
           <div class="actions">
             <div class="act"><button type="button" class="primary" id="commit-btn">Commit</button>
               <span class="desc">Commits what is staged in your working tree, this fix and anything you changed in it, with the message above, and moves the finding to Done as fixed. Not pushed. Then the next queued fix starts.</span></div>
+            <div class="act"><button type="button" id="commit-auto-btn">Commit and auto continue</button>
+              <span class="desc">The same, then each next queued fix is committed as soon as it is staged, with Claude's message, until the queue is empty. Fixes that fail or are not an issue are left out as usual. Not pushed.</span></div>
             <div class="act"><button type="button" id="discard-btn">Discard</button>
               <span class="desc">Takes this fix back out of your working tree. Then the next queued fix starts.</span></div>
           </div>
@@ -517,7 +521,8 @@ function renderBuild(b) {
   const [mark, label] = { ok: ['✓', 'OK'], failing: ['✗', 'Build failing'], running: ['…', 'Build running'],
                           unknown: ['?', 'Build unknown'] }[b.state] || ['?', b.state];
   $('build').replaceChildren(el('b', { textContent: `${mark} ${label}` }), ' ',
-    b.state === 'ok' ? b.text.replace(/^Build OK: /, '') : b.text, ' · ', el('a', { href: b.url, textContent: 'GitHub Actions' }));
+    b.state === 'ok' ? b.text.replace(/^Build OK: /, '') : b.text, ' · ', el('a', { href: b.url, textContent: 'GitHub Actions' }),
+    ...(b.state === 'failing' && !state.overview.fix_unavailable ? [' ', fixBuildButton()] : []));
 }
 
 // Whether the endpoints Sentinel reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
@@ -703,23 +708,26 @@ async function loadFixLog(f) {
 
 async function fixAction(action, body) {
   const id = state.selected;
-  $('commit-btn').disabled = $('discard-btn').disabled = true;
+  $('commit-btn').disabled = $('discard-btn').disabled = $('commit-auto-btn').disabled = true;
   try {
     const done = await api(`/api/findings/${id}/fix/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                                   body: JSON.stringify(body) });
     state.findings = await api('/api/findings');
     state.fixLogFor = null;
+    if (body.auto) state.overview.fix_auto = true;
     render();
-    setStatus(action === 'commit' ? `Committed ${done.commit} for #${id}.` : `Took the fix for #${id} out of your working tree.`);
+    setStatus(action === 'commit' ? `Committed ${done.commit} for #${id}.${body.auto ? ' Auto continue is on.' : ''}`
+      : `Took the fix for #${id} out of your working tree.`);
     const next = state.findings.find((x) => x.fix_status === 'queued');
     if (next) pollWhileRunning(next.id, 'fix_status');
   } catch (e) {
     setStatus(`Could not ${action}: ${e.message}`, true);
   } finally {
-    $('commit-btn').disabled = $('discard-btn').disabled = false;
+    $('commit-btn').disabled = $('discard-btn').disabled = $('commit-auto-btn').disabled = false;
   }
 }
 $('commit-btn').addEventListener('click', () => fixAction('commit', { message: $('fix-message').value }));
+$('commit-auto-btn').addEventListener('click', () => fixAction('commit', { message: $('fix-message').value, auto: true }));
 $('discard-btn').addEventListener('click', () => fixAction('discard', {}));
 
 // The Fix this queue across all tabs: which finding is being fixed, how many wait, and how the others ended
@@ -732,7 +740,7 @@ function renderFixQueue() {
   const queued = of('queued').sort((a, b) => (b.fix_at === 0) - (a.fix_at === 0) || b.priority - a.priority);  // as fixed
   const waiting = !running && !staged && queued.length && state.overview && state.overview.fix_waiting;
   const named = (f) => withFindingLinks(`#${f.id}`);
-  const now = running ? ['Being fixed: ', ...named(running)]
+  const now = running ? ['Being fixed: ', ...named(running), running.fix_tests === 0 ? ', without tests' : ', with tests']
     : staged ? ['Staged in your working tree, Commit or Discard it to go on: ', ...named(staged)]
     : paused ? [`Paused at Claude's usage limit; next: `, ...named(paused)]
     : waiting ? [`Waiting: ${waiting}`] : null;
@@ -745,9 +753,78 @@ function renderFixQueue() {
   $('fix-queue').hidden = !now && !queued.length && !ended.length;
   $('fix-queue').replaceChildren(
     el('p', {}, [el('b', { textContent: 'Fix this: ' }), ...(now || ['nothing being fixed'])]),
-    ...(queued.length ? [el('p', {}, [`Queued (${queued.length}), in this order: `,
-                                      ...withFindingLinks(queued.map((f) => `#${f.id}`).join(', '))])] : []),
+    ...(queued.length ? [el('p', {}, [`Queued (${queued.length}, ${queuedTests(queued)}), in this order: `,
+                                      ...withFindingLinks(queued.map((f) => `#${f.id}`).join(', '))]),
+                         el('p', { className: 'queue-tests' }, [
+                           queueTestsButton('Fix all queued with tests', true, queued.every((f) => f.fix_tests !== 0)),
+                           queueTestsButton('Fix all queued without tests', false, queued.every((f) => f.fix_tests === 0))])] : []),
+    ...(state.overview && state.overview.fix_auto ? [el('p', { className: 'queue-tests' }, [
+      el('b', { textContent: 'Auto continue is on: ' }), 'each fix is committed as soon as it is staged, until the queue is empty.',
+      stopAutoButton()])] : []),
     ...(ended.length ? [el('p', { className: 'sub', textContent: `So far: ${ended.join(', ')}` })] : []));
+}
+
+// Fix the build: a finding of what fails in the build, put at the head of the Fix this queue
+function fixBuildButton() {
+  const btn = el('button', { type: 'button', className: 'fix-build', textContent: 'Fix the build' });
+  const said = el('span', { className: 'sub' });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    said.textContent = ' Reading the build from GitHub…';
+    try {
+      const done = await api('/api/fix-queue/fix-the-build', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                               body: '{}' });
+      state.findings = await api('/api/findings');
+      renderFixQueue();
+      said.textContent = ` #${done.finding_id} is at the head of the Fix this queue.`;
+    } catch (e) {
+      said.textContent = ` Could not: ${e.message}`;
+      btn.disabled = false;
+    }
+  });
+  return el('span', {}, [btn, said]);
+}
+
+// Stops auto continue: the next fix is staged for you to Commit or Discard again
+function stopAutoButton() {
+  const btn = el('button', { type: 'button', textContent: 'Stop auto continue' });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await api('/api/fix-queue/stop-auto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      state.overview.fix_auto = false;
+      render();
+    } catch (e) {
+      setStatus(`Could not stop auto continue: ${e.message}`, true);
+      btn.disabled = false;
+    }
+  });
+  return btn;
+}
+
+// How the queued findings will be fixed: all with tests, all without, or how many of each
+function queuedTests(queued) {
+  const fast = queued.filter((f) => f.fix_tests === 0).length;
+  return !fast ? 'all with tests' : fast === queued.length ? 'all without tests'
+    : `${queued.length - fast} with tests, ${fast} without`;
+}
+
+// Switches every queued finding to Fix this with or without tests; each keeps its place in the queue
+function queueTestsButton(label, tests, already) {
+  const btn = el('button', { type: 'button', textContent: label, disabled: already });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await api('/api/fix-queue/tests', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ tests }) });
+      state.findings = await api('/api/findings');
+      render();
+    } catch (e) {
+      setStatus(`Could not switch the queue: ${e.message}`, true);
+      btn.disabled = false;
+    }
+  });
+  return btn;
 }
 
 $('fix-btn').addEventListener('click', () => queueFix($('fix-btn'), true));

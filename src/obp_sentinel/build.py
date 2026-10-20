@@ -22,17 +22,19 @@ logger = logging.getLogger(__name__)
 CHECK_SECONDS = 300
 ACTIONS_URL = re.compile(r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/actions/?$")
 PASSED = {"success", "skipped", "neutral"}
+LOG_LINES = 150  # Fix the build: the end of each failed job's log
+DETAILS_MAX = 12000
 _cache: dict[tuple[str, str | None], tuple[float, dict]] = {}
 _lock = threading.Lock()
 
 
-def _get(url: str) -> dict:
+def _get(url: str, text: bool = False) -> dict | str:
     headers = {"Accept": "application/vnd.github+json"}
     if token := os.environ.get("GITHUB_TOKEN"):
         headers["Authorization"] = f"Bearer {token}"
-    response = httpx.get(url, headers=headers, timeout=10)
+    response = httpx.get(url, headers=headers, timeout=30 if text else 10, follow_redirects=text)
     response.raise_for_status()
-    return response.json()
+    return response.text if text else response.json()
 
 
 def _branch(source: str) -> str | None:
@@ -66,13 +68,11 @@ def check(url: str, branch: str | None) -> dict:
     api = f"https://api.github.com/repos/{m['owner']}/{m['repo']}/actions"
     try:
         runs = _get(f"{api}/runs?per_page=30" + (f"&branch={branch}" if branch else ""))["workflow_runs"]
-        latest = {}
-        for run in runs:  # newest first: the first run of each workflow is its latest
-            latest.setdefault(run["name"], run)
+        latest = _latest(runs)
         on = f" on {branch}" if branch else ""
         if not latest:
             return {"state": "unknown", "text": f"No GitHub Actions runs{on} yet", "url": url}
-        failed = [r for r in latest.values() if r["status"] == "completed" and r["conclusion"] not in PASSED]
+        failed = _failed(latest)
         going = [r for r in latest.values() if r["status"] != "completed"]
         if failed:
             run = failed[0]
@@ -92,3 +92,50 @@ def check(url: str, branch: str | None) -> dict:
     except (httpx.HTTPError, KeyError, ValueError) as e:
         logger.warning("Could not read the build at %s: %s", url, e)
         return {"state": "unknown", "text": f"Could not read the build from GitHub: {e}"[:300], "url": url}
+
+
+def _latest(runs: list[dict]) -> dict:
+    latest = {}
+    for run in runs:  # newest first: the first run of each workflow is its latest
+        latest.setdefault(run["name"], run)
+    return latest
+
+
+def _failed(latest: dict) -> list[dict]:
+    return [r for r in latest.values() if r["status"] == "completed" and r["conclusion"] not in PASSED]
+
+
+def failure(config: Config) -> dict | None:
+    """What failed in the latest failing run, for Fix the build: {run_id, name, sha, url, details}, details being
+    the failed jobs and steps, GitHub's error annotations and (with GITHUB_TOKEN, which job logs need) the end of
+    each failed job's log. None when no workflow is failing. Asked of GitHub now, not cached."""
+    m = ACTIONS_URL.match(config.build_actions_url or "")
+    if not m:
+        return None
+    api = f"https://api.github.com/repos/{m['owner']}/{m['repo']}"
+    branch = _branch(config.obp_api_source)
+    runs = _get(f"{api}/actions/runs?per_page=30" + (f"&branch={branch}" if branch else ""))["workflow_runs"]
+    failed = _failed(_latest(runs))
+    if not failed:
+        return None
+    run = failed[0]
+    details = []
+    for job in _get(f"{api}/actions/runs/{run['id']}/jobs?per_page=100")["jobs"]:
+        if job.get("conclusion") in PASSED | {None}:
+            continue
+        steps = [s["name"] for s in job.get("steps", []) if s.get("conclusion") == "failure"]
+        details.append(f"Job {job['name']} failed" + (f" at step {', '.join(steps)}" if steps else "") + ".")
+        try:  # a job is a check run: its annotations are the errors GitHub picked out
+            notes = _get(f"{api}/check-runs/{job['id']}/annotations?per_page=50")
+            details += [f"- {a.get('path') or ''}:{a.get('start_line') or ''} {a.get('message', '').strip()}"[:600]
+                        for a in notes if a.get("annotation_level") == "failure"]
+        except httpx.HTTPError as e:
+            logger.warning("Could not read the annotations of job %s: %s", job["id"], e)
+        if os.environ.get("GITHUB_TOKEN"):
+            try:
+                tail = _get(f"{api}/actions/jobs/{job['id']}/logs", text=True).splitlines()[-LOG_LINES:]
+                details.append("The end of its log:\n" + "\n".join(tail))
+            except httpx.HTTPError as e:
+                logger.warning("Could not read the log of job %s: %s", job["id"], e)
+    return {"run_id": run["id"], "name": run["name"], "sha": run["head_sha"], "url": run["html_url"],
+            "details": "\n".join(details)[-DETAILS_MAX:]}

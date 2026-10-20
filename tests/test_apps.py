@@ -104,6 +104,13 @@ def test_an_app_is_polled_for_logs_and_telemetry_only(config, tmp_path):
     assert tuple(sig) == ("Proxy", "/obp/v6.0.0/banks/{id}")
 
 
+def test_an_app_that_cannot_tell_its_commit_records_no_deployment(tmp_path):
+    store = Store(str(tmp_path / "app.db"))
+    store.record_deployment("unknown")
+    store.record_deployment(None)
+    assert store.db.execute("SELECT COUNT(*) FROM deployments").fetchone()[0] == 0
+
+
 def test_javascript_errors_are_recognised():
     for raw, exception in [
         ("Role check: could not ask OBP-API: TypeError: fetch failed\n    at node:internal/deps/undici:13510:13", "TypeError"),

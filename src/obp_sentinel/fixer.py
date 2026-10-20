@@ -20,7 +20,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import classes
+from . import build, classes
 from .analyst import run_claude
 from .config import Config
 from .history import LIFT_REFERENCE
@@ -41,6 +41,7 @@ LIMIT = re.compile(r"hit your .{0,30}limit|reached your .{0,30}limit|usage limit
 PAUSE_MINUTES = 30  # at the plan's usage limit the queue waits, rather than failing every finding left in it
 WAIT_SECONDS = 30  # how often a queue waiting for a Commit or Discard looks again
 _workers: set[str] = set()  # instances whose queue is being worked through
+_auto: set[str] = set()  # instances that commit each fix as it is staged, until their queue is empty
 _progress: dict[tuple[str, int], dict] = {}  # (instance, finding id) being fixed → its progress
 
 
@@ -123,7 +124,8 @@ def prompt(finding: dict, worktree: str, comments: list[str] = (), known_classes
         "2. Make the smallest change that fixes it, in the style of the code around it, with Edit or Write, only in "
         f"{', '.join(f'{worktree}/{d}' for d in SOURCE_DIRS)}. Leave obp-commons alone unless the fix needs it. Give "
         "every line or block you add or change a short comment saying what it does and why (e.g. // the message must "
-        "be in the room in the path, else any participant reads any room), in the comment style of the file. Read "
+        "be in the room in the path, else any participant reads any room), in the comment style of the file. Say what "
+        "the code does now and what it guards against, never that something was wrong before. Read "
         f"{worktree}/CLAUDE.md first: it says how endpoints and their tests are written. If the endpoint did this "
         f"right in Lift, do what Lift did (Read {LIFT_REFERENCE} for the commit to git show it at).\n"
         "   A new check that fails returns an OBP error message from ErrorMessages with the HTTP code that matches it: "
@@ -156,7 +158,8 @@ def prompt(finding: dict, worktree: str, comments: list[str] = (), known_classes
            "\"another test run held the test server's port, so CustomerTest could not start\">\n" if tests else
            "Tests: not run: <the suites and scenarios you added or changed, for CI to run>\n")
         + "Commit: <the commit message: one line starting \"Fix: Make sure that\", in plain words saying what is now "
-        f"ensured, at most {COMMIT_MAX} characters, no #number, no full stop, e.g. Fix: Make sure that Update Customer "
+        f"ensured, never that something was wrong before, at most {COMMIT_MAX} characters, no #number, no full stop, "
+        "e.g. Fix: Make sure that Update Customer "
         "Address only changes an address of the customer in the path, at the bank in the path>\n"
         f"{classes.instruction(list(known_classes))}\nor\n"
         "Not an issue: <one or two sentences: what you saw in the code that already prevents it>.\nor\n"
@@ -195,6 +198,46 @@ def queue(config: Config, finding_id: int, tests: bool = True) -> dict:
         store.close()
     start(config)
     return {"fix_status": status}
+
+
+def fix_the_build(config: Config) -> dict:
+    """Fix the build: a finding of what fails in the latest failing GitHub Actions run, queued ahead of the others."""
+    failed = build.failure(config)
+    if not failed:
+        raise ValueError("The build is not failing")
+    store = Store(config.db_path)
+    try:
+        finding_id = store.upsert_finding({
+            "key": f"build:{failed['run_id']}", "category": "bug",
+            "title": f"Fix the build: {failed['name']} fails at {failed['sha'][:9]}",
+            "summary": f"The {failed['name']} workflow on GitHub Actions fails at {failed['sha'][:9]}.",
+            "evidence": f"{failed['url']}\n{failed['details']}",
+            "hypothesis": "See the failed jobs, steps and log above.",
+            "files": [], "signature_ids": [],
+            "suggested_fix": "Find from the failure above why the build fails (a compile error or a failing test), and "
+                             "change the code, or the test if the test is wrong, so it passes.",
+            "impact": 5, "confidence": 1, "effort": 2, "trend": "new"})
+        status = store.db.execute("SELECT fix_status FROM findings WHERE id = ?", (finding_id,)).fetchone()[0]
+        if status not in ("running", "staged"):  # fix_at 0: at the head of the queue
+            store.db.execute("UPDATE findings SET fix_status = 'queued', fix = NULL, fix_at = 0, fix_tests = 1 "
+                             "WHERE id = ?", (finding_id,))
+        store.commit()
+    finally:
+        store.close()
+    start(config)
+    return {"finding_id": finding_id}
+
+
+def set_queued_tests(config: Config, tests: bool) -> dict:
+    """Switch every queued finding to Fix this with or without tests, each keeping its place in the queue."""
+    store = Store(config.db_path)
+    try:
+        switched = store.db.execute("UPDATE findings SET fix_tests = ? WHERE fix_status = 'queued'",
+                                    (int(tests),)).rowcount
+        store.commit()
+    finally:
+        store.close()
+    return {"switched": switched}
 
 
 def resume(config: Config) -> None:
@@ -294,6 +337,7 @@ def _work(config: Config) -> None:
     finally:
         with _lock:
             _workers.discard(config.name)
+            _auto.discard(config.name)  # the queue is empty: auto continue ends with it
 
 
 def _record(config: Config, finding_id: int, status: str, answer: str | None, comment: str | None = None,
@@ -395,6 +439,15 @@ def fix(config: Config, finding_id: int) -> str:
         if bug_class := classes.parse(result):
             store.db.execute("UPDATE findings SET bug_class = ? WHERE id = ?", (bug_class, finding_id))
             store.commit()
+        if is_auto(config.name):  # Commit and auto continue: commit it with Claude's message, then the next one
+            try:
+                commit(config, finding_id, message, auto=True)
+            except ValueError as e:
+                stop_auto(config.name)  # left staged for the person to Commit or Discard
+                log("sentinel", f"Auto continue stopped, could not commit: {e}")
+                return "staged"
+            log("sentinel", f"Auto continue: committed with the message: {message}")
+            return "committed"
         return "staged"
     finally:
         with _lock:
@@ -411,9 +464,10 @@ def _staged(store: Store, finding_id: int):
     return row
 
 
-def commit(config: Config, finding_id: int, message: str) -> dict:
+def commit(config: Config, finding_id: int, message: str, auto: bool = False) -> dict:
     """Commit what is staged in the person's working tree (the fix, and whatever they changed in it), with their
-    message, and let the queue go on."""
+    message, and let the queue go on. With `auto`, each next fix is committed as it is staged, until the queue is
+    empty."""
     message = " ".join((message or "").split())
     if not message:
         raise ValueError("The commit message is empty")
@@ -432,8 +486,22 @@ def commit(config: Config, finding_id: int, message: str) -> dict:
     branch = git(source, "rev-parse", "--abbrev-ref", "HEAD")
     _record(config, finding_id, "committed", f"{sha} on {branch}: {message}",
             f"Fix this: committed {sha} on {branch}: {message}", message=message, patch=None)
+    with _lock:
+        (_auto.add if auto else _auto.discard)(config.name)
     start(config)
     return {"fix_status": "committed", "commit": sha}
+
+
+def is_auto(instance: str) -> bool:
+    with _lock:
+        return instance in _auto
+
+
+def stop_auto(instance: str) -> dict:
+    """Stop auto continue: the next fix is staged for the person to Commit or Discard again."""
+    with _lock:
+        _auto.discard(instance)
+    return {"auto": False}
 
 
 def take_back(config: Config, finding_id: int) -> dict:
