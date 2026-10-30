@@ -86,6 +86,9 @@ class DeclaringClient(FakeClient):
         self.marked = False
         self.declarations = 0
 
+    def current_consumer_id(self):
+        return "c1"
+
     def declare_platform_app(self):
         self.declarations += 1
         if not self.marked:
@@ -99,6 +102,8 @@ def test_declaration_is_retried_until_marked_then_not_every_poll(config, tmp_pat
     collector.poll_once()
     collector.poll_once()
     assert client.declarations == 2  # refused both times, still polling
+    refused = collector.store.get_state("platform_app")
+    assert not refused["ok"] and refused["consumer_id"] == "c1"  # so the operator is told the consumer_id to mark
 
     client.marked = True
     collector.poll_once()

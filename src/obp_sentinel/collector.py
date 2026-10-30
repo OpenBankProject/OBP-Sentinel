@@ -72,7 +72,11 @@ class Collector:
             app = self.client.declare_platform_app()
         except Exception as e:
             logger.warning("Could not declare Sentinel's Scopes (is its Consumer marked as a Platform App?): %s", e)
-            self.store.set_state("platform_app", {"ts": now(), "ok": False, "error": str(e)[:500]})
+            state = {"ts": now(), "ok": False, "error": str(e)[:500]}
+            # So the operator is told which Consumer to mark by its consumer_id, not by the client id (its key)
+            if consumer_id := self._consumer_id():
+                state["consumer_id"] = consumer_id
+            self.store.set_state("platform_app", state)
             return
         self.declared_at = time.monotonic()
         missing = [s["role_name"] for s in app.get("required_scopes", []) if not s.get("held") and not s.get("optional")]
@@ -83,6 +87,16 @@ class Collector:
                            app.get("consumer_id"), ", ".join(missing))
         else:
             logger.info("Declared as Platform App %r; all Scopes held", app.get("label"))
+
+    def _consumer_id(self) -> str | None:
+        """Sentinel's consumer_id, asked once; None while OBP-API cannot say (unreachable, token rejected, older version)."""
+        if not getattr(self, "consumer_id", None):
+            try:
+                self.consumer_id = self.client.current_consumer_id()
+            except Exception as e:
+                logger.info("Could not look up Sentinel's consumer_id: %s", e)
+                return None
+        return self.consumer_id
 
     def ingest(self, level: str, messages: list[str]) -> int:
         """Count new messages (oldest first, so samples and first_seen are in order). Returns how many counted."""

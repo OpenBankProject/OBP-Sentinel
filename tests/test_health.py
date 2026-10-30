@@ -50,9 +50,32 @@ def test_same_cause_is_one_problem_and_scopes_are_merged(config):
     store.close()
 
 
+def test_a_consumer_not_yet_a_platform_app_is_named_by_its_consumer_id(config):
+    store = Store(config.db_path)
+    store.set_state("platform_app", {"ts": 1, "ok": False, "consumer_id": "c1",
+                                     "error": "PUT http://obp/obp/v7.0.0/consumers/current/platform-app failed (403): OBP-35046"})
+    [p] = [p for p in health(store, config)["problems"] if p["key"] == "not-platform-app"]
+    assert "the Consumer with consumer_id = c1" in p["action"] and "OIDC client" not in p["action"]
+    store.close()
+
+
+def test_the_fix_links_to_platform_apps_in_the_instances_api_manager(config, monkeypatch):
+    monkeypatch.setattr("obp_sentinel.health.api_manager_url", lambda c: "http://manager.example")
+    store = Store(config.db_path)
+    store.set_state("platform_app", {"ts": 1, "ok": False, "consumer_id": "c1",
+                                     "error": "PUT http://obp/obp/v7.0.0/consumers/current/platform-app failed (403): OBP-35046"})
+    [p] = [p for p in health(store, config)["problems"] if p["key"] == "not-platform-app"]
+    assert p["link"]["href"] == "http://manager.example/consumers/platform-apps?consumer_id=c1&label=Sentinel"
+
+    monkeypatch.setattr("obp_sentinel.health.api_manager_url", lambda c: None)  # no API Manager in the app directory
+    [p] = [p for p in health(store, config)["problems"] if p["key"] == "not-platform-app"]
+    assert "link" not in p
+    store.close()
+
+
 def test_declared_missing_scopes_are_listed_with_the_consumer(config):
     store = Store(config.db_path)
     store.set_state("platform_app", {"ts": 1, "ok": True, "consumer_id": "c1", "missing": ["CanGetTelemetry"]})
     [p] = health(store, config)["problems"]
-    assert p["key"] == "missing-scopes" and "Consumer c1" in p["action"] and "CanGetTelemetry" in p["action"]
+    assert p["key"] == "missing-scopes" and "the Consumer with consumer_id = c1" in p["action"] and "CanGetTelemetry" in p["action"]
     store.close()

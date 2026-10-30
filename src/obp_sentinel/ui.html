@@ -1263,6 +1263,7 @@ function renderHealth(h) {
     const children = [
       el('div', { className: 'what' }, [el('span', { className: 'num', textContent: `${i + 1}.` }), el('span', { textContent: p.title })]),
       el('p', { className: 'do', textContent: p.action }),
+      ...(p.link ? [el('p', { className: 'do' }, [el('a', { href: p.link.href, target: '_blank', rel: 'noopener', textContent: p.link.text })])] : []),
       el('p', { className: 'affects', textContent: `Affects: ${p.sources.join(', ')}` + (p.since ? ` · last seen ${dayClock(p.since)}` : '') }),
     ];
     if (p.error) children.push(el('details', {}, [el('summary', { textContent: 'What Sentinel got' }), el('pre', { textContent: p.error })]));

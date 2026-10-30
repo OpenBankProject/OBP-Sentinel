@@ -114,7 +114,7 @@ class OBPClient:
         body = response.json()
         self._token = body["access_token"]
         self._token_expires_at = time.monotonic() + float(body.get("expires_in", 300)) - TOKEN_MARGIN_SECONDS
-        logger.info("Got an application token for client %s", c.oidc_client_id)
+        logger.info("Got an application token")
         return self._token
 
     def _token_now(self) -> str:
@@ -186,6 +186,10 @@ class OBPClient:
     def reachable_roles(self) -> list[str]:
         """The names of the Roles anyone holds, as an Entitlement or a Scope. Nothing about who holds them."""
         return self._request("GET", PLATFORM_APP_API_VERSION, "reachable-roles")["role_names"]
+
+    def current_consumer_id(self) -> str:
+        """Sentinel's own consumer_id. Needs no Role or Scope, so OBP-API answers it before the Consumer is a Platform App."""
+        return self._request("GET", PLATFORM_APP_API_VERSION, "consumers/current/identity")["consumer_id"]
 
     def declare_platform_app(self) -> dict:
         """Tell OBP-API which Scopes Sentinel needs. Returns the app as OBP sees it, each Scope held or not."""

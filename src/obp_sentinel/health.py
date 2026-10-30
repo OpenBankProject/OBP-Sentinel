@@ -6,8 +6,9 @@ source), so the operator sees each thing to fix once.
 """
 
 import re
+from urllib.parse import urlencode
 
-from .config import Config
+from .config import Config, api_manager_url
 from .store import Store, now
 
 SOURCE_NAMES = {"log:error": "Error log", "log:warning": "Warning log", "log:info": "Info log",
@@ -26,8 +27,8 @@ def _source_name(source: str) -> str:
     return SOURCE_NAMES.get(source, source)
 
 
-def diagnose(source: str, error: str, config: Config) -> dict:
-    """The kind of problem behind one failure, and what to do about it."""
+def diagnose(source: str, error: str, config: Config, who: str | None = None) -> dict:
+    """The kind of problem behind one failure, and what to do about it. `who` names Sentinel's Consumer."""
     p = config.env_prefix
     if "must be set" in error:
         return {"key": "settings", "title": "Sentinel's OIDC settings are missing",
@@ -38,7 +39,7 @@ def diagnose(source: str, error: str, config: Config) -> dict:
                           "should answer with the provider's settings."}
     if error.startswith("Client credentials token request"):
         return {"key": "oidc-token", "title": "The OIDC provider refuses to give Sentinel a token",
-                "action": f"Check {p}OIDC_CLIENT_ID ({config.oidc_client_id}) and {p}OIDC_CLIENT_SECRET, and that this "
+                "action": f"Check {p}OIDC_CLIENT_ID and {p}OIDC_CLIENT_SECRET, and that this "
                           "client is registered at the provider and allowed the client_credentials grant."}
     m = HTTP_FAILURE.match(error)
     if not m:
@@ -81,8 +82,8 @@ def diagnose(source: str, error: str, config: Config) -> dict:
                           + (f", or set {p}{setting} to a version it serves." if setting else ".")}
     if source == "platform-app":
         return {"key": "not-platform-app", "title": "Sentinel's Consumer is not marked as a Platform App",
-                "action": f"Ask an OBP-API administrator to mark the Consumer of OIDC client {config.oidc_client_id} as a "
-                          "Platform App. It takes effect without a restart."}
+                "action": f"Ask an OBP-API administrator to mark {who or f'the Consumer of the client in {p}OIDC_CLIENT_ID'} "
+                          "as a Platform App. It takes effect without a restart."}
     if status >= 500:
         return {"key": "server-error", "title": f"OBP-API fails ({status}) on {_source_name(source)}",
                 "action": "OBP-API has an internal problem here: look in its own logs."}
@@ -100,14 +101,15 @@ def health(store: Store, config: Config) -> dict:
         if (s := store.get_state(key)) is not None:
             latest.append({"source": source, **s})
     app = store.get_state("platform_app") or {}
-    who = f"Consumer {app['consumer_id']}" if app.get("consumer_id") else f"the Consumer of OIDC client {config.oidc_client_id}"
+    # Named by consumer_id, never by the client id: that is the Consumer's key, a credential
+    who = f"the Consumer with consumer_id = {app['consumer_id']}" if app.get("consumer_id") else f"the Consumer of the client in {config.env_prefix}OIDC_CLIENT_ID"
 
     problems: dict[str, dict] = {}
     missing_roles: list[list[str]] = [[r] for r in app.get("missing") or []]
     for s in sorted(latest, key=lambda s: s["source"]):
         if s["ok"] or not s.get("error"):
             continue
-        d = diagnose(s["source"], s["error"], config)
+        d = diagnose(s["source"], s["error"], config, who)
         missing_roles += d.pop("roles", [])
         severity = "warn" if d.pop("warn", False) else "bad"
         key = d["key"] + (":" + d["title"] if d["key"] in ("not-served", "other", "server-error") else "")
@@ -124,6 +126,14 @@ def health(store: Store, config: Config) -> dict:
         problem["action"] = f"Ask an OBP-API administrator to grant {who} these Scopes: {names}."
         if not problem["sources"]:
             problem["sources"] = [_source_name("platform-app")]
+
+    # Both are fixed on API Manager's Platform Apps page, with the form there filled in for Sentinel's Consumer
+    if app.get("consumer_id") and (manager := api_manager_url(config)):
+        query = urlencode({"consumer_id": app["consumer_id"], "label": "Sentinel"})
+        for key in ("not-platform-app", "missing-scopes"):
+            if key in problems:
+                problems[key]["link"] = {"href": f"{manager}/consumers/platform-apps?{query}",
+                                         "text": "Open Platform Apps in API Manager"}
 
     ordered = sorted(problems.values(), key=lambda p: (ORDER.index(p["key"]), p["title"]))
     blocking = {"settings", "oidc-discovery", "oidc-token", "unreachable", "token-rejected"}
