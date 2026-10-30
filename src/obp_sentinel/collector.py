@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 HEAD_SIZE = 5
 PRUNE_EVERY_SECONDS = 3600
-# Once OBP has accepted the Platform App declaration, declare again this often (an admin may have re-marked it)
+# Once OBP has accepted the Platform App declaration with every Scope held, declare again this often (an admin may have re-marked it)
 REDECLARE_EVERY_SECONDS = 3600
 # OBP-API writes metrics asynchronously: only ask for a bucket this long after it has ended
 METRICS_LAG_SECONDS = 120
@@ -78,8 +78,9 @@ class Collector:
                 state["consumer_id"] = consumer_id
             self.store.set_state("platform_app", state)
             return
-        self.declared_at = time.monotonic()
         missing = [s["role_name"] for s in app.get("required_scopes", []) if not s.get("held") and not s.get("optional")]
+        # While a Scope is missing, ask again on every poll, so a grant shows within a poll, as the health page says
+        self.declared_at = 0.0 if missing else time.monotonic()
         self.store.set_state("platform_app", {"ts": now(), "ok": True, "consumer_id": app.get("consumer_id"),
                                               "label": app.get("label"), "missing": missing})
         if missing:
