@@ -3,6 +3,7 @@
 *.db-shm
 *.db-wal
 .venv/
+.venv-agent/
 __pycache__/
 *.pyc
 .pytest_cache/

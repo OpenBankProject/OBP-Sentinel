@@ -2,12 +2,14 @@
 
 Built from each source's latest poll and the collector's last root call and Platform App declaration, all in the
 store: no calls to OBP-API. Failures with the same cause are merged into one problem (a rejected token fails every
-source), so the operator sees each thing to fix once.
+source), so the operator sees each thing to fix once. What stops Claude Code from running here (the analyst, the
+source review, Fix this) is listed too, last: Sentinel still watches without it, but finds nothing.
 """
 
 import re
 from urllib.parse import urlencode
 
+from .analyst import unavailable_reason
 from .config import Config, api_manager_url
 from .store import Store, now
 
@@ -20,7 +22,7 @@ HTTP_FAILURE = re.compile(r"^(?P<method>[A-Z]+) (?P<url>\S+) failed \((?P<status
 OBP_VERSION_PATH = re.compile(r"/obp/(?P<version>v\d+\.\d+\.\d+)/(?P<path>[^?\s]+)")
 ROLE = re.compile(r"\bCan[A-Z]\w+")
 ORDER = ["settings", "oidc-discovery", "oidc-token", "unreachable", "token-rejected", "not-platform-app",
-         "missing-scopes", "not-served", "server-error", "other"]
+         "missing-scopes", "not-served", "server-error", "other", "analyst"]
 
 
 def _source_name(source: str) -> str:
@@ -90,6 +92,18 @@ def diagnose(source: str, error: str, config: Config, who: str | None = None) ->
     return {"key": "other", "title": f"{_source_name(source)} fails ({status})", "action": "See what Sentinel got below."}
 
 
+def analyst_action(reason: str, config: Config) -> str:
+    """What to do about `reason`, from analyst.unavailable_reason."""
+    if "not installed or not on PATH" in reason:
+        return (f"Install Claude Code and log in to it, or set SENTINEL_CLAUDE_COMMAND (in .env) to the full path of "
+                f"claude: `which claude` in your own terminal shows it. Sentinel looks for {config.claude_command!r} on "
+                "the PATH of the shell that started it, which may not be your login shell's. Then restart Sentinel.")
+    if reason.startswith("OBP_API_SOURCE"):
+        return (f"Set {config.env_prefix}OBP_API_SOURCE (in .env) to the {'app' if config.is_app else 'OBP-API'} "
+                f"checkout (now {config.obp_api_source or 'not set'}), then restart Sentinel.")
+    return reason
+
+
 def health(store: Store, config: Config) -> dict:
     """The problems to fix, most blocking first. None when everything Sentinel polls works."""
     latest = [dict(r) for r in store.db.execute(
@@ -134,6 +148,13 @@ def health(store: Store, config: Config) -> dict:
             if key in problems:
                 problems[key]["link"] = {"href": f"{manager}/consumers/platform-apps?{query}",
                                          "text": "Open Platform Apps in API Manager"}
+
+    if reason := unavailable_reason(config, scheduled=False):
+        problems["analyst"] = {
+            "key": "analyst", "title": "Sentinel cannot run Claude Code, so it analyses nothing", "severity": "warn",
+            "action": analyst_action(reason, config), "sources": ["Analyst", "Source review", "Fix this"],
+            "error": reason, "since": None,
+        }
 
     ordered = sorted(problems.values(), key=lambda p: (ORDER.index(p["key"]), p["title"]))
     blocking = {"settings", "oidc-discovery", "oidc-token", "unreachable", "token-rejected"}

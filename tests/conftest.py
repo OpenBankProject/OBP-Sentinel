@@ -25,6 +25,12 @@ def app_directories(monkeypatch):
     return listed
 
 
+@pytest.fixture(autouse=True)
+def claude_code_available(monkeypatch):
+    """Whether this machine has Claude Code does not change a test's problems: tests that need it missing say so."""
+    monkeypatch.setattr("obp_sentinel.health.unavailable_reason", lambda config, scheduled=True: None)
+
+
 @pytest.fixture
 def config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # so no real .env is read

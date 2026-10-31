@@ -79,3 +79,15 @@ def test_declared_missing_scopes_are_listed_with_the_consumer(config):
     [p] = health(store, config)["problems"]
     assert p["key"] == "missing-scopes" and "the Consumer with consumer_id = c1" in p["action"] and "CanGetTelemetry" in p["action"]
     store.close()
+
+
+def test_claude_code_missing_is_listed_last_with_what_to_do(config, monkeypatch):
+    monkeypatch.setattr("obp_sentinel.health.unavailable_reason",
+                        lambda c, scheduled=True: "Claude Code (claude) is not installed or not on PATH")
+    store = Store(config.db_path)
+    store.record_poll("log:error", ok=False, error=JWKS)
+    h = health(store, config)
+    assert [p["key"] for p in h["problems"]] == ["token-rejected", "analyst"]
+    p = h["problems"][1]
+    assert p["severity"] == "warn" and "SENTINEL_CLAUDE_COMMAND" in p["action"] and "which claude" in p["action"]
+    store.close()
