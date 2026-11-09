@@ -131,3 +131,80 @@ def test_an_app_refusing_for_lack_of_a_role_says_which_scopes_to_grant(config, t
     [problem] = health(store, app)["problems"]
     assert problem["key"] == "missing-scopes"
     assert "CanGetSystemLogCacheError (or CanGetSystemLogCacheAll)" in problem["action"]
+
+
+def test_an_app_names_the_setting_its_client_comes_from_and_checks_tokens_with_its_obp_api(config, monkeypatch,
+                                                                                           app_directories):
+    monkeypatch.setenv("SENTINEL_INSTANCES", "local")
+    monkeypatch.setenv("LOCAL_OBP_BASE_URL", "http://localhost:8080")
+    monkeypatch.setenv("LOCAL_OIDC_CLIENT_ID", "local-client")
+    app_directories["http://localhost:8080"] = {"public_obp_api_explorer_url": "http://localhost:5173",
+                                                "public_obp_cohort_url": "http://localhost:5183"}
+    configs = {c.name: c for c in Config.all_from_env()}
+    assert list(configs) == ["local", "local-explorer", "local-cohort"]
+    cohort = configs["local-cohort"]
+    assert (cohort.obp_base_url, cohort.monitoring_path, cohort.obp_api_url) == (
+        "http://localhost:5183", "/monitoring", "http://localhost:8080")
+    assert cohort.oidc_client_setting == "LOCAL_OIDC_CLIENT_ID"
+    assert configs["local"].obp_api_url == "http://localhost:8080"
+    monkeypatch.setenv("LOCAL_EXPLORER_OIDC_CLIENT_ID", "explorer-client")
+    assert Config.from_env("local-explorer").oidc_client_setting == "LOCAL_EXPLORER_OIDC_CLIENT_ID"
+
+
+REFUSED = ('GET http://explorer/api/monitoring/telemetry failed (403): '
+           '{"error":"Requires one of the Roles: CanGetTelemetry"}')
+
+
+class RefusingAppClient(AppClient):
+    """An app that answers 403, and an OBP-API that says what `held` holds."""
+
+    def __init__(self, held):
+        self.held, self.asked = held, []
+
+    def log_cache(self, level, limit):
+        raise Exception(REFUSED.replace("telemetry", f"log-cache/{level}").replace(
+            "CanGetTelemetry", f"CanGetSystemLogCache{level.capitalize()}, CanGetSystemLogCacheAll"))
+
+    def telemetry(self):
+        raise Exception(REFUSED)
+
+    def my_role(self, role):
+        self.asked.append(role)
+        return {"held_by": {"user": False, "consumer": role in self.held},
+                "allowed_for_auth_modes": ["ApplicationOnly", "UserXORApplication"] if role in self.held else []}
+
+    def current_consumer_id(self):
+        return "c1"
+
+
+def app_config(config):
+    return replace(config, name="local-explorer", parent="local", monitoring_path="/api/monitoring",
+                   oidc_client_setting="LOCAL_OIDC_CLIENT_ID", obp_api_url="http://obp")
+
+
+def test_when_an_app_refuses_sentinel_obp_api_is_asked_about_each_refused_role(config, tmp_path):
+    store = Store(str(tmp_path / "app.db"))
+    client = RefusingAppClient(held={"CanGetTelemetry"})
+    Collector(app_config(config), store, client).poll_once()
+    assert sorted(client.asked) == ["CanGetSystemLogCacheAll", "CanGetSystemLogCacheError", "CanGetTelemetry"]
+    access = store.get_state("app_access")
+    assert access["consumer_id"] == "c1" and access["roles"]["CanGetTelemetry"]["consumer"]
+    assert not access["roles"]["CanGetSystemLogCacheAll"]["consumer"]
+
+
+def test_an_app_refusing_roles_obp_api_says_are_held_is_a_disagreement_not_missing_scopes(config, tmp_path):
+    app = app_config(config)
+    store = Store(str(tmp_path / "app.db"))
+    Collector(app, store, RefusingAppClient(held={"CanGetTelemetry"})).poll_once()
+    problems = {p["key"]: p for p in health(store, app)["problems"]}
+    assert set(problems) == {"missing-scopes", "app-disagrees"}
+    disagrees = problems["app-disagrees"]
+    assert disagrees["sources"] == ["Telemetry"] and "CanGetTelemetry" in disagrees["action"]
+    assert "UserXORApplication" in disagrees["action"] and "Granting Scopes will not help" in disagrees["action"]
+    missing = problems["missing-scopes"]
+    assert missing["sources"] == ["Error log"]
+    assert "CanGetSystemLogCacheError (or CanGetSystemLogCacheAll)" in missing["action"]
+    assert "CanGetTelemetry" not in missing["action"]
+    # Named by consumer_id and the setting that holds the client, never by the client id
+    assert "consumer_id = c1 (the client in LOCAL_OIDC_CLIENT_ID, which local uses too)" in missing["action"]
+    assert "LOCAL_EXPLORER_OIDC_CLIENT_ID" not in missing["action"]

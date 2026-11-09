@@ -8,7 +8,8 @@ from http.client import HTTPConnection
 
 import pytest
 
-from obp_sentinel.analyst import AGENT_FILE, Analyst, claim_run, command, decide, describe, unavailable_reason
+from obp_sentinel.analyst import (AGENT_FILE, CHECK_PROMPT, Analyst, check_claude, claim_run, command, decide,
+                                   describe, unavailable_reason)
 from obp_sentinel.signatures import parse_line, signature_of
 from obp_sentinel.store import Store, now
 from obp_sentinel.web import analysis, make_server
@@ -152,6 +153,38 @@ def test_page_starts_a_run_whatever_the_schedule_says(analyst_config):
             time.sleep(0.05)
         assert run["status"] == "done" and run["trigger"].startswith("By hand, from the page: Waiting for data")
         store.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_claude_check_asks_one_question_with_no_tools(analyst_config, tmp_path):
+    result = check_claude(analyst_config)
+    assert result["ok"] and result["error"] is None and result["cost_usd"] == 0.42 and result["reply"] == "No findings."
+    args = (tmp_path / "args").read_text()
+    assert CHECK_PROMPT in args and "--strict-mcp-config" in args and "--allowedTools" not in args
+
+
+def test_the_claude_check_says_why_it_failed(analyst_config, monkeypatch):
+    missing = check_claude(replace(analyst_config, claude_command="no-such-claude-xyz"))
+    assert not missing["ok"] and "not installed" in missing["error"]
+    monkeypatch.setenv("FAKE_EXIT", "1")
+    assert not check_claude(analyst_config)["ok"]
+
+
+def test_the_page_keeps_the_claude_check_for_every_instance(analyst_config, tmp_path):
+    other = replace(analyst_config, name="other", db_path=str(tmp_path / "other.db"))
+    server = make_server([analyst_config, other], "127.0.0.1", 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_address[1])
+        conn.request("POST", "/api/claude-check", body="{}", headers={"Content-Type": "application/json"})
+        response = conn.getresponse()
+        assert response.status == 200 and json.loads(response.read())["ok"]
+        for c in (analyst_config, other):
+            store = Store(c.db_path)
+            assert analysis(store, c)["claude_check"]["ok"]
+            store.close()
     finally:
         server.shutdown()
         server.server_close()

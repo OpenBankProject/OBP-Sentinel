@@ -87,6 +87,32 @@ pull requests.
    uv run sentinel status
    ```
 
+4. Give Sentinel Claude Code, for the analyst, the source review and Fix this. Sentinel never calls the
+   Anthropic API itself: it starts `claude -p ...` (`SENTINEL_CLAUDE_COMMAND`), which signs in the way
+   Claude Code does for the user running Sentinel, and spends from that account.
+   - Install Claude Code for that user and log in once (`claude`, then exit). Or, instead of a login, set
+     `ANTHROPIC_API_KEY` in `.env` or in the environment of the shell that starts Sentinel: the runs
+     inherit it.
+   - If `claude` is not on the PATH of the shell that starts Sentinel (a terminal opened with `bash -c`
+     may not read your login shell's PATH), set `SENTINEL_CLAUDE_COMMAND` to its full path, e.g.
+     `/home/you/.local/bin/claude`.
+   - Set `OBP_API_SOURCE` to the OBP-API checkout: the runs read its source.
+   - Each run is capped: `SENTINEL_ANALYSE_BUDGET_USD` (2) per analysis, `SENTINEL_SCAN_BUDGET_USD` (0.50)
+     per source scan.
+
+   While any of this is missing, the page lists "Sentinel cannot run Claude Code" under the things to fix,
+   with what to do. Sentinel still collects; it just analyses nothing.
+
+   **Running Sentinel as another user.** The Claude Code runs have the file access of the user running
+   Sentinel. To keep them out of your home directory, run Sentinel as a separate user with its own Claude
+   Code and login. That user needs:
+   - its own environment, as `.venv` may point at a Python in your home:
+     `UV_PROJECT_ENVIRONMENT=.venv-agent uv sync`, then `UV_PROJECT_ENVIRONMENT=.venv-agent uv run sentinel run`;
+   - write access to Sentinel's databases (`sentinel*.db`, `-shm`, `-wal`), e.g. through a shared group and
+     `chmod g+rw`;
+   - git's trust in the OBP-API checkout, which another user owns:
+     `git config --global --add safe.directory <OBP_API_SOURCE>`.
+
 ### Several OBP-API instances
 
 Sentinel can watch several instances at once, each probably running different code. Name them in
@@ -100,15 +126,16 @@ root endpoint on every poll, and the analyst reads the source at that commit.
 instance: `sentinel --instance staging status`, or set `SENTINEL_INSTANCE`; with a single instance there
 is nothing to choose.
 
-### Apps: API Explorer II, the API Manager, the Portal, OBP-OIDC
+### Apps: API Explorer II, the API Manager, the Portal, Cohort, OBP-OIDC
 
 These apps serve their own log cache and Telemetry, in OBP-API's shape, at `/api/monitoring/...` (API Explorer
-II) and `/monitoring/...` (API Manager, Portal, OBP-OIDC). Each is listed on the app's `/status` page. They check
+II) and `/monitoring/...` (API Manager, Portal, Cohort, OBP-OIDC). Each is listed on the app's `/status` page. They check
 Sentinel's token with OBP-API (`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`), so they need the same Roles as
 OBP-API's own endpoints: `CanGetSystemLogCache<Level>` (or `CanGetSystemLogCacheAll`) and `CanGetTelemetry`.
 
 Sentinel finds each OBP-API instance's apps in its public app directory (`GET /obp/v6.0.0/app-directory`:
-`public_obp_api_explorer_url`, `public_obp_api_manager_url`, `public_obp_portal_url`, `public_obp_oidc_url`), read at startup and kept in
+`public_obp_api_explorer_url`, `public_obp_api_manager_url`, `public_obp_portal_url`, `public_obp_cohort_url`,
+`public_obp_oidc_url`), read at startup and kept in
 the instance's database for when OBP-API cannot be reached. Each app becomes an instance of its own, named
 `<instance>-<app>` (`local-explorer`) and shown as a tab after its OBP-API instance. The only settings are the
 checkouts the analyst reads, shared by all instances:
@@ -127,6 +154,12 @@ and an app takes them only prefixed with its own name (`LOCAL_PORTAL_SENTINEL_IG
 database (`sentinel-local-portal.db`) and digests (`digests/local-portal/`). An app added to the directory is
 watched from the next start. The analyst is told the instance is an app and reads the app's source.
 
+When an app refuses Sentinel (403), Sentinel asks OBP-API the app's own question with the same token
+(`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`, and `consumers/current/identity` for its consumer_id). The page then
+says either which Consumer, by consumer_id and the setting that holds its client (usually the OBP-API instance's
+`<INSTANCE>_OIDC_CLIENT_ID`), lacks which Scopes, or that OBP-API says Sentinel holds the Roles and the app refuses
+them anyway: the app and OBP-API disagree, for instance on an auth mode's name, and granting Scopes will not help.
+
 ## Running
 
 Sentinel has three parts:
@@ -135,7 +168,7 @@ Sentinel has three parts:
 |---|---|---|
 | Collector | Polls OBP-API every `SENTINEL_POLL_SECONDS` and stores aggregates in `sentinel.db` | OBP-API and OBP-OIDC running |
 | Web page | Shows the findings on http://127.0.0.1:8765 and records your responses | Only `sentinel.db` |
-| Analyst | Reads the aggregates and the OBP-API source, records findings, writes a digest | Claude Code (`claude` on PATH, logged in), `OBP_API_SOURCE`, 2h of data |
+| Analyst | Reads the aggregates and the OBP-API source, records findings, writes a digest | Claude Code, logged in or with `ANTHROPIC_API_KEY` (Setup, step 4), `OBP_API_SOURCE`, 2h of data |
 
 Start them together, in one process, and leave it running (Ctrl-C stops all three):
 

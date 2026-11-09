@@ -8,13 +8,13 @@ SENTINEL_DIGEST_DIR are only taken prefixed, so instances never share them. With
 there is one instance, "default", using sentinel.db and digests/ as before.
 
 Each OBP-API instance can have apps that serve their own log cache and Telemetry in OBP-API's shape: API
-Explorer II, the API Manager, the Portal and OBP-OIDC. They are found in the instance's public app directory
+Explorer II, the API Manager, the Portal, Cohort and OBP-OIDC. They are found in the instance's public app directory
 (GET /obp/v6.0.0/app-directory), read at startup and kept in the instance's database for when OBP-API cannot be
 reached. Each becomes an instance of its own, named <instance>-<app> (local-explorer), with its own database and
 digests. It uses its OBP-API instance's settings, OIDC client included, except SENTINEL_TELEMETRY_PREFIXES and
 SENTINEL_IGNORE_REGEX, which are written for OBP-API: an app takes those only prefixed with its own name
 (LOCAL_EXPLORER_SENTINEL_IGNORE_REGEX). Its source is EXPLORER_SOURCE (API Explorer II), FRONTEND_SOURCE
-(OBP-Frontend, for the API Manager and the Portal) or OIDC_SOURCE (OBP-OIDC), shared by all instances.
+(OBP-Frontend, for the API Manager, the Portal and Cohort) or OIDC_SOURCE (OBP-OIDC), shared by all instances.
 """
 
 import logging
@@ -48,6 +48,7 @@ APPS = {
     "explorer": App("public_obp_api_explorer_url", "/api/monitoring", "EXPLORER_SOURCE", "OpenBankProject/API-Explorer-II"),
     "manager": App("public_obp_api_manager_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
     "portal": App("public_obp_portal_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
+    "cohort": App("public_obp_cohort_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
     "oidc": App("public_obp_oidc_url", "/monitoring", "OIDC_SOURCE", "OpenBankProject/OBP-OIDC"),
 }
 APP_DIRECTORY_STATE = "app_directory"
@@ -153,6 +154,8 @@ class Config:
     oidc_issuer: str
     oidc_client_id: str
     oidc_client_secret: str
+    oidc_client_setting: str  # the setting the OIDC client id was read from (an app's is usually its OBP-API instance's)
+    obp_api_url: str  # the OBP-API that checks Sentinel's token: obp_base_url, or for an app its instance's
     log_cache_api_version: str
     telemetry_api_version: str
     aggregate_metrics_api_version: str
@@ -222,15 +225,20 @@ class Config:
         # An app's own settings, then its OBP-API instance's, then the plain ones
         prefixes = [_prefix(name), _prefix(parent)] if is_app else [_prefix(name)]
 
-        def env(key: str, default: str = "") -> str:
+        def setting(key: str) -> str | None:
+            """The setting `key` is read from: prefixed with this instance's name, its OBP-API instance's, or plain."""
             if not named:
-                return os.environ.get(key, default)
+                return key if key in os.environ else None
             for i, prefix in enumerate(prefixes + [""]):
                 if i > 0 and (key in OWN_PER_INSTANCE or (is_app and key in OBP_API_ONLY)):
                     break
-                if (value := os.environ.get(prefix + key)) is not None:
-                    return value
-            return default
+                if prefix + key in os.environ:
+                    return prefix + key
+            return None
+
+        def env(key: str, default: str = "") -> str:
+            name = setting(key)
+            return os.environ[name] if name else default
 
         monitoring_path = APPS[app].monitoring_path if is_app else ""
         return cls(
@@ -242,6 +250,9 @@ class Config:
             oidc_issuer=env("OIDC_ISSUER", "http://localhost:9000/obp-oidc").rstrip("/"),
             oidc_client_id=env("OIDC_CLIENT_ID", ""),
             oidc_client_secret=env("OIDC_CLIENT_SECRET", ""),
+            oidc_client_setting=setting("OIDC_CLIENT_ID") or _prefix(name) + "OIDC_CLIENT_ID",
+            obp_api_url=(Config.from_env(parent).obp_base_url if is_app
+                         else env("OBP_BASE_URL", "http://localhost:8080").rstrip("/")),
             log_cache_api_version=env("OBP_LOG_CACHE_API_VERSION", "v5.1.0"),
             telemetry_api_version=env("OBP_TELEMETRY_API_VERSION", "v7.0.0"),
             aggregate_metrics_api_version=env("OBP_AGGREGATE_METRICS_API_VERSION", "v6.0.0"),

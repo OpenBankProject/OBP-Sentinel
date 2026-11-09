@@ -10,7 +10,7 @@ import re
 from urllib.parse import urlencode
 
 from .analyst import unavailable_reason
-from .config import Config, api_manager_url
+from .config import APPS, Config, api_manager_url
 from .store import Store, now
 
 SOURCE_NAMES = {"log:error": "Error log", "log:warning": "Warning log", "log:info": "Info log",
@@ -22,16 +22,34 @@ HTTP_FAILURE = re.compile(r"^(?P<method>[A-Z]+) (?P<url>\S+) failed \((?P<status
 OBP_VERSION_PATH = re.compile(r"/obp/(?P<version>v\d+\.\d+\.\d+)/(?P<path>[^?\s]+)")
 ROLE = re.compile(r"\bCan[A-Z]\w+")
 ORDER = ["settings", "oidc-discovery", "oidc-token", "unreachable", "token-rejected", "not-platform-app",
-         "missing-scopes", "not-served", "server-error", "other", "analyst"]
+         "missing-scopes", "app-disagrees", "not-served", "server-error", "other", "analyst"]
 
 
 def _source_name(source: str) -> str:
     return SOURCE_NAMES.get(source, source)
 
 
+def _oidc_prefix(config: Config) -> str:
+    """The prefix of the OIDC settings this instance uses: an app's are usually its OBP-API instance's."""
+    return config.oidc_client_setting.removesuffix("OIDC_CLIENT_ID")
+
+
+def _who(config: Config, consumer_id: str | None) -> str:
+    """Sentinel's Consumer for an administrator: by consumer_id, never by the client id (the Consumer's key, a
+    credential). For an app, also which setting holds its client, so the operator knows whether it is shared."""
+    setting = config.oidc_client_setting
+    shared = config.is_app and not setting.startswith(config.env_prefix)
+    client = f"the client in {setting}" + (f", which {config.parent} uses too" if shared and config.parent else "")
+    return f"the Consumer with consumer_id = {consumer_id} ({client})" if consumer_id else f"the Consumer of {client}"
+
+
+def _held(answer: dict | None) -> bool:
+    return bool(answer and (answer.get("consumer") or answer.get("user")))
+
+
 def diagnose(source: str, error: str, config: Config, who: str | None = None) -> dict:
     """The kind of problem behind one failure, and what to do about it. `who` names Sentinel's Consumer."""
-    p = config.env_prefix
+    p = _oidc_prefix(config)
     if "must be set" in error:
         return {"key": "settings", "title": "Sentinel's OIDC settings are missing",
                 "action": f"Set {p}OIDC_ISSUER, {p}OIDC_CLIENT_ID and {p}OIDC_CLIENT_SECRET (in .env), then restart Sentinel."}
@@ -84,7 +102,7 @@ def diagnose(source: str, error: str, config: Config, who: str | None = None) ->
                           + (f", or set {p}{setting} to a version it serves." if setting else ".")}
     if source == "platform-app":
         return {"key": "not-platform-app", "title": "Sentinel's Consumer is not marked as a Platform App",
-                "action": f"Ask an OBP-API administrator to mark {who or f'the Consumer of the client in {p}OIDC_CLIENT_ID'} "
+                "action": f"Ask an OBP-API administrator to mark {who or _who(config, None)} "
                           "as a Platform App. It takes effect without a restart."}
     if status >= 500:
         return {"key": "server-error", "title": f"OBP-API fails ({status}) on {_source_name(source)}",
@@ -99,8 +117,12 @@ def analyst_action(reason: str, config: Config) -> str:
                 f"claude: `which claude` in your own terminal shows it. Sentinel looks for {config.claude_command!r} on "
                 "the PATH of the shell that started it, which may not be your login shell's. Then restart Sentinel.")
     if reason.startswith("OBP_API_SOURCE"):
-        return (f"Set {config.env_prefix}OBP_API_SOURCE (in .env) to the {'app' if config.is_app else 'OBP-API'} "
-                f"checkout (now {config.obp_api_source or 'not set'}), then restart Sentinel.")
+        # An app's checkout is one setting shared by all instances (EXPLORER_SOURCE ...), not a prefixed OBP_API_SOURCE
+        setting = next((a.source_setting for name, a in APPS.items() if config.name in (name, f"{config.parent}-{name}")),
+                       None) if config.is_app else None
+        return (f"Set {setting or config.env_prefix + 'OBP_API_SOURCE'} (in .env) to the "
+                f"{'app' if config.is_app else 'OBP-API'} checkout (now {config.obp_api_source or 'not set'}), "
+                "then restart Sentinel.")
     return reason
 
 
@@ -115,8 +137,11 @@ def health(store: Store, config: Config) -> dict:
         if (s := store.get_state(key)) is not None:
             latest.append({"source": source, **s})
     app = store.get_state("platform_app") or {}
-    # Named by consumer_id, never by the client id: that is the Consumer's key, a credential
-    who = f"the Consumer with consumer_id = {app['consumer_id']}" if app.get("consumer_id") else f"the Consumer of the client in {config.env_prefix}OIDC_CLIENT_ID"
+    # An app's: what OBP-API says about the Roles the app refused (collector.check_app_access)
+    access = (store.get_state("app_access") or {}) if config.is_app else {}
+    consumer_id = app.get("consumer_id") or access.get("consumer_id")
+    who = _who(config, consumer_id)
+    disagreed: dict[str, dict] = {}  # Roles OBP-API says Sentinel holds, which the app refuses anyway
 
     problems: dict[str, dict] = {}
     missing_roles: list[list[str]] = [[r] for r in app.get("missing") or []]
@@ -124,7 +149,13 @@ def health(store: Store, config: Config) -> dict:
         if s["ok"] or not s.get("error"):
             continue
         d = diagnose(s["source"], s["error"], config, who)
-        missing_roles += d.pop("roles", [])
+        roles = d.pop("roles", [])
+        held = {r: access["roles"][r] for group in roles for r in group if _held(access.get("roles", {}).get(r))}
+        if held:  # not a Scope to grant: the app's Role check and OBP-API's disagree
+            disagreed.update(held)
+            d = {"key": "app-disagrees", "title": "The app refuses Roles that OBP-API says Sentinel holds"}
+        else:
+            missing_roles += roles
         severity = "warn" if d.pop("warn", False) else "bad"
         key = d["key"] + (":" + d["title"] if d["key"] in ("not-served", "other", "server-error") else "")
         problem = problems.setdefault(key, {**d, "severity": severity, "sources": [], "error": s["error"], "since": s["ts"]})
@@ -141,9 +172,17 @@ def health(store: Store, config: Config) -> dict:
         if not problem["sources"]:
             problem["sources"] = [_source_name("platform-app")]
 
+    if disagreed:
+        said = "; ".join(f"{role} ({'its Consumer' if a.get('consumer') else 'its User'} holds it, for the auth modes "
+                         f"{', '.join(a.get('modes') or []) or 'none'})" for role, a in sorted(disagreed.items()))
+        problems["app-disagrees"]["action"] = (
+            f"OBP-API ({config.obp_api_url}) says {who} may use {said}, but the app still answers 403. Its Role check "
+            "expects something else from OBP-API's GET /obp/v7.0.0/banks/SYS/my/roles/ROLE, such as another auth "
+            "mode name: upgrade the app or OBP-API so they match. Granting Scopes will not help.")
+
     # Both are fixed on API Manager's Platform Apps page, with the form there filled in for Sentinel's Consumer
-    if app.get("consumer_id") and (manager := api_manager_url(config)):
-        query = urlencode({"consumer_id": app["consumer_id"], "label": "Sentinel"})
+    if consumer_id and (manager := api_manager_url(config)):
+        query = urlencode({"consumer_id": consumer_id, "label": "Sentinel"})
         for key in ("not-platform-app", "missing-scopes"):
             if key in problems:
                 problems[key]["link"] = {"href": f"{manager}/consumers/platform-apps?{query}",

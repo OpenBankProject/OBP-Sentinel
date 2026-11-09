@@ -91,3 +91,11 @@ def test_claude_code_missing_is_listed_last_with_what_to_do(config, monkeypatch)
     p = h["problems"][1]
     assert p["severity"] == "warn" and "SENTINEL_CLAUDE_COMMAND" in p["action"] and "which claude" in p["action"]
     store.close()
+
+
+def test_an_apps_missing_checkout_names_its_own_setting(config):
+    from dataclasses import replace
+    from obp_sentinel.health import analyst_action
+    app = replace(config, name="local-cohort", parent="local", monitoring_path="/monitoring", obp_api_source="")
+    assert analyst_action("OBP_API_SOURCE is not set", app).startswith("Set FRONTEND_SOURCE (in .env) to the app checkout")
+    assert analyst_action("OBP_API_SOURCE is not set", config).startswith("Set OBP_API_SOURCE (in .env) to the OBP-API")

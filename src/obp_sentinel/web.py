@@ -23,7 +23,7 @@ from importlib.resources import files
 import httpx
 
 from . import build, classes, fixer, history, recheck
-from .analyst import Analyst, decide, unavailable_reason
+from .analyst import Analyst, check_claude, decide, unavailable_reason
 from .config import Config
 from .health import health
 from .scanner import Scanner
@@ -48,6 +48,7 @@ SWEEP_PATH = "/api/findings/recheck-security"
 QUEUE_TESTS_PATH = "/api/fix-queue/tests"
 QUEUE_STOP_AUTO_PATH = "/api/fix-queue/stop-auto"
 FIX_BUILD_PATH = "/api/fix-queue/fix-the-build"
+CLAUDE_CHECK_PATH = "/api/claude-check"
 HELP_GLOSSARY_ITEM = "/obp/v7.0.0/api/glossary/OBP-Sentinel"
 MAX_BODY_BYTES = 10_000
 COMMIT_HASH = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")  # at least one letter: not a plain number
@@ -208,6 +209,8 @@ def analysis(store: Store, config: Config) -> dict:
         return run
 
     runs = store.db.execute("SELECT * FROM analysis_runs ORDER BY id DESC LIMIT 6").fetchall()
+    answered = store.db.execute(
+        "SELECT id, ended_at FROM analysis_runs WHERE status = 'done' ORDER BY id DESC LIMIT 1").fetchone()
     end = now()
     start = end - OVERVIEW_HOURS * 3600
     waiting = [
@@ -222,6 +225,8 @@ def analysis(store: Store, config: Config) -> dict:
         "unavailable": store.get_state("analysis_unavailable"),
         "by_hand_unavailable": unavailable_reason(config, scheduled=False),
         "last_check": store.get_state("analysis_check"),
+        "claude_check": store.get_state("claude_check"),
+        "last_answered": dict(answered) if answered else None,
         "next_check": store.get_state("analysis_next"),
         "runs": [run_info(r) if i == 0 else dict(r) for i, r in enumerate(runs)],
         "waiting": waiting,
@@ -277,6 +282,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
     by_name = {c.name: c for c in configs}
     analysts = {c.name: (analysts or {}).get(c.name) or Analyst(c) for c in configs}
     scanner = scanner or Scanner(configs)  # Go and Stop are kept in its database; it scans where it was started
+    claude_checking = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "OBP-Sentinel"
@@ -363,6 +369,8 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             path = urlsplit(self.path).path
             if path == "/api/source/scanner":
                 return self._turn_scanner()
+            if path == CLAUDE_CHECK_PATH:
+                return self._check_claude()
             if trace := TRACE_PATH.match(path):
                 if config := self._instance():
                     try:
@@ -501,6 +509,21 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 return self._json(HTTPStatus.CONFLICT, {"error": reason})
             scanner.turn(on)
             self._json(HTTPStatus.OK, scanner.status())
+
+        def _check_claude(self):
+            """Ask Claude Code one tiny question. Every instance runs the same Claude Code, so the answer is kept for all."""
+            if not claude_checking.acquire(blocking=False):
+                return self._json(HTTPStatus.CONFLICT, {"error": "A check is already running"})
+            try:
+                result = check_claude(configs[0])
+            finally:
+                claude_checking.release()
+            for c in configs:
+                def keep(store: Store):
+                    store.set_state("claude_check", result)
+                    store.commit()
+                self._with_store(c, keep)
+            self._json(HTTPStatus.OK, result)
 
         def _run_analysis(self, config: Config):
             """Start an analysis now, whatever the schedule would decide (like `sentinel analyse --force`)."""

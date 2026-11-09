@@ -154,6 +154,10 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 @keyframes ping { 0% { transform: scale(0.5); opacity: 0.8; } 100% { transform: scale(1.4); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .dot.live::after { animation: none; } }
 .dot.warn { background: var(--warn); }
+.dot.good { background: var(--good); }
+.dot.bad { background: var(--bad); }
+.claude-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 16px; font-size: 14px; }
+.claude-row .run-now { margin-left: auto; }
 .pulse-row .sub { font-size: 14px; }
 #scan-stop { margin-left: 0; }  /* next to Go, which takes the free space before them */
 #scan-state { margin: -8px 0 16px; }
@@ -399,6 +403,11 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <button type="button" class="run-now" id="run-now">Run analysis now</button>
     </div>
     <p class="desc" id="run-now-desc">Starts the analyst now, whatever its schedule says: it reads what was collected, investigates the source, records findings and writes a digest.</p>
+    <div class="claude-row">
+      <span class="dot" id="claude-dot"></span>
+      <span id="claude-state" aria-live="polite">Claude Code: not checked yet</span>
+      <button type="button" class="run-now" id="claude-check" title="Ask Claude Code one tiny question (a few cents at API prices)">Check Claude Code</button>
+    </div>
     <div class="analysis-cols">
       <div>
         <h3 id="n-steps-title">What it did</h3>
@@ -1353,6 +1362,8 @@ function renderAnalysis(n) {
     el('span', { className: 'tpl', textContent: w.template.slice(0, 200) }),
   ])) : [el('li', { className: 'n', textContent: 'Every recent problem already has a finding.' })]));
 
+  renderClaude(n);
+
   $('n-runs').replaceChildren(...(n.runs.length ? n.runs.map((r) => el('li', {}, [
     el('span', { textContent: `#${r.id} ${clock(r.started_at)}` }),
     stateEl(r.status === 'done' ? 'ok' : r.status === 'failed' ? 'bad' : 'warn', RUN_STATUS[r.status] || r.status),
@@ -1364,6 +1375,22 @@ function renderAnalysis(n) {
 }
 
 const o6 = () => (state.overview ? state.overview.window_hours : 6);
+
+// Whether Claude Code (the analyst's LLM) answers: the last check from the page, else the last run that finished
+let claudeChecking = false;
+function renderClaude(n) {
+  const c = n.claude_check, done = n.last_answered;
+  const [dot, text] = claudeChecking ? ['live', 'Claude Code: asking it a question…']
+    : c && c.ok && (!done || c.ts >= done.ended_at) ? ['good', `Claude Code answers: ${c.model || 'model not reported'}`
+        + ` replied in ${c.seconds}s` + (c.cost_usd != null ? ` ($${c.cost_usd.toFixed(3)})` : '') + ` · checked ${dayClock(c.ts)}`]
+    : c && !c.ok && (!done || c.ts >= done.ended_at) ? ['bad', `Claude Code did not answer (checked ${dayClock(c.ts)}): ${c.error}`]
+    : done ? ['good', `Claude Code answered in run #${done.id}, which finished ${dayClock(done.ended_at)}`]
+    : n.by_hand_unavailable ? ['warn', `Claude Code cannot run here: ${n.by_hand_unavailable}`]
+    : ['', 'Claude Code: not checked yet'];
+  $('claude-dot').className = 'dot ' + dot;
+  $('claude-state').textContent = text;
+  $('claude-check').disabled = claudeChecking;
+}
 
 async function loadAnalysis() {
   clearTimeout(analysisTimer);
@@ -1475,6 +1502,23 @@ $('theme').addEventListener('click', () => {
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderTheme);
 renderTheme();
+
+$('claude-check').addEventListener('click', async () => {
+  claudeChecking = true;
+  $('claude-dot').className = 'dot live';
+  $('claude-state').textContent = 'Claude Code: asking it a question…';
+  $('claude-check').disabled = true;
+  try {
+    await api('/api/claude-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    claudeChecking = false;
+    loadAnalysis();
+  } catch (e) {
+    claudeChecking = false;
+    $('claude-dot').className = 'dot warn';
+    $('claude-state').textContent = `Could not check Claude Code: ${e.message}`;
+    $('claude-check').disabled = false;
+  }
+});
 
 $('run-now').addEventListener('click', async () => {
   $('run-now').disabled = true;

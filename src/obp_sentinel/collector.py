@@ -29,6 +29,10 @@ METRICS_MAX_BUCKETS_PER_POLL = 8
 # How often to check that the endpoints Sentinel reads refuse a call with no token
 SECURED_CHECK_SECONDS = 3600
 SECURED = "endpoints_secured"
+# What OBP-API says about the Roles an app refused Sentinel, and Sentinel's consumer_id (health.py reads it)
+APP_ACCESS = "app_access"
+# An app's 403: GET <app>/monitoring/... failed (403): {"error":"Requires one of the Roles: A, B"}
+APP_REFUSED = re.compile(r"failed \(403\): .*Requires one of the Roles: (?P<roles>[\w, ]+)")
 
 
 def new_entries(current: list[str], previous_head: list[str]) -> tuple[list[str], bool]:
@@ -98,6 +102,32 @@ class Collector:
                 logger.info("Could not look up Sentinel's consumer_id: %s", e)
                 return None
         return self.consumer_id
+
+    def check_app_access(self) -> str:
+        """When the app refuses Sentinel's token (403), ask OBP-API what the app asks it: which Consumer the token is,
+        and whether it may use each Role. So the health page can say which Consumer lacks which Scope, or that the
+        app refuses Roles OBP-API says Sentinel holds (the app and OBP-API disagree)."""
+        errors = [r[0] for r in self.store.db.execute(
+            """SELECT p.error FROM polls p JOIN (SELECT source, MAX(id) AS id FROM polls GROUP BY source) l ON l.id = p.id
+               WHERE NOT p.ok AND p.error IS NOT NULL""")]
+        refused = sorted({role.strip() for e in errors if (m := APP_REFUSED.search(e)) for role in m["roles"].split(",")
+                          if role.strip()})
+        if not refused:
+            self.store.set_state(APP_ACCESS, {"ts": now(), "roles": {}})
+            return "access ok"
+        roles = {}
+        for role in refused:
+            try:
+                answer = self.client.my_role(role)
+                held = answer.get("held_by") or {}
+                roles[role] = {"consumer": bool(held.get("consumer")), "user": bool(held.get("user")),
+                               "modes": answer.get("allowed_for_auth_modes") or []}
+            except Exception as e:  # an OBP-API before v7.0.0 /my/roles, or unreachable: the health page says less
+                logger.info("Could not ask OBP-API about %s: %s", role, e)
+                roles[role] = {"error": str(e)[:300]}
+        self.store.set_state(APP_ACCESS, {"ts": now(), "consumer_id": self._consumer_id(), "roles": roles})
+        held = [r for r, a in roles.items() if a.get("consumer") or a.get("user")]
+        return f"refused {len(refused)} Roles" + (f", {len(held)} of them held" if held else "")
 
     def ingest(self, level: str, messages: list[str]) -> int:
         """Count new messages (oldest first, so samples and first_seen are in order). Returns how many counted."""
@@ -233,7 +263,7 @@ class Collector:
     def poll_once(self) -> None:
         if self.config.is_app:  # only the log cache and Telemetry: Scopes are declared by watching OBP-API itself
             results = [self.poll_logs(level) for level in self.config.log_levels] + [self.poll_telemetry()]
-            results.append(self.check_secured())
+            results += [self.check_secured(), self.check_app_access()]
         else:
             self.declare_platform_app()
             results = [self.poll_root()] + [self.poll_logs(level) for level in self.config.log_levels]

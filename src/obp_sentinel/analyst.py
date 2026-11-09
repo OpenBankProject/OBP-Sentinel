@@ -239,12 +239,34 @@ def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped
     return error, cost, result, model
 
 
+def ask_command(config: Config, text: str, budget_usd: float) -> list[str]:
+    """Headless Claude Code with no tools at all, for one question."""
+    return [config.claude_command, "-p", text, "--output-format", "stream-json", "--verbose",
+            "--permission-mode", "dontAsk", "--strict-mcp-config", "--max-budget-usd", f"{budget_usd:g}"]
+
+
 def ask(config: Config, text: str, budget_usd: float, timeout_minutes: int = 5) -> tuple[str | None, str | None]:
     """One question to Claude with no tools at all (a judgement from the text given): (error, reply)."""
-    cmd = [config.claude_command, "-p", text, "--output-format", "stream-json", "--verbose",
-           "--permission-mode", "dontAsk", "--strict-mcp-config", "--max-budget-usd", f"{budget_usd:g}"]
-    error, _, result, _ = run_claude(cmd, {}, timeout_minutes, lambda kind, step: None, threading.Event())
+    error, _, result, _ = run_claude(ask_command(config, text, budget_usd), {}, timeout_minutes,
+                                     lambda kind, step: None, threading.Event())
     return error, result
+
+
+CHECK_PROMPT = "Reply with the single word OK."
+CHECK_BUDGET_USD = 0.25
+
+
+def check_claude(config: Config) -> dict:
+    """Ask Claude Code one tiny question: proof that it is installed, logged in and reaches its model, which
+    finding it on PATH (unavailable_reason) is not. Costs a few cents."""
+    started = time.monotonic()
+    if not shutil.which(config.claude_command):
+        error, cost, result, model = f"Claude Code ({config.claude_command}) is not installed or not on PATH", None, None, None
+    else:
+        error, cost, result, model = run_claude(ask_command(config, CHECK_PROMPT, CHECK_BUDGET_USD), {}, 2,
+                                                lambda kind, step: None, threading.Event())
+    return {"ts": now(), "ok": error is None, "error": error, "model": model, "cost_usd": cost,
+            "seconds": round(time.monotonic() - started, 1), "reply": (result or "")[:200]}
 
 
 class Analyst:
