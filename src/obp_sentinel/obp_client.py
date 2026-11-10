@@ -195,8 +195,8 @@ class OBPClient:
         return self._request_url("GET", url)["consumer_id"]
 
     def my_role(self, role: str) -> dict:
-        """What OBP-API says about this token and a system Role: whether its User or its Consumer holds it, and the
-        endpoint auth modes it may use it for. The question an app asks before serving its monitoring endpoints."""
+        """What OBP-API says about this token and a system Role: whether its User or its Consumer holds it, and whether
+        an endpoint needing it would let the token in. The question an app asks before serving its monitoring endpoints."""
         url = f"{self.config.obp_api_url}/obp/{PLATFORM_APP_API_VERSION}/banks/SYS/my/roles/{quote(role, safe='')}"
         return self._request_url("GET", url)
 

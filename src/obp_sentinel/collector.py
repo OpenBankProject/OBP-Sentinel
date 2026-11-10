@@ -121,7 +121,7 @@ class Collector:
                 answer = self.client.my_role(role)
                 held = answer.get("held_by") or {}
                 roles[role] = {"consumer": bool(held.get("consumer")), "user": bool(held.get("user")),
-                               "modes": answer.get("allowed_for_auth_modes") or []}
+                               "allowed": answer.get("allowed") is True}
             except Exception as e:  # an OBP-API before v7.0.0 /my/roles, or unreachable: the health page says less
                 logger.info("Could not ask OBP-API about %s: %s", role, e)
                 roles[role] = {"error": str(e)[:300]}

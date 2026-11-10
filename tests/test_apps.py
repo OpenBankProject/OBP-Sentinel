@@ -171,7 +171,7 @@ class RefusingAppClient(AppClient):
     def my_role(self, role):
         self.asked.append(role)
         return {"held_by": {"user": False, "consumer": role in self.held},
-                "allowed_for_auth_modes": ["ApplicationOnly", "UserXORApplication"] if role in self.held else []}
+                "allowed": role in self.held}
 
     def current_consumer_id(self):
         return "c1"
@@ -192,7 +192,7 @@ def test_when_an_app_refuses_sentinel_obp_api_is_asked_about_each_refused_role(c
     assert not access["roles"]["CanGetSystemLogCacheAll"]["consumer"]
 
 
-def test_an_app_refusing_roles_obp_api_says_are_held_is_a_disagreement_not_missing_scopes(config, tmp_path):
+def test_an_app_refusing_roles_obp_api_allows_is_a_disagreement_not_missing_scopes(config, tmp_path):
     app = app_config(config)
     store = Store(str(tmp_path / "app.db"))
     Collector(app, store, RefusingAppClient(held={"CanGetTelemetry"})).poll_once()
@@ -200,7 +200,7 @@ def test_an_app_refusing_roles_obp_api_says_are_held_is_a_disagreement_not_missi
     assert set(problems) == {"missing-scopes", "app-disagrees"}
     disagrees = problems["app-disagrees"]
     assert disagrees["sources"] == ["Telemetry"] and "CanGetTelemetry" in disagrees["action"]
-    assert "UserXORApplication" in disagrees["action"] and "Granting Scopes will not help" in disagrees["action"]
+    assert "Upgrade the app or OBP-API" in disagrees["action"] and "Granting Scopes will not help" in disagrees["action"]
     missing = problems["missing-scopes"]
     assert missing["sources"] == ["Error log"]
     assert "CanGetSystemLogCacheError (or CanGetSystemLogCacheAll)" in missing["action"]

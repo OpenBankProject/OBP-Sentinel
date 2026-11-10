@@ -43,8 +43,9 @@ def _who(config: Config, consumer_id: str | None) -> str:
     return f"the Consumer with consumer_id = {consumer_id} ({client})" if consumer_id else f"the Consumer of {client}"
 
 
-def _held(answer: dict | None) -> bool:
-    return bool(answer and (answer.get("consumer") or answer.get("user")))
+def _allowed(answer: dict | None) -> bool:
+    """OBP-API says an endpoint needing the Role would let Sentinel's token in."""
+    return bool(answer and answer.get("allowed"))
 
 
 def diagnose(source: str, error: str, config: Config, who: str | None = None) -> dict:
@@ -150,9 +151,9 @@ def health(store: Store, config: Config) -> dict:
             continue
         d = diagnose(s["source"], s["error"], config, who)
         roles = d.pop("roles", [])
-        held = {r: access["roles"][r] for group in roles for r in group if _held(access.get("roles", {}).get(r))}
-        if held:  # not a Scope to grant: the app's Role check and OBP-API's disagree
-            disagreed.update(held)
+        allowed = {r: access["roles"][r] for group in roles for r in group if _allowed(access.get("roles", {}).get(r))}
+        if allowed:  # not a Scope to grant: the app's Role check and OBP-API's disagree
+            disagreed.update(allowed)
             d = {"key": "app-disagrees", "title": "The app refuses Roles that OBP-API says Sentinel holds"}
         else:
             missing_roles += roles
@@ -173,12 +174,12 @@ def health(store: Store, config: Config) -> dict:
             problem["sources"] = [_source_name("platform-app")]
 
     if disagreed:
-        said = "; ".join(f"{role} ({'its Consumer' if a.get('consumer') else 'its User'} holds it, for the auth modes "
-                         f"{', '.join(a.get('modes') or []) or 'none'})" for role, a in sorted(disagreed.items()))
+        said = "; ".join(f"{role} ({'its Consumer' if a.get('consumer') else 'its User'} holds it)"
+                         for role, a in sorted(disagreed.items()))
         problems["app-disagrees"]["action"] = (
             f"OBP-API ({config.obp_api_url}) says {who} may use {said}, but the app still answers 403. Its Role check "
-            "expects something else from OBP-API's GET /obp/v7.0.0/banks/SYS/my/roles/ROLE, such as another auth "
-            "mode name: upgrade the app or OBP-API so they match. Granting Scopes will not help.")
+            "expects a different answer from OBP-API's GET /obp/v7.0.0/banks/SYS/my/roles/ROLE, for example the older "
+            "allowed_for_auth_modes field. Upgrade the app or OBP-API so they match. Granting Scopes will not help.")
 
     # Both are fixed on API Manager's Platform Apps page, with the form there filled in for Sentinel's Consumer
     if consumer_id and (manager := api_manager_url(config)):
