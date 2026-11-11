@@ -271,7 +271,7 @@ class Collector:
         logger.info("Polled: %s", ", ".join(results))
         last_prune = self.store.get_state("last_prune", 0)
         if now() - last_prune > PRUNE_EVERY_SECONDS:
-            self.store.prune(self.config.retention_days)
+            self.store.prune(self.config.retention_days, self.config.telemetry_retention_hours)
             self.store.set_state("last_prune", now())
         self.store.commit()
 

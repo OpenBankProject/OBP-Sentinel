@@ -174,6 +174,9 @@ class Config:
     telemetry_prefixes: list[str]
     ignore_regex: str
     retention_days: int
+    # Telemetry is only read by the summary, which compares its window with the one before: keep at least twice
+    # the longest window asked for (the analyst asks for 6h; the default 48h covers `sentinel summary --hours 24`)
+    telemetry_retention_hours: float
 
     min_watch_hours: float
     digest_size: int
@@ -276,6 +279,7 @@ class Config:
                              "monitoring/" if monitoring_path else
                              "system/log-cache|management/telemetry|management/aggregate-metrics|consumers/current/platform-app"),
             retention_days=int(env("SENTINEL_RETENTION_DAYS", "14")),
+            telemetry_retention_hours=float(env("SENTINEL_TELEMETRY_RETENTION_HOURS", "48")),
             min_watch_hours=float(env("SENTINEL_MIN_WATCH_HOURS", "4")),
             digest_size=int(env("SENTINEL_DIGEST_SIZE", "3")),
             max_per_week=int(env("SENTINEL_MAX_PER_WEEK", "10")),

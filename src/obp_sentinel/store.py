@@ -325,9 +325,11 @@ class Store:
              m.get("consent_call_count"), m.get("distinct_consent_count")),
         )
 
-    def prune(self, retention_days: int) -> None:
+    def prune(self, retention_days: int, telemetry_retention_hours: float) -> None:
+        # Telemetry is a full snapshot every poll, by far the largest table: kept shorter (its values cascade)
+        telemetry_cutoff = now() - int(telemetry_retention_hours * 3600)
+        self.db.execute("DELETE FROM telemetry_snapshots WHERE ts < ?", (telemetry_cutoff,))
         cutoff = now() - retention_days * 86400
-        self.db.execute("DELETE FROM telemetry_snapshots WHERE ts < ?", (cutoff,))
         self.db.execute("DELETE FROM observations WHERE bucket_start < ?", (cutoff,))
         self.db.execute("DELETE FROM polls WHERE ts < ?", (cutoff,))
         self.db.execute("DELETE FROM metric_buckets WHERE bucket_start < ?", (cutoff,))
