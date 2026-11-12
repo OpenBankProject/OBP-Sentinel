@@ -27,8 +27,8 @@ without overwhelming developers with suggestions.
   `sentinel summary` (aggregates over the last hours compared with the hours before), investigates the
   OBP-API source, and records findings scored by impact, confidence, effort and trend.
 - **Source review**: besides what the logs point at, Sentinel reads the code of the endpoints that can be
-  reached, looking for SQL injection, missing authorisation checks and similar problems. It is turned on
-  and off with Go and Stop on the page: while on, the source scanner reviews `SENTINEL_SCAN_ENDPOINTS` (2)
+  reached, looking for SQL injection, missing authorisation checks and similar problems. It is on from the
+  start, and turned off and on again with Stop and Go on the page; while it is off, the page says so at the top. While on, the source scanner reviews `SENTINEL_SCAN_ENDPOINTS` (2)
   endpoints every `SENTINEL_SCAN_MINUTES` (10), each scan spending at most `SENTINEL_SCAN_BUDGET_USD` ($0.50),
   with the agent in `.claude/agents/obp-sentinel-source-reviewer.md`. Whether it is on survives restarts. Once a day (and when the commit changes) the collector lists the endpoints each
   instance serves (`GET /obp/v6.0.0/api/versions` and the resource docs of each active version) and the Roles

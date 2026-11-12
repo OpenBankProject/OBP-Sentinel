@@ -31,10 +31,12 @@ def scan_config(config, tmp_path):
 def test_go_and_stop_are_kept_and_a_scan_is_recorded(scan_config):
     scanner = Scanner([scan_config])
     assert scanner.unavailable() is None
-    assert scanner.status()["on"] is False
+    assert scanner.status()["on"] is True  # on from the start
 
+    scanner.turn(False)
+    assert Scanner([scan_config]).status()["on"] is False  # Stop is kept: a restarted Sentinel stays stopped
     scanner.turn(True)
-    assert Scanner([scan_config]).status()["on"] is True  # kept: a restarted Sentinel carries on
+    assert Scanner([scan_config]).status()["on"] is True  # and so is Go
     scanner.scan()
     s = scanner.status()
     scan = s["scans"][0]

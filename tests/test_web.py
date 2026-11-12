@@ -59,7 +59,7 @@ def test_page_and_findings(server):
     status, data = request(server, "GET", "/api/source")
     source = json.loads(data)
     assert status == 200 and source["total"] == 0 and source["instances"] == [{"name": "default", "listed_at": None}]
-    assert source["scanner"]["on"] is False and source["scanner"]["scans"] == []
+    assert source["scanner"]["on"] is True and source["scanner"]["scans"] == []  # on from the start
 
 
 def test_the_fixed_page_is_served(server):

@@ -49,6 +49,13 @@ header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .chip span { color: var(--muted); }
 .chip b { font-family: var(--mono); font-weight: 500; }
 .chip.guard { overflow-wrap: anywhere; }
+.connection { margin: 6px 0 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.connection.ok { color: var(--good); }
+.connection.bad { color: var(--bad); }
+.connection .sub { font-weight: 400; color: var(--muted); }
+details.more > summary { cursor: pointer; color: var(--muted); font-size: 14px; margin: 4px 0 12px; }
+.sources-ok { font-size: 14px; margin: 0 0 16px; }
+.sources-ok .state { margin-right: 6px; }
 .chip.guard .mark { font-family: var(--sans); font-weight: 700; }
 .chip.guard.secured { border-color: var(--good); color: var(--good); }
 .chip.guard.open { border-color: var(--bad); color: var(--bad); font-weight: 600; }
@@ -167,8 +174,7 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .sweep { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: -8px 0 20px; }
 .sweep[hidden] { display: none; }
 .sweep .run-now { margin-left: 0; }
-.totals { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 14px; color: var(--muted); }
-.totals b { color: var(--ink); font-family: var(--mono); font-weight: 500; }
+.sources:empty { display: none; }
 .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .source { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
 .source .name { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 14px; }
@@ -214,6 +220,8 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 nav.instances .age { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
 nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-left: 6px;
   vertical-align: middle; }
+nav.instances .flag.good { background: var(--good); }
+nav.instances .flag.warn { background: var(--warn); }
 
 /* Analysis */
 .analysis-cols { display: flex; flex-wrap: wrap; gap: 20px 32px; }
@@ -281,12 +289,16 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
   <nav class="instances" id="instances" aria-label="OBP-API instances" hidden></nav>
   <nav class="instances apps" id="apps" aria-label="Apps of this instance" hidden></nav>
   <div class="host">
-    <div id="watching">Loading…</div>
+    <div>
+      <div id="watching">Loading…</div>
+      <p class="connection" id="connection" role="status" hidden></p>
+    </div>
     <div class="chips" id="chips"></div>
   </div>
 </header>
 <main>
   <p class="build" id="build" hidden></p>
+  <p class="build failing" id="scan-banner" role="alert" hidden></p>
   <section class="activity setup" id="setup" aria-labelledby="setup-title" hidden>
     <h2 id="setup-title"></h2>
     <p class="intro" id="setup-intro"></p>
@@ -382,8 +394,8 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     <div class="pulse-row">
       <span class="pulse"><span class="dot" id="a-dot"></span><span id="a-state">Loading…</span></span>
       <span class="sub" id="a-when"></span>
-      <div class="totals" id="a-totals"></div>
     </div>
+    <div id="a-ok"></div>
     <div class="sources" id="a-sources"></div>
     <details class="problem" id="a-new">
       <summary id="a-new-title"></summary>
@@ -402,7 +414,8 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
       <span class="sub" id="n-when"></span>
       <button type="button" class="run-now" id="run-now">Run analysis now</button>
     </div>
-    <p class="desc" id="run-now-desc">Starts the analyst now, whatever its schedule says: it reads what was collected, investigates the source, records findings and writes a digest.</p>
+    <details class="more" id="n-more">
+    <summary>Details</summary>
     <div class="claude-row">
       <span class="dot" id="claude-dot"></span>
       <span id="claude-state" aria-live="polite">Claude Code: not checked yet</span>
@@ -421,16 +434,18 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
         <ul class="runs" id="n-runs"></ul>
       </div>
     </div>
+    </details>
   </section>
   <section class="activity analysis" aria-labelledby="source-title">
     <div class="pulse-row">
       <span class="pulse"><span class="dot" id="scan-dot"></span><span id="source-title">Source review</span></span>
       <span class="sub" id="source-when"></span>
-      <button type="button" class="run-now" id="scan-go">Go</button>
-      <button type="button" class="run-now" id="scan-stop">Stop</button>
+      <button type="button" class="run-now" id="scan-go" title="Claude reviews the code of the next few endpoints, most reachable first, scan after scan, and records what it finds as findings.">Go</button>
+      <button type="button" class="run-now" id="scan-stop" title="Ends the scan that is running, and no more scans.">Stop</button>
     </div>
-    <p class="desc">Go: Claude reviews the code of the next few endpoints, most reachable first, scan after scan, and records what it finds as findings. Stop: ends the scan that is running, and no more scans.</p>
     <p class="sub" id="scan-state"></p>
+    <details class="more" id="scan-more">
+    <summary>Details</summary>
     <div class="analysis-cols">
       <div>
         <h3>Reviewed, most reachable first</h3>
@@ -445,6 +460,7 @@ nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-rad
     </div>
     <h3>What is scanned, per instance</h3>
     <ul class="waiting" id="source-instances"></ul>
+    </details>
   </section>
 </main>
 <script>
@@ -505,16 +521,8 @@ function renderHeader() {
     : ' (age unknown: not in the OBP-API checkout nor on GitHub)';
   $('watching').replaceChildren(el('b', { textContent: `Watching ${o.obp_base_url}` }),
     c ? ` · commit ${c.git_commit.slice(0, 12)}${why}` : '');
-  const w = o.api_usage.window, p = o.api_usage.previous_window;
-  const chips = [
-    ['Watched', `${o.coverage.watched_hours}h`, ` of ${o.window_hours}h`],
-    ['Failed polls', fmtNum(o.coverage.failed_polls), ''],
-    ['API calls', fmtNum(w.calls), ` vs ${fmtNum(p.calls)} before`],
-    ['Mean response', w.mean_ms == null ? '—' : `${w.mean_ms} ms`, p.mean_ms == null ? '' : ` vs ${p.mean_ms}`],
-  ];
-  $('chips').replaceChildren(...chips.map(([label, value, after]) =>
-    el('div', { className: 'chip' }, [el('span', { textContent: label + ' ' }), el('b', { textContent: value }),
-                                      el('span', { textContent: after })])), ...securedChip(o.secured));
+  // No figures here: the sections below show them. Only a warning, when an endpoint answers without a token.
+  $('chips').replaceChildren(...securedChip(o.secured));
   renderBuild(o.build);
   $('rules').textContent = `At most ${o.digest_size} per digest, ${o.max_per_week} a week.`;
   $('fix-desc').textContent = 'Saves what is in the comment box, then queues it. Claude fixes and tests it in Sentinel\'s own OBP-API '
@@ -537,7 +545,7 @@ function renderBuild(b) {
 // Whether the endpoints Sentinel reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
 // call with no token, as checked hourly by the collector (every poll while it cannot tell)
 function securedChip(s) {
-  if (!s) return [];
+  if (!s || s.verdict === 'secured') return [];  // shown only when an endpoint answers without a token, or Sentinel cannot tell
   const odd = s.checks.filter((c) => !(s.verdict === 'open' ? c.status !== 200 : [401, 403].includes(c.status)));
   const [mark, text] = { secured: ['✓', 'Secured: no token, no data'], open: ['✗', 'Open: answers without a token'],
                          unknown: ['?', 'Secured? Could not tell'] }[s.verdict];
@@ -572,9 +580,10 @@ function visible() {
 
 // Suggestions go above the monitoring sections while something waits for review.
 function render() {
-  $('tabs').replaceChildren(...TABS.map(([id, label]) => {
-    const b = el('button', { type: 'button' }, [label, el('span', { className: 'n',
-      textContent: state.findings.filter((f) => tabOf(f) === id).length })]);
+  const count = (id) => state.findings.filter((f) => tabOf(f) === id).length;
+  // Empty tabs are left out, except To review and the one open
+  $('tabs').replaceChildren(...TABS.filter(([id]) => id === 'review' || id === state.tab || count(id)).map(([id, label]) => {
+    const b = el('button', { type: 'button' }, [label, el('span', { className: 'n', textContent: count(id) })]);
     b.setAttribute('aria-pressed', String(state.tab === id));
     b.onclick = () => { state.tab = id; state.selected = null; setStatus(''); render(); };
     return b;
@@ -1096,9 +1105,12 @@ async function load() {
 function instanceTab(i, label) {
   const age = commitAge(i.commit);
   const b = el('button', { type: 'button', title: `${i.obp_base_url}` + (i.commit ? ` · commit ${i.commit.git_commit.slice(0, 12)}` : '')
+    + (i.connected ? ' · connected' : ' · not connected')
     + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : '') }, [label]);
   if (age) b.append(el('span', { className: 'age', textContent: age }));
-  if (i.problems) b.append(el('span', { className: 'flag', role: 'img', ariaLabel: `${i.problems} to fix` }));
+  // Green: connected. Amber: connected, with something else to fix. Red: not connected.
+  b.append(el('span', { className: 'flag' + (!i.connected ? '' : i.problems ? ' warn' : ' good'), role: 'img',
+                        ariaLabel: !i.connected ? 'not connected' : i.problems ? 'connected, something to fix' : 'connected' }));
   return b;
 }
 
@@ -1191,12 +1203,6 @@ function renderActivity() {
 function renderActivityDetails() {
   const a = activityData;
   const t = a.totals;
-  $('a-totals').replaceChildren(...[
-    [fmtNum(t.log_lines_last_hour), ' log lines in the last hour'],
-    [fmtNum(t.signatures_last_hour), ' kinds of log message in them'],
-    [fmtNum(t.new_signatures_last_day), ' kinds new in the last 24 hours (listed below)'],
-  ].map(([v, label]) => el('span', {}, [el('b', { textContent: v }), label])));
-
   $('a-new').hidden = !a.new_signatures.length;
   $('a-new-title').textContent = `New kinds of log message in the last 24 hours (${fmtNum(t.new_signatures_last_day)})`;
   $('a-new-list').replaceChildren(...a.new_signatures.map((n) => el('li', {}, [
@@ -1205,7 +1211,14 @@ function renderActivityDetails() {
     el('span', { className: 'tpl', textContent: n.template.slice(0, 300) }),
   ])));
 
-  $('a-sources').replaceChildren(...a.sources.map((s) => {
+  const isOk = (s) => s.ok && a.now - s.ts <= 3 * a.poll_seconds && !s.gap;
+  const fine = a.sources.filter(isOk);
+  const okLine = fine.length ? [el('p', { className: 'sources-ok' }, [
+    stateEl('ok', fine.length === a.sources.length ? `All ${fine.length} sources OK` : `${fine.length} OK`),
+    el('span', { className: 'sub', textContent: fine.map((s) => SOURCE_NAMES[s.source] || s.source).join(', ') }),
+  ])] : [];
+  $('a-ok').replaceChildren(...okLine);
+  $('a-sources').replaceChildren(...a.sources.filter((s) => !isOk(s)).map((s) => {
     const stale = a.now - s.ts > 3 * a.poll_seconds;
     const state = !s.ok ? stateEl('bad', 'Failing') : stale ? stateEl('warn', 'Stale') : s.gap ? stateEl('warn', 'Some missed') : stateEl('ok', 'OK');
     const children = [
@@ -1261,6 +1274,7 @@ function renderChart(node, title, values, a, unit, emptyNote) {
 
 // --- Setup: what stops Sentinel from watching this instance, and what to do --------------------
 function renderHealth(h) {
+  renderConnection(h);
   const problems = h.problems;
   $('setup').hidden = !problems.length;
   if (!problems.length) return;
@@ -1278,6 +1292,27 @@ function renderHealth(h) {
     if (p.error) children.push(el('details', {}, [el('summary', { textContent: 'What Sentinel got' }), el('pre', { textContent: p.error })]));
     return el('li', { className: `problem ${p.severity}` }, children);
   }));
+}
+
+// Whether Sentinel is connected to the open instance: green when it is, red with the most blocking cause when not
+function renderConnection(h) {
+  const open = state.instances.find((i) => i.name === state.instance);
+  const line = $('connection');
+  line.hidden = false;
+  const bad = h.problems.find((p) => p.severity === 'bad');
+  const app = h.platform_app;
+  if (h.connected) {
+    line.className = 'connection ok';
+    line.replaceChildren('✓ Connected', ...(open && open.parent
+      ? [el('span', { className: 'sub', textContent: ` · with ${open.parent}'s Platform App token` })]
+      : app && app.ok ? [` as Platform App "${app.label}"`,
+          el('span', { className: 'sub', textContent: ` · consumer ${app.consumer_id} · all its Scopes held` })]
+      : []));
+  } else {
+    line.className = 'connection bad';
+    line.replaceChildren('✗ Not connected', el('span', { className: 'sub',
+      textContent: bad ? `: ${bad.title} (see below)` : ': no successful poll yet' }));
+  }
 }
 
 async function loadInstances() {
@@ -1332,9 +1367,10 @@ function renderAnalysis(n) {
   $('n-steps-title').textContent = running ? 'What it is doing' : run ? `What it did in run #${run.id} (${dayClock(run.started_at)})` : 'What it did';
   const runNow = $('run-now');
   runNow.disabled = running || Boolean(n.by_hand_unavailable);
-  $('run-now-desc').textContent = 'Starts the analyst now, whatever its schedule says: it reads what was collected, investigates the '
-    + `source, records findings and writes a digest (up to $${n.budget_usd} at API prices).`;
-  runNow.title = running ? 'An analysis is running' : n.by_hand_unavailable || `Start one now, whatever the schedule says (budget $${n.budget_usd})`;
+  runNow.title = running ? 'An analysis is running' : n.by_hand_unavailable
+    || 'Starts the analyst now, whatever its schedule says: it reads what was collected, investigates the '
+       + `source, records findings and writes a digest (up to $${n.budget_usd} at API prices).`;
+  autoOpen($('n-more'), running || Boolean(run && run.status === 'failed'));
   const showResult = run && !running && (run.result || run.error);
   $('n-result').hidden = !showResult;
   if (showResult) $('n-result').replaceChildren(...withFindingLinks(run.error ? `${run.error}${run.result ? '\n' + run.result : ''}` : run.result));
@@ -1375,6 +1411,13 @@ function renderAnalysis(n) {
 }
 
 const o6 = () => (state.overview ? state.overview.window_hours : 6);
+
+// A Details section opens by itself when something needs attention, and closes again after; in between, it stays
+// as the person left it
+function autoOpen(details, attention) {
+  if (details.dataset.attention !== String(attention)) details.open = attention;
+  details.dataset.attention = String(attention);
+}
 
 // Whether Claude Code (the analyst's LLM) answers: the last check from the page, else the last run that finished
 let claudeChecking = false;
@@ -1440,7 +1483,7 @@ let sourceTimer = null, sourceScanning = false;
 function renderScanner(sc) {
   const current = sc.scans[0];
   sourceScanning = sc.running;
-  $('scan-dot').className = 'dot ' + (sc.running ? 'live' : sc.on ? '' : 'warn');
+  $('scan-dot').className = 'dot ' + (sc.running ? 'live' : sc.on && !sc.unavailable ? 'good' : 'bad');
   $('scan-go').disabled = sc.on || Boolean(sc.unavailable);
   $('scan-stop').disabled = !sc.on && !sc.running;
   const each = `${sc.endpoints_per_scan} endpoints every ${sc.every_minutes} min, at most $${sc.budget_usd} a scan`;
@@ -1449,6 +1492,17 @@ function renderScanner(sc) {
       + (sc.on ? '' : ' · stopping')
     : sc.on ? `On: ${each}. Next scan around ${clock(sc.next_at)}.`
     : `Stopped. Go reviews ${each}.`;
+  const banner = $('scan-banner');
+  banner.hidden = sc.on && !sc.unavailable;
+  if (!banner.hidden) {
+    const go = el('button', { type: 'button', className: 'run-now', textContent: 'Go', disabled: Boolean(sc.unavailable),
+                              title: $('scan-go').title });
+    go.onclick = () => turnScanner(true);
+    banner.replaceChildren(el('b', { textContent: '✗ Source review is not running' }), ' ',
+      sc.unavailable ? `It cannot run: ${sc.unavailable}` : 'It was stopped, so no endpoint code is being reviewed.',
+      ...(sc.unavailable ? [] : [' ', go]));
+  }
+  autoOpen($('scan-more'), sc.running || Boolean(current && current.status === 'failed'));
   $('scan-runs').replaceChildren(...(sc.scans.length ? sc.scans.map((r) => el('li', {}, [
     `#${r.id} ${dayClock(r.started_at)} · ${r.status}` + (r.model ? ` · ${r.model}` : '')
       + (r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ''),

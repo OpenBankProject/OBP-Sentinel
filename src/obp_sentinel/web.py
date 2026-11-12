@@ -87,10 +87,11 @@ def running_commit(store: Store, config: Config) -> dict | None:
 
 
 def instance_status(store: Store, config: Config) -> dict:
-    """For the instance tabs: which commit each runs, how old it is, and how many problems stop Sentinel."""
+    """For the instance tabs: which commit each runs, how old it is, whether Sentinel is connected, and how many
+    problems stop it."""
+    h = health(store, config)
     return {"name": config.name, "parent": config.parent, "obp_base_url": config.obp_base_url + config.monitoring_path,
-            "commit": running_commit(store, config),
-            "problems": len(health(store, config)["problems"])}
+            "commit": running_commit(store, config), "connected": h["connected"], "problems": len(h["problems"])}
 
 
 _github: dict[tuple[str, str], dict | None] = {}

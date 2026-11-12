@@ -27,10 +27,10 @@ TICK_SECONDS = 5
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS scanner (
     id      INTEGER PRIMARY KEY CHECK (id = 1),
-    on_     INTEGER NOT NULL DEFAULT 0,   -- Go pressed (1) or Stop (0)
+    on_     INTEGER NOT NULL DEFAULT 1,   -- on (1, from the start) until Stop (0); Go turns it on again
     changed INTEGER                        -- when it was last turned on or off
 );
-INSERT OR IGNORE INTO scanner (id, on_) VALUES (1, 0);
+INSERT OR IGNORE INTO scanner (id, on_) VALUES (1, 1);
 CREATE TABLE IF NOT EXISTS scans (
     id         INTEGER PRIMARY KEY,
     started_at INTEGER NOT NULL,

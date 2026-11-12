@@ -198,7 +198,11 @@ def health(store: Store, config: Config) -> dict:
 
     ordered = sorted(problems.values(), key=lambda p: (ORDER.index(p["key"]), p["title"]))
     blocking = {"settings", "oidc-discovery", "oidc-token", "unreachable", "token-rejected"}
+    # Connected: a poll of the log cache, Telemetry or metrics succeeded lately, and nothing blocks watching
+    recent_ok = any(s["ok"] and s["source"] not in ("root", "platform-app") and now() - s["ts"] < 3 * config.poll_seconds
+                    for s in latest)
     return {
+        "connected": recent_ok and not any(p["severity"] == "bad" for p in ordered),
         "problems": ordered,
         # Behind a rejected token, OBP-API cannot say which Scopes are missing: say so rather than look complete
         "more_may_follow": any(p["key"] in blocking for p in ordered),

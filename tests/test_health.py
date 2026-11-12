@@ -99,3 +99,14 @@ def test_an_apps_missing_checkout_names_its_own_setting(config):
     app = replace(config, name="local-cohort", parent="local", monitoring_path="/monitoring", obp_api_source="")
     assert analyst_action("OBP_API_SOURCE is not set", app).startswith("Set FRONTEND_SOURCE (in .env) to the app checkout")
     assert analyst_action("OBP_API_SOURCE is not set", config).startswith("Set OBP_API_SOURCE (in .env) to the OBP-API")
+
+
+def test_connected_needs_a_recent_good_poll_and_nothing_blocking(config):
+    store = Store(config.db_path)
+    assert health(store, config)["connected"] is False  # no poll yet
+    store.record_poll("log:error", ok=True)
+    store.set_state("platform_app", {"ts": 1, "ok": True, "consumer_id": "c1", "label": "Sentinel", "missing": []})
+    assert health(store, config)["connected"] is True
+    store.set_state("platform_app", {"ts": 1, "ok": True, "consumer_id": "c1", "missing": ["CanGetTelemetry"]})
+    assert health(store, config)["connected"] is False  # a Scope missing blocks watching
+    store.close()
