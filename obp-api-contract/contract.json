@@ -258,7 +258,7 @@
     "held_by.user",
     "allowed"
    ],
-   "note": "Read in collector.py (check_app_access). Sentinel reads allowed (true or false), which OBP-API answers in place of allowed_for_auth_modes since commit 8264170 of this repository; the v7.0.0 docs of k8s.openbankproject.com (OBP-API 474d4bc, 2026-11-13) still describe allowed_for_auth_modes.",
+   "note": "Read in collector.py (check_app_access) and health.py (_allowed). Sentinel reads allowed (true or false). OBP-API develop (474d4bc, k8s.openbankproject.com, checked live 2026-11-13) neither documents nor returns it: it answers role_name, bank_id, caller, held_by, scopes_required and allowed_for_auth_modes, so there answer.get(\"allowed\") is never true and every role reads as not allowed. allowed comes with the OBP-API change that removes auth modes, which is not merged into develop yet.",
    "undocumented_fields": [
     "allowed"
    ]
