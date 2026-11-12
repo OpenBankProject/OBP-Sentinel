@@ -173,7 +173,7 @@
     "consent_call_count",
     "distinct_consent_count"
    ],
-   "note": "Read in store.py (record_metric_bucket). Versions before v6.0.0 answer a one-element list, which the client unwraps."
+   "note": "Read in store.py (record_metric_bucket). OBP-API v6.0.0 documents an object, but answers a one-element list (checked live on k8s.openbankproject.com, OBP-API 474d4bc, 2026-11-13); the client unwraps either shape."
   },
   {
    "verb": "GET",
