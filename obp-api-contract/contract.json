@@ -1,0 +1,424 @@
+{
+ "about": "Every OBP-API call Sentinel makes: verb, path (OBP placeholders in capitals), the source file and the text that makes the call (needles), and the response fields the code reads. Paths whose version comes from a setting or a constant carry that version's default, and version_from names the text in the source that sets it. The log cache and Telemetry an app (API Explorer II, the API Manager, the Portal, Cohort, OBP-OIDC) serves at its own monitoring path are not OBP-API calls and are not listed, nor are the OIDC discovery and token requests, which go to the OIDC provider. tests/test_obp_contract.py checks this list against the source and against snapshot.json, which obp-api-contract/snapshot.py writes from an OBP-API's resource docs.",
+ "calls": [
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/root",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "f\"{self.config.obp_base_url}/obp/{self.config.root_api_version}/root\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_ROOT_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [
+    "git_commit"
+   ],
+   "note": "Sent with no token."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/error",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.log_cache_api_version, f\"system/log-cache/{level}\", {\"limit\": limit})"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [
+    "entries[].message"
+   ],
+   "undocumented_fields": [
+    "entries[].message"
+   ],
+   "note": "One call per level in SENTINEL_LOG_LEVELS (default error,warning); OBP-API documents one endpoint per level. Its documented response schema is empty."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/warning",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.log_cache_api_version, f\"system/log-cache/{level}\", {\"limit\": limit})"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [
+    "entries[].message"
+   ],
+   "undocumented_fields": [
+    "entries[].message"
+   ],
+   "note": "One call per level in SENTINEL_LOG_LEVELS (default error,warning); OBP-API documents one endpoint per level. Its documented response schema is empty."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/info",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.log_cache_api_version, f\"system/log-cache/{level}\", {\"limit\": limit})"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [
+    "entries[].message"
+   ],
+   "undocumented_fields": [
+    "entries[].message"
+   ],
+   "note": "One call per level in SENTINEL_LOG_LEVELS (default error,warning); OBP-API documents one endpoint per level. Its documented response schema is empty."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/debug",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.log_cache_api_version, f\"system/log-cache/{level}\", {\"limit\": limit})"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [
+    "entries[].message"
+   ],
+   "undocumented_fields": [
+    "entries[].message"
+   ],
+   "note": "One call per level in SENTINEL_LOG_LEVELS (default error,warning); OBP-API documents one endpoint per level. Its documented response schema is empty."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/trace",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.log_cache_api_version, f\"system/log-cache/{level}\", {\"limit\": limit})"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [
+    "entries[].message"
+   ],
+   "undocumented_fields": [
+    "entries[].message"
+   ],
+   "note": "One call per level in SENTINEL_LOG_LEVELS (default error,warning); OBP-API documents one endpoint per level. Its documented response schema is empty."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/all",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.log_cache_api_version, f\"system/log-cache/{level}\", {\"limit\": limit})"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [
+    "entries[].message"
+   ],
+   "undocumented_fields": [
+    "entries[].message"
+   ],
+   "note": "One call per level in SENTINEL_LOG_LEVELS (default error,warning); OBP-API documents one endpoint per level. Its documented response schema is empty."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v7.0.0/management/telemetry",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.telemetry_api_version, \"management/telemetry\")"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_TELEMETRY_API_VERSION\", \"v7.0.0\")"
+   },
+   "reads": [
+    "api_instance_id",
+    "git_commit",
+    "meters[].name",
+    "meters[].type",
+    "meters[].tags",
+    "meters[].measurements"
+   ],
+   "note": "Read in collector.py (poll_telemetry); every key and value of tags and measurements is stored."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v6.0.0/management/aggregate-metrics",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", self.config.aggregate_metrics_api_version, \"management/aggregate-metrics\", params)"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_AGGREGATE_METRICS_API_VERSION\", \"v6.0.0\")"
+   },
+   "reads": [
+    "count",
+    "average_response_time",
+    "minimum_response_time",
+    "maximum_response_time",
+    "distinct_user_count",
+    "distinct_consumer_count",
+    "consent_call_count",
+    "distinct_consent_count"
+   ],
+   "note": "Read in store.py (record_metric_bucket). OBP-API v6.0.0 documents an object, but answers a one-element list (checked live on k8s.openbankproject.com, OBP-API 474d4bc, 2026-11-13); the client unwraps either shape."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v6.0.0/api/versions",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", \"v6.0.0\", \"api/versions\")[\"scanned_api_versions\"]"
+   ],
+   "reads": [
+    "scanned_api_versions[].fully_qualified_version",
+    "scanned_api_versions[].api_short_version",
+    "scanned_api_versions[].is_active"
+   ],
+   "note": "The items are read in source.py (fetch_reach)."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v7.0.0/resource-docs/API_VERSION/obp",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "f\"resource-docs/{fully_qualified_version}/obp\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/obp_client.py",
+    "needle": "PLATFORM_APP_API_VERSION = \"v7.0.0\""
+   },
+   "reads": [
+    "resource_docs[].operation_id",
+    "resource_docs[].error_response_bodies",
+    "resource_docs[].roles[].role"
+   ],
+   "note": "Sent with content=static, once per active API version; the items are read in source.py (fetch_reach). Its documented response schema is empty.",
+   "undocumented_fields": [
+    "resource_docs[].operation_id",
+    "resource_docs[].error_response_bodies",
+    "resource_docs[].roles[].role"
+   ]
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v7.0.0/reachable-roles",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"GET\", PLATFORM_APP_API_VERSION, \"reachable-roles\")[\"role_names\"]"
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/obp_client.py",
+    "needle": "PLATFORM_APP_API_VERSION = \"v7.0.0\""
+   },
+   "reads": [
+    "role_names"
+   ]
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v7.0.0/consumers/current/identity",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "f\"{self.config.obp_api_url}/obp/{PLATFORM_APP_API_VERSION}/consumers/current/identity\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/obp_client.py",
+    "needle": "PLATFORM_APP_API_VERSION = \"v7.0.0\""
+   },
+   "reads": [
+    "consumer_id"
+   ]
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v7.0.0/banks/SYS/my/roles/ROLE_NAME",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "f\"{self.config.obp_api_url}/obp/{PLATFORM_APP_API_VERSION}/banks/SYS/my/roles/{quote(role, safe='')}\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/obp_client.py",
+    "needle": "PLATFORM_APP_API_VERSION = \"v7.0.0\""
+   },
+   "reads": [
+    "held_by.consumer",
+    "held_by.user",
+    "allowed"
+   ],
+   "note": "Read in collector.py (check_app_access) and health.py (_allowed). Sentinel reads allowed (true or false). OBP-API develop (474d4bc, k8s.openbankproject.com, checked live 2026-11-13) neither documents nor returns it: it answers role_name, bank_id, caller, held_by, scopes_required and allowed_for_auth_modes, so there answer.get(\"allowed\") is never true and every role reads as not allowed. allowed comes with the OBP-API change that removes auth modes, which is not merged into develop yet.",
+   "undocumented_fields": [
+    "allowed"
+   ]
+  },
+  {
+   "verb": "PUT",
+   "path": "/obp/v7.0.0/consumers/current/platform-app",
+   "source": "src/obp_sentinel/obp_client.py",
+   "needles": [
+    "self._request(\"PUT\", PLATFORM_APP_API_VERSION, \"consumers/current/platform-app\","
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/obp_client.py",
+    "needle": "PLATFORM_APP_API_VERSION = \"v7.0.0\""
+   },
+   "reads": [
+    "consumer_id",
+    "label",
+    "required_scopes[].role_name",
+    "required_scopes[].held",
+    "required_scopes[].optional"
+   ],
+   "note": "Sent again without the optional Scopes when OBP-API refuses one with OBP-35048; read in collector.py (declare_platform_app)."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v6.0.0/app-directory",
+   "source": "src/obp_sentinel/config.py",
+   "needles": [
+    "f\"{config.obp_base_url}/obp/v6.0.0/app-directory\""
+   ],
+   "reads": [
+    "app_directory[].name",
+    "app_directory[].value"
+   ],
+   "note": "Sent with no token."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v7.0.0/api/glossary/OBP-Sentinel",
+   "source": "src/obp_sentinel/web.py",
+   "needles": [
+    "HELP_GLOSSARY_ITEM = \"/obp/v7.0.0/api/glossary/OBP-Sentinel\""
+   ],
+   "reads": [
+    "description.html"
+   ],
+   "note": "Sent with no token, for the help page."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/error",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.log_cache_api_version}/system/log-cache/{level}\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/warning",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.log_cache_api_version}/system/log-cache/{level}\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/info",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.log_cache_api_version}/system/log-cache/{level}\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/debug",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.log_cache_api_version}/system/log-cache/{level}\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/trace",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.log_cache_api_version}/system/log-cache/{level}\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v5.1.0/system/log-cache/all",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.log_cache_api_version}/system/log-cache/{level}\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v7.0.0/management/telemetry",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.telemetry_api_version}/management/telemetry\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_TELEMETRY_API_VERSION\", \"v7.0.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, to check that it is refused (check_secured); only the status code is read."
+  },
+  {
+   "verb": "GET",
+   "path": "/obp/v6.0.0/management/aggregate-metrics",
+   "source": "src/obp_sentinel/collector.py",
+   "needles": [
+    "f\"/obp/{c.aggregate_metrics_api_version}/management/aggregate-metrics\""
+   ],
+   "version_from": {
+    "source": "src/obp_sentinel/config.py",
+    "needle": "env(\"OBP_AGGREGATE_METRICS_API_VERSION\", \"v6.0.0\")"
+   },
+   "reads": [],
+   "note": "Sent with no token, to check that it is refused (check_secured); only the status code is read."
+  }
+ ]
+}
