@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS state (
 SAMPLES_PER_SIGNATURE = 5
 TREND_WEIGHTS = {"new": 1.5, "rising": 1.3, "stable": 1.0, "falling": 0.6}
 VERDICTS = ("relevant", "important", "urgent", "acted", "dismissed", "later", "fixed")
-GRADES = ("relevant", "important", "urgent")  # how much a finding matters to the person; each makes it accepted
+GRADES = ("relevant", "important", "urgent")  # how much a finding matters to the person; its status stays as it is
 UNDO_SECONDS = 600  # how long feedback given on the page can be taken back
 COMMENT = "comment"  # feedback that is only a comment from a person: the finding's status stays as it is
 CATEGORIES = {"bug", "performance", "security", "reliability", "readability", "api-contract"}
@@ -239,6 +239,14 @@ class Store:
         if "from_sentinel" not in {r[1] for r in self.db.execute("PRAGMA table_info(feedback)")}:
             self.db.execute("ALTER TABLE feedback ADD COLUMN from_sentinel INTEGER NOT NULL DEFAULT 0")
             self.db.execute("UPDATE feedback SET from_sentinel = 1 WHERE comment LIKE 'Look again: %'")
+        # A rating once marked a finding accepted (Done): put back the status it had before, where the rating is the
+        # latest response that changed it
+        latest = ("(SELECT fb.{} FROM feedback fb WHERE fb.finding_id = findings.id AND fb.verdict != 'comment' "
+                  "ORDER BY fb.id DESC LIMIT 1)")
+        rated = f"status = 'accepted' AND {latest.format('verdict')} IN ('relevant', 'important', 'urgent')"
+        if self.db.execute(f"SELECT 1 FROM findings WHERE {rated} LIMIT 1").fetchone():
+            self.db.execute(f"UPDATE findings SET status = {latest.format('previous_status')} WHERE {rated}")
+            self.db.commit()
         have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
         added = {"summary": "TEXT", "history": "TEXT", "introduced": "TEXT", "trace_status": "TEXT", "recheck": "TEXT",
                  "recheck_status": "TEXT", "rechecked_at": "INTEGER", "fix_status": "TEXT", "fix": "TEXT",
@@ -406,12 +414,11 @@ class Store:
             "from_sentinel) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (finding_id, ts, verdict, comment, finding["status"], finding["snoozed_until"], int(from_sentinel)),
         )
-        if verdict == COMMENT:
+        if verdict == COMMENT or verdict in GRADES:  # a rating says how much it matters, not that it is done
             return
         snoozed_until = ts + snooze_days * 86400 if verdict == "later" else None
-        status = "accepted" if verdict in GRADES else verdict
         self.db.execute(
-            "UPDATE findings SET status = ?, snoozed_until = ? WHERE id = ?", (status, snoozed_until, finding_id)
+            "UPDATE findings SET status = ?, snoozed_until = ? WHERE id = ?", (verdict, snoozed_until, finding_id)
         )
         if verdict == "dismissed":
             for signature_id in json.loads(finding["signature_ids"]):

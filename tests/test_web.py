@@ -253,7 +253,7 @@ def test_urgent_puts_the_finding_at_the_head_of_the_fix_queue(server, config, mo
     assert status == 200 and json.loads(data) == {"ok": True, "fix_status": "queued"}
     store = Store(config.db_path)
     f = store.findings()[0]
-    assert (f["status"], f["fix_status"], f["fix_at"]) == ("accepted", "queued", 0)
+    assert (f["status"], f["fix_status"], f["fix_at"]) == ("open", "queued", 0)
     store.close()
 
 
@@ -263,3 +263,14 @@ def test_urgent_says_why_it_was_not_queued(server, config, monkeypatch):
     status, data = request(server, "POST", "/api/findings/1/feedback", {"verdict": "urgent"},
                            {"Content-Type": "application/json"})
     assert json.loads(data) == {"ok": True, "not_queued": "No OBP-API checkout"}
+
+
+def test_findings_carry_the_latest_rating_for_the_pressed_button(server, config):
+    json_headers = {"Content-Type": "application/json"}
+    rating = lambda: json.loads(request(server, "GET", "/api/findings")[1])[0]["rating"]
+    assert rating() is None
+    request(server, "POST", "/api/findings/1/feedback", {"verdict": "important"}, json_headers)
+    request(server, "POST", "/api/findings/1/feedback", {"verdict": "comment", "comment": "soon"}, json_headers)
+    assert rating() == "important"  # a comment leaves the rating as it was
+    request(server, "POST", "/api/findings/1/feedback", {"verdict": "later"}, json_headers)
+    assert rating() == "later"

@@ -28,7 +28,7 @@ from .config import Config
 from .health import health
 from .scanner import Scanner
 from .source import Reviews, progress
-from .store import COMMENT, VERDICTS, Store, now
+from .store import COMMENT, GRADES, VERDICTS, Store, now
 from .summary import api_usage, coverage, signature_rows
 
 logger = logging.getLogger(__name__)
@@ -234,6 +234,9 @@ def analysis(store: Store, config: Config) -> dict:
     }
 
 
+RATINGS = (*GRADES, "later", "dismissed")  # the buttons above the evidence
+
+
 def findings(store: Store, config: Config) -> list[dict]:
     first_suggested = dict(store.db.execute("SELECT finding_id, MIN(ts) FROM suggestions GROUP BY finding_id"))
     latest_feedback = {
@@ -243,6 +246,11 @@ def findings(store: Store, config: Config) -> list[dict]:
             "ON l.id = f.id"
         )
     }
+    # The latest rating a person gave each finding (Relevant ... Dismiss), shown as the pressed button
+    marks = ",".join("?" * len(RATINGS))
+    rating = dict(store.db.execute(
+        f"SELECT f.finding_id, f.verdict FROM feedback f JOIN (SELECT finding_id, MAX(id) AS id FROM feedback "
+        f"WHERE verdict IN ({marks}) AND from_sentinel = 0 GROUP BY finding_id) l ON l.id = f.id", RATINGS))
     result = []
     for f in store.findings():
         item = dict(f)
@@ -262,6 +270,7 @@ def findings(store: Store, config: Config) -> list[dict]:
         item["first_suggested"] = first_suggested.get(f["id"])
         item["comments"] = fixer.comments_of(store, f["id"])  # what people wrote; Fix this follows them
         item["feedback"] = latest_feedback.get(f["id"])
+        item["rating"] = rating.get(f["id"])
         item["evidence_commits"] = {
             sha: info for sha in set(COMMIT_HASH.findall(item["evidence"] or ""))
             if (info := commit_info(config.obp_api_source, sha))

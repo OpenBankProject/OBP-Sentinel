@@ -50,7 +50,7 @@ checks, even where the logs show nothing wrong.
   seen in only one bucket, and never repeats what was suggested, acted on, dismissed or fixed. When nothing
   qualifies it says so.
 - **Feedback** (`sentinel feedback`): relevant / important / urgent / acted / dismissed / later / fixed.
-  Relevant, Important and Urgent say how much a finding matters to you (each marks it accepted); on the page,
+  Relevant, Important and Urgent say how much a finding matters to you and leave it where it is; on the page,
   Urgent also puts it at the head of the Fix this queue. Later is Skip for now on the page. `acted` means someone tried
   to act on the suggestion; the analyst then checks whether the problem went away. Dismissing a finding also
   hides its signatures from future summaries.

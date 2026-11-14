@@ -126,10 +126,23 @@ def test_important_counts_twice_and_urgent_three_times(config):
     assert weight_of(1, 2, 3) == 1.07  # one Urgent outweighs two Dismiss
 
 
-def test_a_rating_marks_the_finding_accepted(config):
+def test_a_rating_leaves_the_finding_where_it_is(config):
     store = Store(config.db_path)
     finding_id = store.upsert_finding(finding("a"))
     store.add_feedback(finding_id, "important", None, 7)
-    assert store.findings()[0]["status"] == "accepted"
+    assert store.findings()[0]["status"] == "open"
     assert store.db.execute("SELECT verdict FROM feedback").fetchone()[0] == "important"
+    store.close()
+
+
+def test_a_finding_a_rating_once_marked_accepted_goes_back(config):
+    store = Store(config.db_path)
+    finding_id = store.upsert_finding(finding("a"))
+    store.db.execute("INSERT INTO feedback (finding_id, ts, verdict, previous_status) VALUES (?, 1, 'relevant', 'suggested')",
+                     (finding_id,))
+    store.db.execute("UPDATE findings SET status = 'accepted' WHERE id = ?", (finding_id,))
+    store.commit()
+    store.close()
+    store = Store(config.db_path)
+    assert store.findings()[0]["status"] == "suggested"
     store.close()

@@ -49,7 +49,8 @@ header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .chip span { color: var(--muted); }
 .chip b { font-family: var(--mono); font-weight: 500; }
 .chip.guard { overflow-wrap: anywhere; }
-.connection { margin: 6px 0 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.where { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.connection { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .connection.ok { color: var(--good); }
 .connection.bad { color: var(--bad); }
 .connection .sub { font-weight: 400; color: var(--muted); }
@@ -127,9 +128,14 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .actions { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; align-items: center; }
 .actions .act { display: contents; }
 .actions .act[hidden] { display: none; }
-.actions .grades { display: flex; flex-wrap: wrap; gap: 8px; }
-.actions .grade-row > * { grid-column: 1 / -1; }
-.actions .grade-row .desc { margin: -4px 0 8px; }
+.grades { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.grades button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--surface); font-weight: 500; cursor: pointer; }
+.grades button:disabled { opacity: 0.5; cursor: default; }
+/* The rating given: filled, Urgent in the danger colour */
+.grades button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.grades button[data-verdict="urgent"][aria-pressed="true"] { background: var(--danger); border-color: var(--danger); }
+.grades-desc { margin: 6px 0 20px; }
 .desc { font-size: 14px; color: var(--muted); }
 @media (max-width: 560px) { .actions { grid-template-columns: 1fr; gap: 4px; } .actions .desc { margin-bottom: 8px; } }
 .actions button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
@@ -295,8 +301,10 @@ nav.instances .flag.warn { background: var(--warn); }
   <nav class="instances apps" id="apps" aria-label="Apps of this instance" hidden></nav>
   <div class="host">
     <div>
-      <div id="watching">Loading…</div>
-      <p class="connection" id="connection" role="status" hidden></p>
+      <div class="where">
+        <div id="watching">Loading…</div>
+        <p class="connection" id="connection" role="status" hidden></p>
+      </div>
     </div>
     <div class="chips" id="chips"></div>
   </div>
@@ -344,6 +352,14 @@ nav.instances .flag.warn { background: var(--warn); }
         <div><small>Effort</small><b id="d-effort"></b></div>
         <div><small>Trend</small><b id="d-trend"></b></div>
       </div>
+      <div class="grades" role="group" aria-label="How much this matters to you">
+        <button type="button" data-verdict="relevant" data-testid="grade-relevant">Relevant</button>
+        <button type="button" data-verdict="important" data-testid="grade-important">Important</button>
+        <button type="button" data-verdict="urgent" data-testid="grade-urgent">Urgent</button>
+        <button type="button" data-verdict="later" data-testid="grade-later">Skip for now</button>
+        <button type="button" data-verdict="dismissed" data-testid="grade-dismissed">Dismiss</button>
+      </div>
+      <p class="desc grades-desc">How much this matters to you; Sentinel shows first the kinds of finding you rate. Urgent also puts it at the head of the Fix this queue. Skip for now brings it back later; Dismiss hides it and its log messages for good. A comment typed below is saved with it.</p>
       <h3>Evidence</h3><p id="d-evidence"></p>
       <h3>Why it happens</h3><p id="d-hypothesis"></p>
       <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
@@ -377,13 +393,6 @@ nav.instances .flag.warn { background: var(--warn); }
         <label for="comment">Comment for Sentinel <span>(optional: Fix this follows it, the analyst reads it)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
-          <div class="act grade-row"><div class="grades" role="group" aria-label="How much this matters to you">
-              <button type="button" data-verdict="relevant" data-testid="grade-relevant">Relevant</button>
-              <button type="button" data-verdict="important" data-testid="grade-important">Important</button>
-              <button type="button" data-verdict="urgent" data-testid="grade-urgent">Urgent</button>
-              <button type="button" data-verdict="later" data-testid="grade-later">Skip for now</button>
-              <button type="button" data-verdict="dismissed" data-testid="grade-dismissed">Dismiss</button></div>
-            <span class="desc">How much this matters to you; Sentinel shows first the kinds of finding you rate. Urgent also puts it at the head of the Fix this queue. Skip for now brings it back later; Dismiss hides it and its log messages for good.</span></div>
           <div class="act"><button type="button" data-verdict="comment">Save comment</button>
             <span class="desc">Keeps your comment with the finding and changes nothing else. Fix this follows every comment on the finding, and the analyst reads them.</span></div>
           <div class="act" id="fix-row"><button type="button" class="primary" id="fix-btn">Fix this</button>
@@ -657,6 +666,7 @@ function render() {
   $('d-confidence').textContent = `${Math.round(current.confidence * 100)}%`;
   $('d-effort').textContent = `${current.effort}/5`;
   $('d-trend').textContent = TREND[current.trend] || current.trend;
+  document.querySelectorAll('.grades button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.verdict === current.rating)));
   // Each commit the evidence names gets "(N days ago)"
   const commits = current.evidence_commits || {};
   $('d-evidence').textContent = (current.evidence || '').replace(/\b[0-9a-f]{7,40}\b/g,
@@ -1080,7 +1090,7 @@ async function respond(verdict) {
   if (id == null) return;
   if (verdict === 'fixed' && !confirm(`Mark #${id} as fixed? It moves to Done.`)) return;
   if (verdict === 'dismissed' && !confirm(`Dismiss #${id}? It and its log messages are hidden for good; this cannot be undone.`)) return;
-  const buttons = document.querySelectorAll('.actions button[data-verdict]');
+  const buttons = document.querySelectorAll('button[data-verdict]');
   buttons.forEach((b) => { b.disabled = true; });
   try {
     const done = await api(`/api/findings/${id}/feedback`, {
@@ -1107,7 +1117,7 @@ async function respond(verdict) {
   }
 }
 
-document.querySelectorAll('.actions button[data-verdict]').forEach((b) => { b.onclick = () => respond(b.dataset.verdict); });
+document.querySelectorAll('button[data-verdict]').forEach((b) => { b.onclick = () => respond(b.dataset.verdict); });
 
 // What Sentinel has learned from your responses on every instance: shown only once it changes the order
 async function loadLearned() {
@@ -1363,13 +1373,13 @@ function renderConnection(h) {
   const bad = h.problems.find((p) => p.severity === 'bad');
   const app = h.platform_app;
   if (h.connected) {
+    // One short line; the details are in the tooltip
     line.className = 'connection ok';
-    line.replaceChildren('✓ Connected', ...(open && open.parent
-      ? [el('span', { className: 'sub', textContent: ` · with ${open.parent}'s Platform App token` })]
-      : app && app.ok ? [` as Platform App "${app.label}"`,
-          el('span', { className: 'sub', textContent: ` · consumer ${app.consumer_id} · all its Scopes held` })]
-      : []));
+    line.textContent = '✓ Connected' + (open && open.parent ? '' : app && app.ok ? ` as Platform App "${app.label}"` : '');
+    line.title = open && open.parent ? `With ${open.parent}'s Platform App token`
+      : app && app.ok ? `Consumer ${app.consumer_id} · all its Scopes held` : '';
   } else {
+    line.title = '';
     line.className = 'connection bad';
     line.replaceChildren('✗ Not connected', el('span', { className: 'sub',
       textContent: bad ? `: ${bad.title} (see below)` : ': no successful poll yet' }));
