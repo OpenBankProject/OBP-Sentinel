@@ -253,6 +253,10 @@ OBP-Sandbox-Populator against it.
   newest few messages it saw and counts only what is above them next time. If they were trimmed away
   before the next poll (a burst of more than 1000 entries), the poll is flagged as possibly missing
   entries; poll more often if that happens.
+- Aggregates are kept for `SENTINEL_RETENTION_DAYS` (14). Telemetry, a full snapshot every poll and by far
+  the largest table, is kept only `SENTINEL_TELEMETRY_RETENTION_HOURS` (48): it is read only by the summary,
+  which compares its window with the one before, so keep at least twice the longest `--hours` you use. Space
+  freed by pruning is reused by SQLite; run `VACUUM` on a stopped Sentinel's database to give it back to disk.
 - Sentinel's own calls are ignored via `SENTINEL_IGNORE_REGEX`. They are still counted in the aggregate
   metrics (the v6.0.0 endpoint has no exclude filters), a handful of calls per poll.
 - OBP-API masks sensitive values before writing to the log cache (`SecureLogging.maskSensitive`), and

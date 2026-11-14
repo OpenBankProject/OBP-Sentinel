@@ -32,3 +32,12 @@ def test_instances_never_share_a_database(config, monkeypatch):
     monkeypatch.setenv("B_SENTINEL_DB", "/data/b.db")
     a, b = Config.all_from_env()
     assert (a.db_path, b.db_path) == ("sentinel-a.db", "/data/b.db")
+
+
+def test_telemetry_is_kept_48_hours_unless_told_otherwise(config, monkeypatch):
+    monkeypatch.delenv("SENTINEL_INSTANCES", raising=False)
+    [c] = Config.all_from_env()
+    assert c.telemetry_retention_hours == 48 and c.retention_days == 14
+    monkeypatch.setenv("SENTINEL_TELEMETRY_RETENTION_HOURS", "24")
+    [c] = Config.all_from_env()
+    assert c.telemetry_retention_hours == 24
