@@ -9,11 +9,11 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from . import history
+from . import history, preferences
 from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
 from .scanner import Scanner
-from .config import Config, ConfigError
+from .config import Config, ConfigError, instance_names
 from .digest import NotReady, write_digest
 from .logs import for_instance, setup as setup_logging
 from .obp_client import OBPClient
@@ -109,8 +109,13 @@ def cmd_status(args, config: Config, store: Store) -> None:
     print(f"Last successful poll: {counts['last_poll']} (now {now()})")
 
 
+def learned() -> dict:
+    """What Sentinel has learned from the person's responses, on every instance (without reading app directories)."""
+    return preferences.learn([Config.from_env(name) for name in instance_names()])
+
+
 def cmd_summary(args, config: Config, store: Store) -> None:
-    summary = build_summary(store, config, args.hours, args.limit)
+    summary = build_summary(store, config, args.hours, args.limit, learned())
     print(json.dumps(summary, indent=2) if args.json else to_markdown(summary))
 
 
@@ -145,7 +150,7 @@ def cmd_findings(args, config: Config, store: Store) -> None:
 
 def cmd_digest(args, config: Config, store: Store) -> None:
     try:
-        print(write_digest(store, config, args.out or config.digest_dir, args.force))
+        print(write_digest(store, config, args.out or config.digest_dir, args.force, learned()))
     except NotReady as e:
         sys.exit(str(e))
 

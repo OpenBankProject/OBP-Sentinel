@@ -178,7 +178,7 @@ def api_usage(store: Store, start: int, end: int, prev_start: int) -> dict:
     return {"window": over(start, end), "previous_window": over(prev_start, start)}
 
 
-def build_summary(store: Store, config: Config, hours: float, limit: int = 30) -> dict:
+def build_summary(store: Store, config: Config, hours: float, limit: int = 30, learned: dict | None = None) -> dict:
     end = now()
     start = end - int(hours * 3600)
     prev_start = start - int(hours * 3600)
@@ -199,6 +199,7 @@ def build_summary(store: Store, config: Config, hours: float, limit: int = 30) -
             {"id": f["id"], "key": f["key"], "title": f["title"], "status": f["status"], "priority": f["priority"]}
             for f in store.findings()
         ],
+        "preferences": learned or {"categories": {}, "dismissal_comments": [], "responses": 0},
     }
 
 
@@ -259,4 +260,13 @@ def to_markdown(summary: dict) -> str:
         out.append("None.")
     for f in summary["open_findings"]:
         out.append(f"- #{f['id']} `{f['key']}` [{f['status']}] priority {f['priority']}: {f['title']}")
+    p = summary["preferences"]
+    out += ["", "## What the person acts on (their responses on every instance)", ""]
+    if not p["categories"]:
+        out.append("No responses yet.")
+    for category, n in p["categories"].items():
+        out.append(f"- {category}: acted on {n['acted']}, dismissed {n['dismissed']}")
+    if p["dismissal_comments"]:
+        out += ["", "Why they dismissed findings, newest first:", ""]
+        out += [f"- [{c['instance']}, {c['category']}] {c['title']}: {c['comment']}" for c in p["dismissal_comments"]]
     return "\n".join(out) + "\n"

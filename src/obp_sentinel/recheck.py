@@ -211,7 +211,7 @@ def look_and_mark(config: Config, finding_id: int) -> bool:
         return False
     store = Store(config.db_path)
     try:
-        store.add_feedback(finding_id, "fixed", f"Look again: {answer}", config.snooze_days)
+        store.add_feedback(finding_id, "fixed", f"Look again: {answer}", config.snooze_days, from_sentinel=True)
         store.commit()
     finally:
         store.close()

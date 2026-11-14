@@ -22,7 +22,7 @@ from importlib.resources import files
 
 import httpx
 
-from . import build, classes, fixer, history, recheck
+from . import build, classes, fixer, history, preferences, recheck
 from .analyst import Analyst, check_claude, decide, unavailable_reason
 from .config import Config
 from .health import health
@@ -277,9 +277,10 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
     `analysts` (by instance name) run analyses asked for on the page; pass the scheduled ones so stopping
     Sentinel stops them too.
     """
-    page = files("obp_sentinel").joinpath("ui.html").read_bytes()
-    help_page = files("obp_sentinel").joinpath("help.html").read_bytes()
-    fixed_page = files("obp_sentinel").joinpath("fixed.html").read_bytes()
+    # The pages are read on each request, so a change to one shows on a reload, without a restart
+    def page(name: str) -> bytes:
+        return files("obp_sentinel").joinpath(name).read_bytes()
+
     by_name = {c.name: c for c in configs}
     analysts = {c.name: (analysts or {}).get(c.name) or Analyst(c) for c in configs}
     scanner = scanner or Scanner(configs)  # Go and Stop are kept in its database; it scans where it was started
@@ -335,15 +336,17 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 return self._json(HTTPStatus.FORBIDDEN, {"error": "Unexpected Host or Origin"})
             path = urlsplit(self.path).path
             if path == "/":
-                return self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
+                return self._send(HTTPStatus.OK, page("ui.html"), "text/html; charset=utf-8")
             if path == "/help":
-                return self._send(HTTPStatus.OK, help_page, "text/html; charset=utf-8")
+                return self._send(HTTPStatus.OK, page("help.html"), "text/html; charset=utf-8")
             if path == "/fixed":
-                return self._send(HTTPStatus.OK, fixed_page, "text/html; charset=utf-8")
+                return self._send(HTTPStatus.OK, page("fixed.html"), "text/html; charset=utf-8")
             if path == "/api/help":
                 return self._json(HTTPStatus.OK, help_text(configs))
             if path == "/api/instances":
                 return self._json(HTTPStatus.OK, [self._with_store(c, lambda s, c=c: instance_status(s, c)) for c in configs])
+            if path == "/api/preferences":  # learned from the responses on every instance
+                return self._json(HTTPStatus.OK, {**preferences.learn(configs), "high_impact": preferences.HIGH_IMPACT})
             if path == "/api/source":  # the source review is shared by all instances
                 reviews = Reviews(configs[0].source_db_path)
                 try:
@@ -359,7 +362,11 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             if path not in views:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
             if config := self._instance():
-                self._json(HTTPStatus.OK, self._with_store(config, lambda s: views[path](s, config)))
+                result = self._with_store(config, lambda s: views[path](s, config))
+                if path == "/api/findings":  # the order to show them in: what the person acts on first
+                    learned = preferences.learn(configs)
+                    result = [{**f, "rank": preferences.rank(f, learned)} for f in result]
+                self._json(HTTPStatus.OK, result)
 
         def do_POST(self):
             if not self._trusted():
@@ -372,6 +379,9 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 return self._turn_scanner()
             if path == CLAUDE_CHECK_PATH:
                 return self._check_claude()
+            if path == "/api/preferences/forget":
+                preferences.forget(configs)
+                return self._json(HTTPStatus.OK, {**preferences.learn(configs), "high_impact": preferences.HIGH_IMPACT})
             if trace := TRACE_PATH.match(path):
                 if config := self._instance():
                     try:
@@ -424,6 +434,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     def take_back(store: Store):
                         verdict = store.undo_feedback(int(undo.group(1)))
                         store.commit()
+                        preferences.clear()
                         return verdict
                     try:
                         return self._json(HTTPStatus.OK, {"undone": self._with_store(config, take_back)})
@@ -488,12 +499,18 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             def record(store: Store):
                 store.add_feedback(int(match.group(1)), verdict, comment, config.snooze_days)
                 store.commit()
+                preferences.clear()
 
             try:
                 self._with_store(config, record)
             except ValueError as e:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
-            self._json(HTTPStatus.OK, {"ok": True})
+            if verdict != "urgent":
+                return self._json(HTTPStatus.OK, {"ok": True})
+            # Urgent: Fix this, at the head of the queue, when Claude Code can fix it here
+            if reason := fixer.unavailable_reason(config) or unavailable_reason(config, scheduled=False):
+                return self._json(HTTPStatus.OK, {"ok": True, "not_queued": reason})
+            self._json(HTTPStatus.OK, {"ok": True, **fixer.queue(config, int(match.group(1)), first=True)})
 
         def _turn_scanner(self):
             """Go ({"on": true}) or Stop ({"on": false}) for the source scanner."""

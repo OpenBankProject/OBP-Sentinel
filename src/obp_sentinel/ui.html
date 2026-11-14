@@ -74,6 +74,8 @@ main { max-width: 1280px; margin: 0 auto; padding: 24px 16px; }
 .title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 16px; }
 h1 { margin: 0; font-size: 26px; letter-spacing: -0.015em; }
 .title p { margin: 0; color: var(--muted); font-size: 14px; }
+#learned { margin: -8px 0 16px; }
+#learned button { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; }
 nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
 nav button { min-height: 44px; padding: 0 14px; border: 0; background: none; cursor: pointer; margin-bottom: -1px;
   border-bottom: 2px solid transparent; color: var(--muted); font-weight: 500; }
@@ -125,6 +127,9 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .actions { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; align-items: center; }
 .actions .act { display: contents; }
 .actions .act[hidden] { display: none; }
+.actions .grades { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions .grade-row > * { grid-column: 1 / -1; }
+.actions .grade-row .desc { margin: -4px 0 8px; }
 .desc { font-size: 14px; color: var(--muted); }
 @media (max-width: 560px) { .actions { grid-template-columns: 1fr; gap: 4px; } .actions .desc { margin-bottom: 8px; } }
 .actions button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
@@ -309,6 +314,7 @@ nav.instances .flag.warn { background: var(--warn); }
     <h1>Suggested improvements</h1>
     <p id="rules"></p>
   </div>
+  <p class="sub" id="learned" data-testid="learned" hidden></p>
   <div class="fix-queue" id="fix-queue" hidden></div>
   <nav aria-label="Filter suggestions" id="tabs"></nav>
   <p class="sub" id="bug-classes" hidden></p>
@@ -371,6 +377,13 @@ nav.instances .flag.warn { background: var(--warn); }
         <label for="comment">Comment for Sentinel <span>(optional: Fix this follows it, the analyst reads it)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
+          <div class="act grade-row"><div class="grades" role="group" aria-label="How much this matters to you">
+              <button type="button" data-verdict="relevant" data-testid="grade-relevant">Relevant</button>
+              <button type="button" data-verdict="important" data-testid="grade-important">Important</button>
+              <button type="button" data-verdict="urgent" data-testid="grade-urgent">Urgent</button>
+              <button type="button" data-verdict="later" data-testid="grade-later">Skip for now</button>
+              <button type="button" data-verdict="dismissed" data-testid="grade-dismissed">Dismiss</button></div>
+            <span class="desc">How much this matters to you; Sentinel shows first the kinds of finding you rate. Urgent also puts it at the head of the Fix this queue. Skip for now brings it back later; Dismiss hides it and its log messages for good.</span></div>
           <div class="act"><button type="button" data-verdict="comment">Save comment</button>
             <span class="desc">Keeps your comment with the finding and changes nothing else. Fix this follows every comment on the finding, and the analyst reads them.</span></div>
           <div class="act" id="fix-row"><button type="button" class="primary" id="fix-btn">Fix this</button>
@@ -483,7 +496,7 @@ const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Sn
 const FIX_STATUS = { queued: 'Queued for fixing', running: 'Being fixed', staged: 'Fix staged', committed: 'Fix committed',
                      skipped: 'Not fixed: no issue found', failed: 'Fix failed', discarded: 'Fix discarded' };
 const CAT_COLOR = { bug: 'var(--danger)', reliability: 'var(--danger)', security: 'var(--danger)' };
-const state = { instance: null, instances: [], tab: 'review', selected: null, findings: [], overview: null };
+const state = { instance: null, instances: [], tab: 'review', selected: null, findings: [], overview: null, learned: null };
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, children = []) => {
@@ -574,8 +587,10 @@ function withFindingLinks(text) {
 
 function visible() {
   const shown = state.findings.filter((f) => tabOf(f) === state.tab);
-  // Most important first; Queued as Fix this works through it: a fix paused at the usage limit first
-  return shown.sort((a, b) => (state.tab === 'queued' ? (b.fix_at === 0) - (a.fix_at === 0) : 0) || b.priority - a.priority);
+  // Most important first, the kinds you act on before the kinds you dismiss; Queued as Fix this works through it:
+  // a fix paused at the usage limit first
+  if (state.tab === 'queued') return shown.sort((a, b) => (b.fix_at === 0) - (a.fix_at === 0) || b.priority - a.priority);
+  return shown.sort((a, b) => (b.rank ?? b.priority) - (a.rank ?? a.priority));
 }
 
 // Suggestions go above the monitoring sections while something waits for review.
@@ -1048,6 +1063,7 @@ function undoLink(id) {
     try {
       const done = await api(`/api/findings/${id}/undo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       state.findings = await api('/api/findings');
+      loadLearned();
       const f = state.findings.find((x) => x.id === id);
       if (f) Object.assign(state, { tab: tabOf(f), selected: id });
       render();
@@ -1063,10 +1079,11 @@ async function respond(verdict) {
   const id = state.selected;
   if (id == null) return;
   if (verdict === 'fixed' && !confirm(`Mark #${id} as fixed? It moves to Done.`)) return;
+  if (verdict === 'dismissed' && !confirm(`Dismiss #${id}? It and its log messages are hidden for good; this cannot be undone.`)) return;
   const buttons = document.querySelectorAll('.actions button[data-verdict]');
   buttons.forEach((b) => { b.disabled = true; });
   try {
-    await api(`/api/findings/${id}/feedback`, {
+    const done = await api(`/api/findings/${id}/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ verdict, comment: $('comment').value }),
@@ -1074,8 +1091,15 @@ async function respond(verdict) {
     $('comment').value = '';
     state.findings = await api('/api/findings');
     render();
-    setStatus(verdict === 'comment' ? `Comment saved for #${id}.` : `Recorded “${verdict}” for #${id}.`);
-    $('status').append(' ', undoLink(id));
+    loadLearned();
+    const said = { relevant: 'Relevant', important: 'Important', urgent: 'Urgent', later: 'Skip for now', dismissed: 'Dismiss',
+                   fixed: 'Should be fixed now' }[verdict] || verdict;
+    const queue = verdict !== 'urgent' ? ''
+      : done.not_queued ? ` Not queued for fixing: ${done.not_queued}`
+      : ' It is at the head of the Fix this queue; Undo leaves it there.';
+    setStatus(verdict === 'comment' ? `Comment saved for #${id}.` : `Recorded “${said}” for #${id}.${queue}`);
+    if (verdict !== 'dismissed') $('status').append(' ', undoLink(id));
+    if (verdict === 'urgent' && !done.not_queued) pollWhileRunning(id, 'fix_status');
   } catch (e) {
     setStatus(`Could not record: ${e.message}`, true);
   } finally {
@@ -1085,11 +1109,48 @@ async function respond(verdict) {
 
 document.querySelectorAll('.actions button[data-verdict]').forEach((b) => { b.onclick = () => respond(b.dataset.verdict); });
 
+// What Sentinel has learned from your responses on every instance: shown only once it changes the order
+async function loadLearned() {
+  state.learned = await api('/api/preferences').catch(() => null);
+  renderLearned();
+}
+
+function renderLearned() {
+  const p = state.learned;
+  const kinds = p ? Object.entries(p.categories) : [];
+  const first = kinds.filter(([, n]) => n.weight > 1);
+  const later = kinds.filter(([, n]) => n.weight < 1);
+  const box = $('learned');
+  box.hidden = !first.length && !later.length;
+  if (box.hidden) return;
+  const of = (n) => n.acted + n.dismissed;
+  const forget = el('button', { type: 'button', textContent: 'Forget', title: 'Ignore your responses so far, on every instance' });
+  forget.dataset.testid = 'learned-forget';
+  forget.onclick = async () => {
+    if (!confirm('Forget what Sentinel has learned from your responses? It starts again from your next one.')) return;
+    try {
+      state.learned = await api('/api/preferences/forget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      state.findings = await api('/api/findings');
+      render();
+      renderLearned();
+      setStatus('Sentinel has forgotten your responses so far.');
+    } catch (e) {
+      setStatus(`Could not forget: ${e.message}`, true);
+    }
+  };
+  const parts = [];
+  if (first.length) parts.push('shown first: ' + first.map(([c, n]) => `${c} (you acted on ${n.acted} of ${of(n)})`).join(', '));
+  if (later.length) parts.push('shown later: ' + later.map(([c, n]) => `${c} (you dismissed ${n.dismissed} of ${of(n)})`).join(', ')
+    + `, except findings of impact ${p.high_impact} or more`);
+  box.replaceChildren(`From your responses, ${parts.join('; ')}. `, forget);
+}
+
 async function load() {
   try {
     [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);
     renderHeader();
     render();
+    loadLearned();
     if (state.overview.sweep && state.overview.sweep.running) pollSweep();
     // Refresh until the last finding queued for fixing is done
     const fixing = state.findings.filter((f) => f.fix_status === 'queued').sort((a, b) => b.fix_at - a.fix_at)[0]

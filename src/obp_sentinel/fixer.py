@@ -181,9 +181,9 @@ def command(config: Config, text: str) -> list[str]:
     ]
 
 
-def queue(config: Config, finding_id: int, tests: bool = True) -> dict:
+def queue(config: Config, finding_id: int, tests: bool = True, first: bool = False) -> dict:
     """Queue a finding for fixing, with or without running its tests, and make sure the queue is being worked
-    through."""
+    through. `first` (Urgent) puts it at the head of the queue, also when it was already queued."""
     store = Store(config.db_path)
     try:
         row = store.db.execute("SELECT fix_status FROM findings WHERE id = ?", (finding_id,)).fetchone()
@@ -191,7 +191,10 @@ def queue(config: Config, finding_id: int, tests: bool = True) -> dict:
             raise ValueError(f"No finding {finding_id}")
         if row["fix_status"] not in ("queued", "running", "staged", "committed"):
             store.db.execute("UPDATE findings SET fix_status = 'queued', fix = NULL, fix_at = ?, fix_tests = ? "
-                             "WHERE id = ?", (now(), int(tests), finding_id))
+                             "WHERE id = ?", (0 if first else now(), int(tests), finding_id))
+            store.commit()
+        elif first and row["fix_status"] == "queued":
+            store.db.execute("UPDATE findings SET fix_at = 0 WHERE id = ?", (finding_id,))
             store.commit()
         status = store.db.execute("SELECT fix_status FROM findings WHERE id = ?", (finding_id,)).fetchone()[0]
     finally:

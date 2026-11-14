@@ -158,10 +158,12 @@ CREATE TABLE IF NOT EXISTS feedback (
     id         INTEGER PRIMARY KEY,
     finding_id INTEGER NOT NULL REFERENCES findings(id),
     ts         INTEGER NOT NULL,
-    verdict    TEXT NOT NULL,              -- accepted | acted | dismissed | later | fixed | comment
+    verdict    TEXT NOT NULL,              -- relevant | important | urgent | acted | dismissed | later | fixed | comment
+                                           -- (accepted: before relevant, important and urgent)
     comment    TEXT,
     previous_status        TEXT,           -- the finding's status before, for Undo
-    previous_snoozed_until INTEGER
+    previous_snoozed_until INTEGER,
+    from_sentinel INTEGER NOT NULL DEFAULT 0  -- 1 when Sentinel recorded it (Look again), not a person
 );
 
 -- Each time the analyst ran (headless Claude Code), and the steps it took: tool calls and notes, never tool results.
@@ -194,7 +196,8 @@ CREATE TABLE IF NOT EXISTS state (
 
 SAMPLES_PER_SIGNATURE = 5
 TREND_WEIGHTS = {"new": 1.5, "rising": 1.3, "stable": 1.0, "falling": 0.6}
-VERDICTS = ("accepted", "acted", "dismissed", "later", "fixed")
+VERDICTS = ("relevant", "important", "urgent", "acted", "dismissed", "later", "fixed")
+GRADES = ("relevant", "important", "urgent")  # how much a finding matters to the person; each makes it accepted
 UNDO_SECONDS = 600  # how long feedback given on the page can be taken back
 COMMENT = "comment"  # feedback that is only a comment from a person: the finding's status stays as it is
 CATEGORIES = {"bug", "performance", "security", "reliability", "readability", "api-contract"}
@@ -233,6 +236,9 @@ class Store:
         if "previous_status" not in {r[1] for r in self.db.execute("PRAGMA table_info(feedback)")}:
             self.db.execute("ALTER TABLE feedback ADD COLUMN previous_status TEXT")
             self.db.execute("ALTER TABLE feedback ADD COLUMN previous_snoozed_until INTEGER")
+        if "from_sentinel" not in {r[1] for r in self.db.execute("PRAGMA table_info(feedback)")}:
+            self.db.execute("ALTER TABLE feedback ADD COLUMN from_sentinel INTEGER NOT NULL DEFAULT 0")
+            self.db.execute("UPDATE feedback SET from_sentinel = 1 WHERE comment LIKE 'Look again: %'")
         have = {r[1] for r in self.db.execute("PRAGMA table_info(findings)")}
         added = {"summary": "TEXT", "history": "TEXT", "introduced": "TEXT", "trace_status": "TEXT", "recheck": "TEXT",
                  "recheck_status": "TEXT", "rechecked_at": "INTEGER", "fix_status": "TEXT", "fix": "TEXT",
@@ -388,21 +394,24 @@ class Store:
             ).fetchall()
         return self.db.execute("SELECT * FROM findings ORDER BY priority DESC").fetchall()
 
-    def add_feedback(self, finding_id: int, verdict: str, comment: str | None, snooze_days: int) -> None:
+    def add_feedback(self, finding_id: int, verdict: str, comment: str | None, snooze_days: int,
+                     from_sentinel: bool = False) -> None:
+        """`from_sentinel` marks a response Sentinel gives itself, which it does not learn from."""
         finding = self.db.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone()
         if not finding:
             raise ValueError(f"No finding with id {finding_id}")
         ts = now()
         self.db.execute(
-            "INSERT INTO feedback (finding_id, ts, verdict, comment, previous_status, previous_snoozed_until) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (finding_id, ts, verdict, comment, finding["status"], finding["snoozed_until"]),
+            "INSERT INTO feedback (finding_id, ts, verdict, comment, previous_status, previous_snoozed_until, "
+            "from_sentinel) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (finding_id, ts, verdict, comment, finding["status"], finding["snoozed_until"], int(from_sentinel)),
         )
         if verdict == COMMENT:
             return
         snoozed_until = ts + snooze_days * 86400 if verdict == "later" else None
+        status = "accepted" if verdict in GRADES else verdict
         self.db.execute(
-            "UPDATE findings SET status = ?, snoozed_until = ? WHERE id = ?", (verdict, snoozed_until, finding_id)
+            "UPDATE findings SET status = ?, snoozed_until = ? WHERE id = ?", (status, snoozed_until, finding_id)
         )
         if verdict == "dismissed":
             for signature_id in json.loads(finding["signature_ids"]):

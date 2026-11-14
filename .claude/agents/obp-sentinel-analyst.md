@@ -90,6 +90,11 @@ perfectly good result.
    - Include only findings you would defend to the developer who owns that code. Expected noise
      (e.g. 4xx from clients sending bad input, logged as warnings) is not a finding unless the
      API handles it wrongly.
+   - Read "What the person acts on" at the end of the summary. When their reasons for dismissing
+     findings show that a kind of problem is expected or not wanted (for example "Expected when clients
+     send bad IBANs"), do not raise a finding of that kind again unless it has clearly changed. Do not
+     change `impact` or `confidence` to match what they act on: score each finding on its merits.
+     Sentinel puts the kinds of finding they act on first by itself.
 6. `uv run sentinel findings import work/findings-<timestamp>.json`, then `uv run sentinel digest`.
    If the digest refuses because not enough hours were watched, report that and stop.
 7. Reply with the digest's path and a two-line summary. Do not repeat the digest.

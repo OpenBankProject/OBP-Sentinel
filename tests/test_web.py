@@ -221,3 +221,45 @@ def test_feedback_given_on_the_page_can_be_undone(config):
     with pytest.raises(ValueError):
         store.undo_feedback(fid)
     store.close()
+
+
+def test_responses_change_the_order_until_forgotten(server, config):
+    from obp_sentinel import preferences
+    preferences.clear()
+    json_headers = {"Content-Type": "application/json"}
+    store = Store(config.db_path)
+    for key in ("b", "c", "d"):
+        store.add_feedback(store.upsert_finding(finding(key)), "relevant", None, 7)
+    store.commit()
+    store.close()
+    learned = json.loads(request(server, "GET", "/api/preferences")[1])
+    assert learned["categories"]["bug"] == {"acted": 3, "urgent": 0, "dismissed": 0, "weight": 1.3}
+    assert learned["high_impact"] == preferences.HIGH_IMPACT
+    one = next(f for f in json.loads(request(server, "GET", "/api/findings")[1]) if f["key"] == "one")
+    assert one["rank"] == round(one["priority"] * 1.3, 3)
+    status, data = request(server, "POST", "/api/preferences/forget", {}, json_headers)
+    assert status == 200 and json.loads(data)["categories"] == {}
+    one = next(f for f in json.loads(request(server, "GET", "/api/findings")[1]) if f["key"] == "one")
+    assert one["rank"] == one["priority"]
+
+
+def test_urgent_puts_the_finding_at_the_head_of_the_fix_queue(server, config, monkeypatch):
+    from obp_sentinel import fixer
+    monkeypatch.setattr(fixer, "unavailable_reason", lambda config: None)
+    monkeypatch.setattr(web, "unavailable_reason", lambda config, scheduled=True: None)
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    json_headers = {"Content-Type": "application/json"}
+    status, data = request(server, "POST", "/api/findings/1/feedback", {"verdict": "urgent"}, json_headers)
+    assert status == 200 and json.loads(data) == {"ok": True, "fix_status": "queued"}
+    store = Store(config.db_path)
+    f = store.findings()[0]
+    assert (f["status"], f["fix_status"], f["fix_at"]) == ("accepted", "queued", 0)
+    store.close()
+
+
+def test_urgent_says_why_it_was_not_queued(server, config, monkeypatch):
+    from obp_sentinel import fixer
+    monkeypatch.setattr(fixer, "unavailable_reason", lambda config: "No OBP-API checkout")
+    status, data = request(server, "POST", "/api/findings/1/feedback", {"verdict": "urgent"},
+                           {"Content-Type": "application/json"})
+    assert json.loads(data) == {"ok": True, "not_queued": "No OBP-API checkout"}

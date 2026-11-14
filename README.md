@@ -2,7 +2,9 @@
 
 A long-running companion to OBP-API. It watches a running instance for hours, works out what is
 actually going wrong or getting slower, and recommends **the few improvements that matter most**,
-without overwhelming developers with suggestions.
+without overwhelming developers with suggestions. It also reviews the source code of the endpoints
+that can be reached, looking for security problems such as SQL injection or missing authorisation
+checks, even where the logs show nothing wrong.
 
 ## How it works
 
@@ -13,7 +15,7 @@ without overwhelming developers with suggestions.
 │   no LLM)    │  Telemetry         │              │  trends, history   │              │
 └──────────────┘                    └──────────────┘                    └──────┬───────┘
                                           ▲                                    │
-                                          │  feedback (accepted / dismissed)   ▼
+                                          │  feedback (relevant … dismissed)   ▼
                                           └──────────────────────────── digest: top 1–3
 ```
 
@@ -47,9 +49,18 @@ without overwhelming developers with suggestions.
   watching, holds at most 3 suggestions (and 10 a week), skips anything below the priority threshold or
   seen in only one bucket, and never repeats what was suggested, acted on, dismissed or fixed. When nothing
   qualifies it says so.
-- **Feedback** (`sentinel feedback`): accepted / acted / dismissed / later / fixed. `acted` means someone tried
+- **Feedback** (`sentinel feedback`): relevant / important / urgent / acted / dismissed / later / fixed.
+  Relevant, Important and Urgent say how much a finding matters to you (each marks it accepted); on the page,
+  Urgent also puts it at the head of the Fix this queue. Later is Skip for now on the page. `acted` means someone tried
   to act on the suggestion; the analyst then checks whether the problem went away. Dismissing a finding also
   hides its signatures from future summaries.
+- **Learning from your responses**: across all instances, Sentinel counts per category how many findings you acted
+  on (relevant, acted, fixed, or committed a fix; important counts twice, urgent three times) and how many you
+  dismissed. Once a category has 3 responses, its
+  findings are shown and put in the digest earlier or later (priority × a weight from 0.5 to 1.5); a finding of
+  impact 4 or more is never put later. The analyst also reads your reasons for dismissing findings, so it does not
+  raise that kind of problem again. Only what you choose to do counts, not what you open or read; Look again marking
+  a finding fixed does not count either. The page says what it has learned above the tabs, with Forget to start again.
 
 At this stage Sentinel is read-only towards OBP-API: it does not change log levels, edit source or open
 pull requests.
@@ -209,7 +220,7 @@ this directory and ask:
 Then open http://127.0.0.1:8765, or read `digests/<timestamp>.md` and respond on the command line:
 
 ```bash
-uv run sentinel feedback 3 accepted --comment "Will fix in the consent refactor"
+uv run sentinel feedback 3 important --comment "Will fix in the consent refactor"
 uv run sentinel feedback 4 dismissed --comment "Expected when clients send bad IBANs"
 ```
 
@@ -228,7 +239,7 @@ OBP-Sandbox-Populator against it.
 | `sentinel show <signature>` | A signature and its raw samples |
 | `sentinel findings list [--all]` / `import <file>` | The analyst's findings |
 | `sentinel digest [--force]` | Write the next digest |
-| `sentinel feedback <id> accepted\|acted\|dismissed\|later\|fixed` | Respond to a suggestion |
+| `sentinel feedback <id> relevant\|important\|urgent\|acted\|dismissed\|later\|fixed` | Respond to a suggestion |
 | `sentinel ui [--port 8765] [--no-analyst]` | Only the web page to read findings and respond to them |
 | `sentinel ignore <signature>` | Never show a signature again |
 | `sentinel source next [--n 3]` | The next endpoints to review, most reachable first, across all instances |
@@ -250,8 +261,8 @@ OBP-Sandbox-Populator against it.
 ## Web page
 
 `sentinel run` (or `sentinel ui` on its own) serves a page on http://127.0.0.1:8765 (`SENTINEL_UI_HOST`, `SENTINEL_UI_PORT`) listing
-the findings by status, each with its evidence, the files in OBP-API and the suggested change. Accept, Later,
-Some action taken, Should be fixed now and Dismiss record the same feedback as `sentinel feedback`. With several
+the findings by status, each with its evidence, the files in OBP-API and the suggested change. Relevant, Important,
+Urgent, Skip for now, Dismiss and Should be fixed now record the same feedback as `sentinel feedback`. With several
 instances it has a tab for each, showing how old the commit it runs (from its root endpoint) is.
 
 Trace history on a finding lists the commits that changed the lines it names (`git log -L`, from the commit its

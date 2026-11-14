@@ -5,6 +5,7 @@
 - A finding must clear `min_priority`, and its signatures must have shown up in more than one bucket.
 - Nothing already suggested, accepted, acted on, dismissed or fixed is suggested again; "later" waits out its snooze.
 - If nothing qualifies, the digest says so. That is a good outcome.
+- Among those that qualify, the kinds of finding the person usually acts on come first (see preferences.py).
 """
 
 import json
@@ -12,6 +13,7 @@ import os
 from datetime import datetime, timezone
 
 from .config import Config
+from .preferences import rank
 from .store import Store, now
 from .summary import watched_seconds
 
@@ -46,7 +48,7 @@ def eligible_findings(store: Store, config: Config) -> list:
     return result
 
 
-def write_digest(store: Store, config: Config, out_dir: str, force: bool = False) -> str:
+def write_digest(store: Store, config: Config, out_dir: str, force: bool = False, learned: dict | None = None) -> str:
     ts = now()
     since = store.get_state("last_digest_ts", 0)
     watched_hours = watched_seconds(store, since, ts, config.poll_seconds) / 3600
@@ -56,6 +58,8 @@ def write_digest(store: Store, config: Config, out_dir: str, force: bool = False
         )
     budget = min(config.digest_size, config.max_per_week - store.suggestions_since(ts - 7 * 86400))
     candidates = eligible_findings(store, config)
+    if learned:
+        candidates.sort(key=lambda f: rank(f, learned), reverse=True)
     chosen = candidates[: max(budget, 0)]
 
     stamp = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d-%H%M")
@@ -91,7 +95,7 @@ def write_digest(store: Store, config: Config, out_dir: str, force: bool = False
         lines += [
             "**Suggested fix.** " + f["suggested_fix"],
             "",
-            f"Respond with `uv run sentinel feedback {f['id']} accepted|acted|dismissed|later|fixed --comment \"...\"`",
+            f"Respond with `uv run sentinel feedback {f['id']} relevant|important|urgent|acted|dismissed|later|fixed --comment \"...\"`",
             "",
         ]
     with open(path, "w") as fh:
