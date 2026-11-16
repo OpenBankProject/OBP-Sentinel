@@ -85,20 +85,36 @@ nav .rated-label { align-self: center; margin-left: 12px; padding-left: 16px; bo
   color: var(--muted); font-size: 14px; }
 nav .n { font-family: var(--mono); font-size: 13px; margin-left: 4px; }
 #suggestions { margin-bottom: 28px; }
-.cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-.list { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.item { display: block; width: 100%; min-width: 0; overflow-wrap: break-word; text-align: left; padding: 14px 16px; border-radius: 8px; background: var(--surface);
+.cols { display: flex; flex-direction: column; gap: 20px; }
+/* The findings of the tab: a band of compact cards above the selected finding, scrolled on its own */
+.list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; max-height: 248px;
+  overflow-y: auto; padding: 2px; overscroll-behavior: contain; position: relative; }
+.list .empty { grid-column: 1 / -1; }
+.item { display: block; width: 100%; min-width: 0; overflow-wrap: break-word; text-align: left; padding: 10px 12px; border-radius: 8px; background: var(--surface);
   border: 1px solid var(--line); cursor: pointer; }
 .item[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .item .top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
 .item .top .prio { margin-left: auto; }
-.item .top .num { font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.item .top .num { font-size: 17px; font-weight: 700; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
 .cat { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
 .prio { font-family: var(--mono); font-size: 13px; color: var(--muted); }
-.item .t { font-weight: 600; margin-top: 4px; }
-.item .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 13px; color: var(--muted); }
+.item .t { font-weight: 600; margin-top: 4px; font-size: 14px; line-height: 1.35; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.item .meta { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 4px; font-size: 12px; color: var(--muted); }
 .empty { padding: 24px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); text-align: center; }
-article { flex: 999 1 560px; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
+/* The finding on the left; its status, ratings and actions on the right, kept in view while you read */
+.d-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 32px; align-items: start; }
+.d-side { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 0 4px 0 24px;
+  border-left: 1px solid var(--line); overflow-wrap: anywhere; }
+.d-side .grades { margin-top: 0; }
+.d-side .grades button { padding: 0 14px; }
+.d-side .actions button { min-width: 0; align-self: stretch; }
+.d-side .respond { border-top: 0; padding-top: 0; }
+@media (max-width: 1000px) {
+  .d-cols { grid-template-columns: minmax(0, 1fr); }
+  .d-side { position: static; max-height: none; overflow: visible; padding: 20px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+article { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
 article .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; font-size: 13px; color: var(--muted); }
 article .head .num { margin: -14px 0 10px auto; font-size: 32px; font-weight: 700; line-height: 1; color: var(--ink);
   font-variant-numeric: tabular-nums; }
@@ -364,19 +380,14 @@ nav.instances .flag.warn { background: var(--warn); }
         </button>
       </div>
       <p class="summary" id="d-summary" hidden></p>
+      <div class="d-cols">
+      <div class="d-main">
       <div class="scores">
         <div class="p"><small>Priority</small><b id="d-priority"></b></div>
         <div><small>Impact</small><b id="d-impact"></b></div>
         <div><small>Confidence</small><b id="d-confidence"></b></div>
         <div><small>Effort</small><b id="d-effort"></b></div>
         <div><small>Trend</small><b id="d-trend"></b></div>
-      </div>
-      <div class="grades" role="group" aria-label="How much this matters to you">
-        <button type="button" data-verdict="relevant" data-testid="grade-relevant" title="Worth fixing">Relevant</button>
-        <button type="button" data-verdict="important" data-testid="grade-important" title="Worth fixing soon; counts twice in what Sentinel learns">Important</button>
-        <button type="button" data-verdict="urgent" data-testid="grade-urgent" title="Fix first: also puts it at the head of the Fix this queue">Urgent</button>
-        <button type="button" data-verdict="later" data-testid="grade-later" title="Brings it back later">Skip for now</button>
-        <button type="button" data-verdict="dismissed" data-testid="grade-dismissed" title="Hides it and its log messages for good">Dismiss</button>
       </div>
       <h3>Evidence</h3><p id="d-evidence"></p>
       <h3>Why it happens</h3><p id="d-hypothesis"></p>
@@ -387,6 +398,15 @@ nav.instances .flag.warn { background: var(--warn); }
         <div class="introduced" id="d-introduced" hidden></div>
         <div id="d-history"></div>
         <button type="button" id="trace-btn" title="Which commit introduced the problem">Trace history</button>
+      </div>
+      </div>
+      <aside class="d-side" aria-label="Status and actions">
+      <div class="grades" role="group" aria-label="How much this matters to you">
+        <button type="button" data-verdict="relevant" data-testid="grade-relevant" title="Worth fixing">Relevant</button>
+        <button type="button" data-verdict="important" data-testid="grade-important" title="Worth fixing soon; counts twice in what Sentinel learns">Important</button>
+        <button type="button" data-verdict="urgent" data-testid="grade-urgent" title="Fix first: also puts it at the head of the Fix this queue">Urgent</button>
+        <button type="button" data-verdict="later" data-testid="grade-later" title="Brings it back later">Skip for now</button>
+        <button type="button" data-verdict="dismissed" data-testid="grade-dismissed" title="Hides it and its log messages for good">Dismiss</button>
       </div>
       <div class="respond">
         <p class="previous" id="d-previous" hidden></p>
@@ -427,6 +447,8 @@ nav.instances .flag.warn { background: var(--warn); }
         </div>
         <p class="desc"><a href="/help#buttons">What these buttons do</a></p>
         <p class="status" role="status" id="status"></p>
+      </div>
+      </aside>
       </div>
     </article>
   </div>
@@ -722,6 +744,11 @@ function render() {
     ]);
     b.querySelector('.cat').style.color = CAT_COLOR[f.category] || 'var(--muted)';
     b.setAttribute('aria-current', String(f.id === state.selected));
+    if (f.id === state.selected) requestAnimationFrame(() => {
+      const list = $('list');
+      if (b.offsetTop < list.scrollTop || b.offsetTop + b.offsetHeight > list.scrollTop + list.clientHeight)
+        list.scrollTop = b.offsetTop - 4;
+    });
     const pick = () => { state.selected = f.id; $('comment').value = ''; setStatus(''); render(); };
     b.onclick = () => { if (!String(getSelection())) pick(); };  // not when the click ended a text selection
     b.onkeydown = (e) => { if (e.key === 'Enter') pick(); };
