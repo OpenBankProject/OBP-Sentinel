@@ -426,6 +426,8 @@ nav.instances .flag.warn { background: var(--warn); }
               <h3>The fix's files</h3>
               <ul class="files" id="d-staged-files"></ul>
               <p class="desc">Review it in your IDE, then Stage and Commit. Sentinel commits only when you press Commit.</p>
+              <label for="d-commit-msg">Commit message <span>(edit it before you press Commit)</span></label>
+              <textarea id="d-commit-msg" data-testid="commit-message" rows="2" maxlength="500" spellcheck="true"></textarea>
               <pre class="commands" id="d-commands" data-testid="fix-commands"></pre>
               <div class="actions">
                 <div class="act"><button type="button" class="fix-action" data-action="stage" data-testid="stage-btn" title="git add this fix's files, with your changes">Stage</button></div>
@@ -856,6 +858,11 @@ function renderFix(f) {
   $('d-staged').hidden = !staged;
   if (staged) {
     $('d-staged-files').replaceChildren(...(f.fix_files || []).map((name) => el('li', { textContent: name })));
+    // Your edit is kept per finding until you commit, also when the page refreshes itself
+    if (document.activeElement !== $('d-commit-msg') || $('d-commit-msg').dataset.for !== String(f.id)) {
+      $('d-commit-msg').value = commitMessage(f);
+      $('d-commit-msg').dataset.for = String(f.id);
+    }
     $('d-commands').textContent = commitCommands(f);
     document.querySelector('.fix-action[data-action="stage"]').disabled = f.fix_index === 'staged';
     document.querySelector('.fix-action[data-action="unstage"]').disabled = f.fix_index === 'unstaged';
@@ -908,11 +915,24 @@ async function loadFixLog(f) {
 // The commands to commit a staged fix by hand: git add its files, then git commit with its one short line. Quoted for a POSIX
 // shell.
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+// The commit message: your edit if you made one, else Claude's one line
+const commitDrafts = {};
+const commitMessage = (f) => commitDrafts[f.id] ?? (f.fix_message || f.title);
+
 function commitCommands(f) {
   const git = `git -C ${shq(state.overview ? state.overview.obp_api_source : '.')}`;
   return [`${git} add ${(f.fix_files || []).map(shq).join(' ')}`,
-          `${git} commit -m ${shq(f.fix_message || f.title)}`].join('\n');
+          `${git} commit -m ${shq(commitMessage(f).split(/\s+/).join(' ').trim())}`].join('\n');
 }
+
+$('d-commit-msg').addEventListener('input', () => {
+  const f = state.findings.find((x) => x.id === state.selected);
+  if (!f) return;
+  commitDrafts[f.id] = $('d-commit-msg').value;
+  $('d-commands').textContent = commitCommands(f);
+});
+// Enter commits nothing by itself: one line only
+$('d-commit-msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
 
 $('copy-commands-btn').addEventListener('click', async () => {
   try {
@@ -935,11 +955,16 @@ document.querySelectorAll('.fix-action').forEach((button) => button.addEventList
   const action = button.dataset.action;
   if (action === 'commit') {
     const f = state.findings.find((x) => x.id === id);
-    if (!confirm(`Commit the fix for #${id} with the message:\n\n${f.fix_message || f.title}`)) return;
+    const message = commitMessage(f).split(/\s+/).join(' ').trim();
+    if (!message) { setStatus('Write a commit message first.', true); return; }
+    if (!confirm(`Commit the fix for #${id} with the message:\n\n${message}`)) return;
   }
   button.disabled = true;
   try {
-    const done = await api(`/api/findings/${id}/fix/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const f = state.findings.find((x) => x.id === id);
+    const body = action === 'commit' ? { message: commitMessage(f).split(/\s+/).join(' ').trim() } : {};
+    const done = await api(`/api/findings/${id}/fix/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (action === 'commit') delete commitDrafts[id];
     state.findings = await api('/api/findings');
     state.fixLogFor = null;
     render();

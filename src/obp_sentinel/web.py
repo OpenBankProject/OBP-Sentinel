@@ -480,8 +480,19 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                         return self._json(HTTPStatus.CONFLICT, {"error": reason})
                     act = {"stage": fixer.stage, "unstage": fixer.unstage, "commit": fixer.commit,
                            "discard": fixer.take_back}[action.group(2)]
+                    finding_id = int(action.group(1))
                     try:
-                        return self._json(HTTPStatus.OK, act(config, int(action.group(1))))
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(min(length, MAX_BODY_BYTES)) or b"{}")
+                    except json.JSONDecodeError:
+                        body = {}
+                    message = body.get("message") if isinstance(body, dict) else None
+                    if message is not None and not isinstance(message, str):
+                        return self._json(HTTPStatus.BAD_REQUEST, {"error": "message must be text."})
+                    try:
+                        if action.group(2) == "commit":
+                            return self._json(HTTPStatus.OK, fixer.commit(config, finding_id, message))
+                        return self._json(HTTPStatus.OK, act(config, finding_id))
                     except ValueError as e:
                         return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
                 return

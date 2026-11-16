@@ -125,6 +125,20 @@ def test_a_fix_only_unstaged_in_the_ide_is_still_there_to_stage(cfg, trees, monk
     assert fixer.commit(cfg, fid)["fix_status"] == "committed"
 
 
+def test_commit_uses_the_persons_edited_message_made_one_line(cfg, trees, monkeypatch):
+    source, worktree = trees
+    fid = new_finding(cfg)
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
+    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    assert fixer.fix(cfg, fid) == "staged"
+    with pytest.raises(ValueError, match="empty"):
+        fixer.commit(cfg, fid, "   ")
+    assert fixer.commit(cfg, fid, "fix: Update Customer Address\n  checks the bank ")["fix_status"] == "committed"
+    assert fixer.git(str(source), "log", "-1", "--format=%B") == "fix: Update Customer Address checks the bank"
+    assert row(cfg, fid)["fix_message"] == "fix: Update Customer Address checks the bank"
+
+
 def test_whether_a_fix_is_staged_unstaged_or_partly():
     files = ["a", "b"]
     assert [fixer.index_state(files, c) for c in ({"a", "b", "x"}, set(), {"a"})] == ["staged", "unstaged", "partly"]

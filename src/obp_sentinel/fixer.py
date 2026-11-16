@@ -588,9 +588,19 @@ def index_state(files: list[str], cached: set[str]) -> str:
     return "staged" if files and staged == len(files) else "unstaged" if not staged else "partly"
 
 
-def commit(config: Config, finding_id: int) -> dict:
-    """Commit, when the person presses it: commit what is staged, with the fix's message, and let the queue go on.
-    Refuses when something other than the fix's files is staged, so nothing else goes in by mistake."""
+MESSAGE_MAX = 500  # an edited commit message: the person decides how long, within reason
+
+
+def commit(config: Config, finding_id: int, message: str | None = None) -> dict:
+    """Commit, when the person presses it: commit what is staged, with `message` (the person's edit of the fix's
+    message, made one line) or else the fix's own, and let the queue go on. Refuses when something other than the
+    fix's files is staged, so nothing else goes in by mistake."""
+    if message is not None:
+        message = " ".join(message.split())
+        if not message:
+            raise ValueError("The commit message is empty: write one, or put back the suggested one")
+        if len(message) > MESSAGE_MAX:
+            raise ValueError(f"The commit message is longer than {MESSAGE_MAX} characters: shorten it")
     store = Store(config.db_path)
     try:
         row = _staged(store, finding_id)
@@ -602,7 +612,7 @@ def commit(config: Config, finding_id: int) -> dict:
         raise ValueError("Nothing is staged in your working tree: press Stage first")
     if others := sorted(set(staged) - set(json.loads(row["fix_files"] or "[]"))):
         raise ValueError(f"Other files are staged too ({', '.join(others[:5])}): unstage them, or commit with git yourself")
-    subject = message_of(row)
+    subject = message or message_of(row)
     done = run_git(source, "commit", "-q", "-m", subject)
     if done.returncode != 0:
         said = (done.stderr or done.stdout).strip()

@@ -72,8 +72,10 @@ checks, even where the logs show nothing wrong.
   raise that kind of problem again. Only what you choose to do counts, not what you open or read; Look again marking
   a finding fixed does not count either. The page says what it has learned above the tabs, with Forget to start again.
 
-At this stage Sentinel is read-only towards OBP-API: it does not change log levels, edit source or open
-pull requests.
+Towards a running OBP-API instance Sentinel is read-only: it does not change log levels or any other setting.
+It changes OBP-API's source only when you ask it to. When you press Fix this (or Fix all), Claude edits your
+OBP-API checkout and stages the change for you to check. Sentinel commits only when you press Commit, and it
+never branches, pushes or opens pull requests.
 
 ## Setup
 
