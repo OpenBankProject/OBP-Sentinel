@@ -9,7 +9,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from . import history, preferences
+from . import history, preferences, sonar
 from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
 from .scanner import Scanner
@@ -161,6 +161,15 @@ def cmd_feedback(args, config: Config, store: Store) -> None:
     print(f"Finding #{args.finding_id} marked {args.verdict}")
 
 
+def cmd_sonar(args, config: Config, store: Store) -> None:
+    if not config.sonarcloud_project:
+        raise SystemExit("Set SONARCLOUD_PROJECT (e.g. OpenBankProject_OBP-API) to read SonarCloud.")
+    done = sonar.check(config)
+    pr = f", including new issues on pull request {done['pull_request']}" if done["pull_request"] else ""
+    print(f"SonarCloud {config.sonarcloud_project}: {done['added']} findings added, {done['updated']} updated, "
+          f"{done['fixed']} marked fixed{pr}.")
+
+
 def cmd_ignore(args, config: Config, store: Store) -> None:
     if not store.set_signature_status(args.signature_id, "dismissed"):
         sys.exit(f"No signature {args.signature_id}")
@@ -187,6 +196,7 @@ def cmd_run(args, configs: list[Config]) -> None:
     scanner.start()
     tracing = threading.Event()  # set to stop Trace history by itself
     threading.Thread(target=history.trace_forever, args=(configs, tracing), name="trace-history", daemon=True).start()
+    threading.Thread(target=sonar.check_forever, args=(configs, tracing), name="sonarcloud", daemon=True).start()
     first = configs[0]
     server = serve_in_background(configs, args.host or first.ui_host, args.port or first.ui_port,
                                  tuple(args.allow_host), analysts, scanner)
@@ -322,6 +332,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("verdict", choices=VERDICTS)
     p.add_argument("--comment")
     p.set_defaults(func=cmd_feedback)
+
+    sub.add_parser("sonar", help="read SonarCloud's security and reliability issues into findings now").set_defaults(
+        func=cmd_sonar)
 
     p = sub.add_parser("ignore", help="never show a signature again")
     p.add_argument("signature_id")

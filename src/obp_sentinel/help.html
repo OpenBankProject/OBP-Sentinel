@@ -54,6 +54,63 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
   </div>
 </header>
 <main>
+<section id="buttons">
+<h1>Buttons on a finding</h1>
+<h3>How much it matters to you</h3>
+<ul>
+  <li><strong>Relevant</strong>, <strong>Important</strong> and <strong>Urgent</strong> say how much a finding matters
+    to you. The finding stays where it is. Sentinel learns from them and shows first the kinds of finding you rate:
+    Important counts twice and Urgent three times. Urgent also puts the finding at the head of the Fix this queue.</li>
+  <li><strong>Skip for now</strong> snoozes the finding. It comes back later.</li>
+  <li><strong>Dismiss</strong> hides the finding and its log messages for good. Say why in the comment box first: the
+    analyst reads it and will not raise that kind of finding again.</li>
+  <li>The <strong>Your ratings</strong> tabs list the findings you gave each rating that are not done yet. On the Urgent,
+    Important and Relevant tabs, <strong>Fix all</strong> queues Fix this, with tests, for each of them. <strong>Fix all without tests</strong> does the same without running tests; CI runs them once you push.</li>
+</ul>
+<h3>History</h3>
+<ul>
+  <li><strong>Trace history</strong> lists the commits that changed the lines the finding names, back into the Lift
+    code. Claude then says which commit introduced the problem.</li>
+</ul>
+<h3>Acting on a finding</h3>
+<p>What each button leads to is shown underneath it.</p>
+<ul>
+  <li><strong>Save comment</strong> keeps your comment with the finding and changes nothing else. Fix this follows
+    every comment on the finding, and the analyst reads them.</li>
+  <li><strong>Fix this</strong> saves the comment box, then queues the finding. Claude fixes it in Sentinel's own
+    worktree of OBP-API, following your comments, and runs the tests that cover it. If they pass, Sentinel stages the
+    change in your working tree. Fixes are made one at a time: the next starts once you have committed or discarded
+    the one before.</li>
+  <li><strong>Fix this without tests</strong> is the same, but faster. Claude adds the test scenarios and compiles,
+    but runs no tests; they run in the cloud (CI) once you push. The fix is marked "tests not run" until then.</li>
+  <li><strong>Should be fixed now</strong> says you think it is fixed. The finding moves to Done, and the analyst
+    checks that its log errors dropped, and says so if not.</li>
+  <li><strong>Look again: still an issue?</strong> has Claude read the code the instance runs now and answer in one
+    line. Nothing else changes. It reads the deployed commit, so a fix you have committed but not deployed still
+    shows as an issue.</li>
+</ul>
+<h3>A fix in your working tree</h3>
+<p>Under Fix this, <strong>Now</strong> says where the fix is today, read from git each time you open the finding:
+  staged and not committed, committed and not pushed, pushed but not yet running on the instance, or running there.
+  <strong>What Senti did</strong> is Claude's report from the time of the fix, and does not change. Staged means
+  waiting for the next commit: git add (or Stage) puts changes there, and git commit saves them.</p>
+<p>Review the change in your IDE and change it if you like. Sentinel commits only when you press Commit.</p>
+<ul>
+  <li><strong>Stage</strong> adds the fix's files again, with any changes you made to them.</li>
+  <li><strong>Unstage</strong> takes them out of what is staged. Your changes stay in the files. Unstaging in your
+    IDE does the same.</li>
+  <li><strong>Commit</strong> commits what is staged, with the one-line message shown. It refuses if files other
+    than the fix's are staged. The finding then moves to Done, and the next queued fix starts.</li>
+  <li><strong>Copy the commands</strong> copies the same git commands, to run in a terminal instead.</li>
+  <li><strong>Discard</strong> takes the fix back out of your working tree. The next queued fix then starts.</li>
+</ul>
+<h3>Findings from SonarCloud</h3>
+<p>A finding whose evidence starts "SonarCloud reports" comes from SonarCloud's analysis of OBP-API, read every hour.
+  Sentinel keeps only security issues, security hotspots, serious reliability issues and new issues on your pull
+  request. Each links to the issue on SonarCloud. Static analysis can be wrong, so read the code before you press Fix
+  this. When SonarCloud stops reporting it, the finding moves to Done.</p>
+</section>
+<h2>About Sentinel</h2>
 <div id="help"><p class="lead">Loading the OBP-Sentinel glossary item from OBP-API…</p></div>
 <p class="source" id="source"></p>
 </main>

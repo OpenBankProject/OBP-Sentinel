@@ -253,7 +253,7 @@ def ask(config: Config, text: str, budget_usd: float, timeout_minutes: int = 5) 
 
 
 CHECK_PROMPT = "Reply with the single word OK."
-CHECK_BUDGET_USD = 0.25
+CHECK_BUDGET_USD = 1
 
 
 def check_claude(config: Config) -> dict:

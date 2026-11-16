@@ -31,7 +31,7 @@ checks, even where the logs show nothing wrong.
 - **Source review**: besides what the logs point at, Sentinel reads the code of the endpoints that can be
   reached, looking for SQL injection, missing authorisation checks and similar problems. It is on from the
   start, and turned off and on again with Stop and Go on the page; while it is off, the page says so at the top. While on, the source scanner reviews `SENTINEL_SCAN_ENDPOINTS` (2)
-  endpoints every `SENTINEL_SCAN_MINUTES` (10), each scan spending at most `SENTINEL_SCAN_BUDGET_USD` ($0.50),
+  endpoints every `SENTINEL_SCAN_MINUTES` (10), each scan capped at `SENTINEL_SCAN_BUDGET_USD` (3),
   with the agent in `.claude/agents/obp-sentinel-source-reviewer.md`. Whether it is on survives restarts. Once a day (and when the commit changes) the collector lists the endpoints each
   instance serves (`GET /obp/v6.0.0/api/versions` and the resource docs of each active version) and the Roles
   anyone holds there (`GET /obp/v7.0.0/reachable-roles`: Role names only). `sentinel source next` puts first
@@ -45,13 +45,23 @@ checks, even where the logs show nothing wrong.
   this repo's git): `endpoints.jsonl` and `units.jsonl`, one sorted line per endpoint and per file or
   function, so it can be kept in a private git repo. Sentinel never commits it, and reads it back when its
   database lacks reviews (a new machine).
+- **SonarCloud** (`SONARCLOUD_PROJECT`, e.g. `OpenBankProject_OBP-API`): every hour Sentinel reads SonarCloud's
+  analysis of OBP-API, which needs no login for a public project. SonarCloud lists thousands of issues, nearly all
+  about style, so Sentinel keeps only security issues of medium severity or above, security hotspots still to
+  review, reliability issues of high severity or above, and every issue of medium severity or above that is new on
+  the pull request for the branch your checkout is on. It leaves out test code. The issues of one rule in one file
+  make one finding, with a link to each issue on SonarCloud. A finding SonarCloud no longer reports is marked fixed,
+  unless you acted on it or dismissed it. `sentinel sonar` reads it now. Sentinel never changes anything on SonarCloud.
 - **Digest** (`sentinel digest`): the only thing people see. It is written only after enough hours of
   watching, holds at most 3 suggestions (and 10 a week), skips anything below the priority threshold or
   seen in only one bucket, and never repeats what was suggested, acted on, dismissed or fixed. When nothing
   qualifies it says so.
 - **Feedback** (`sentinel feedback`): relevant / important / urgent / acted / dismissed / later / fixed.
   Relevant, Important and Urgent say how much a finding matters to you and leave it where it is; on the page,
-  Urgent also puts it at the head of the Fix this queue. Later is Skip for now on the page. `acted` means someone tried
+  Urgent also puts it at the head of the Fix this queue. The Your ratings tabs (Urgent, Important, Relevant,
+  Skipped, Dismissed) list every finding you gave that rating, whatever stage it is at; on the Urgent, Important and
+  Relevant tabs, Fix all queues Fix this, with tests, for each of them it has not been tried on, and Fix all without tests does the same without running tests. Later is Skip for now
+  on the page. `acted` means someone tried
   to act on the suggestion; the analyst then checks whether the problem went away. Dismissing a finding also
   hides its signatures from future summaries.
 - **Learning from your responses**: across all instances, Sentinel counts per category how many findings you acted
@@ -108,8 +118,9 @@ pull requests.
      may not read your login shell's PATH), set `SENTINEL_CLAUDE_COMMAND` to its full path, e.g.
      `/home/you/.local/bin/claude`.
    - Set `OBP_API_SOURCE` to the OBP-API checkout: the runs read its source.
-   - Each run is capped: `SENTINEL_ANALYSE_BUDGET_USD` (2) per analysis, `SENTINEL_SCAN_BUDGET_USD` (0.50)
-     per source scan.
+   - Each run is capped: `SENTINEL_ANALYSE_BUDGET_USD` (10) per analysis, `SENTINEL_SCAN_BUDGET_USD` (3)
+     per source scan, `SENTINEL_FIX_BUDGET_USD` (15) per fix. The caps are in dollars at API prices, as Claude Code
+     counts them. On a Claude subscription such as Max nothing is charged: they only stop a run that goes on and on.
 
    While any of this is missing, the page lists "Sentinel cannot run Claude Code" under the things to fix,
    with what to do. Sentinel still collects; it just analyses nothing.
@@ -202,7 +213,7 @@ but only when it is worth the tokens:
 - something new since the last run: a new problem, one at least twice as frequent as before, or a
   response from a person; or the last run is a day old. Otherwise the check says "Nothing new" and waits.
 
-Each run is capped at `SENTINEL_ANALYSE_BUDGET_USD` ($2) and `SENTINEL_ANALYSE_TIMEOUT_MINUTES` (30), and
+Each run is capped at `SENTINEL_ANALYSE_BUDGET_USD` (10) and `SENTINEL_ANALYSE_TIMEOUT_MINUTES` (30), and
 only one runs at a time, even with `collect` and `ui` in separate processes. It may only run
 `uv run sentinel ...`, read-only git in `OBP_API_SOURCE`, read files and write under `work/`; your MCP
 servers are not loaded. The web page shows its steps as it works: tool calls and its notes, never what
@@ -241,6 +252,7 @@ OBP-Sandbox-Populator against it.
 | `sentinel digest [--force]` | Write the next digest |
 | `sentinel feedback <id> relevant\|important\|urgent\|acted\|dismissed\|later\|fixed` | Respond to a suggestion |
 | `sentinel ui [--port 8765] [--no-analyst]` | Only the web page to read findings and respond to them |
+| `sentinel sonar` | Read SonarCloud's security and reliability issues into findings now |
 | `sentinel ignore <signature>` | Never show a signature again |
 | `sentinel source next [--n 3]` | The next endpoints to review, most reachable first, across all instances |
 | `sentinel source done <operation_id> <units> --commit <c>` | Record an endpoint as reviewed, with the files (or `path#function` in big files) read |
@@ -262,11 +274,16 @@ OBP-Sandbox-Populator against it.
 
 `sentinel run` (or `sentinel ui` on its own) serves a page on http://127.0.0.1:8765 (`SENTINEL_UI_HOST`, `SENTINEL_UI_PORT`) listing
 the findings by status, each with its evidence, the files in OBP-API and the suggested change. Relevant, Important,
-Urgent, Skip for now, Dismiss and Should be fixed now record the same feedback as `sentinel feedback`. With several
+Urgent, Skip for now, Dismiss and Should be fixed now record the same feedback as `sentinel feedback`.
+A fix Fix this has staged in your checkout shows Stage (git add its files again, with your changes), Commit (with
+Claude's message: one short line in plain English; only the fix's files) and Discard, and the same git commands to
+run yourself. Sentinel commits only when you press Commit. If Sentinel runs as another user than you, set
+`GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` in `.env`, so git knows who
+to commit as. With several
 instances it has a tab for each, showing how old the commit it runs (from its root endpoint) is.
 
 Trace history on a finding lists the commits that changed the lines it names (`git log -L`, from the commit its
-evidence names, oldest first), and starts a short Claude run (at most $0.30, git read commands only) that reads their
+evidence names, oldest first), and starts a short Claude run (git read commands only) that reads their
 diffs and says which commit introduced the problem. Both are kept with the finding.
 
 When something stops Sentinel from watching an instance (missing OIDC settings, a token OBP-API rejects, missing

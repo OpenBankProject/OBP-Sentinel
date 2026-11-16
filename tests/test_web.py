@@ -274,3 +274,25 @@ def test_findings_carry_the_latest_rating_for_the_pressed_button(server, config)
     assert rating() == "important"  # a comment leaves the rating as it was
     request(server, "POST", "/api/findings/1/feedback", {"verdict": "later"}, json_headers)
     assert rating() == "later"
+
+
+def test_fix_the_rated_findings_from_the_page(server, config, monkeypatch):
+    from obp_sentinel import fixer
+    json_headers = {"Content-Type": "application/json"}
+    request(server, "POST", "/api/findings/1/feedback", {"verdict": "relevant"}, json_headers)
+    assert json.loads(request(server, "GET", "/api/findings")[1])[0]["to_fix"] is True
+    status, data = request(server, "POST", "/api/fix-queue/fix-all-rated", {}, json_headers)
+    assert status == 400  # which rating is missing
+    status, data = request(server, "POST", "/api/fix-queue/fix-all-rated", {"rating": "relevant", "tests": "no"}, json_headers)
+    assert status == 400  # tests must be true or false
+    status, data = request(server, "POST", "/api/fix-queue/fix-all-rated", {"rating": "relevant"}, json_headers)
+    assert status == 409 and "OBP_API_SOURCE" in json.loads(data)["error"]  # no OBP-API checkout in tests
+    monkeypatch.setattr(fixer, "unavailable_reason", lambda config: None)
+    monkeypatch.setattr(web, "unavailable_reason", lambda config, scheduled=True: None)
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    status, data = request(server, "POST", "/api/fix-queue/fix-all-rated", {"rating": "urgent"}, json_headers)
+    assert status == 200 and json.loads(data) == {"queued": 0}  # it is rated Relevant
+    status, data = request(server, "POST", "/api/fix-queue/fix-all-rated", {"rating": "relevant"}, json_headers)
+    assert status == 200 and json.loads(data) == {"queued": 1}
+    item = json.loads(request(server, "GET", "/api/findings")[1])[0]
+    assert (item["fix_status"], item["to_fix"]) == ("queued", False)

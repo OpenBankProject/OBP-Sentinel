@@ -1,3 +1,4 @@
+import subprocess
 from dataclasses import replace
 
 import pytest
@@ -59,7 +60,7 @@ def row(cfg, fid):
         store.close()
 
 
-def test_a_fix_is_staged_in_the_persons_working_tree_and_committed_with_their_message(cfg, trees, monkeypatch):
+def test_a_fix_is_staged_in_the_persons_working_tree_for_them_to_commit(cfg, trees, monkeypatch):
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
@@ -75,12 +76,69 @@ def test_a_fix_is_staged_in_the_persons_working_tree_and_committed_with_their_me
     store.close()
     assert "tool" in kinds and "result" in kinds and kinds.count("sentinel") >= 3  # the full log, as it happened
     assert fixer.waiting(cfg).startswith(f"#{fid} is staged")  # the next fix waits
-    with pytest.raises(ValueError):
-        fixer.commit(cfg, fid, "  ")
-    assert fixer.commit(cfg, fid, "Address  update checks the bank")["fix_status"] == "committed"
-    assert fixer.git(str(source), "log", "-1", "--format=%s|%b|%an") == "Address update checks the bank||Ada"
+    fixer.git(str(source), "commit", "-qm", "Address update checks the bank")
+    assert fixer.waiting(cfg) is None
     f = row(cfg, fid)
     assert f["status"] == "fixed" and f["fix_status"] == "committed" and fixer.waiting(cfg) is None
+
+
+def test_stage_and_commit_from_the_page_commit_only_when_pressed(cfg, trees, monkeypatch):
+    source, worktree = trees
+    fid = new_finding(cfg)
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
+    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    assert fixer.fix(cfg, fid) == "staged"
+    assert fixer.git(str(source), "log", "--format=%s") == "first"  # nothing committed until Commit is pressed
+    (source / "obp-api/src/A.scala").write_text("fixed, and tidied in the IDE\n")
+    assert fixer.stage(cfg, fid) == {"staged": ["obp-api/src/A.scala"]}
+    (source / "obp-api/src/B.scala").write_text("something else\n")
+    fixer.git(str(source), "add", "obp-api/src/B.scala")
+    with pytest.raises(ValueError, match="B.scala"):  # never commits anything but the fix
+        fixer.commit(cfg, fid)
+    fixer.git(str(source), "restore", "--staged", "obp-api/src/B.scala")
+    assert fixer.commit(cfg, fid)["fix_status"] == "committed"
+    assert fixer.git(str(source), "log", "-1", "--format=%B") == "Fix: Update Customer Address checks the bank"  # one line
+    assert fixer.git(str(source), "show", "HEAD:obp-api/src/A.scala") == "fixed, and tidied in the IDE"
+    assert fixer.git(str(source), "status", "--porcelain") == "M obp-api/src/B.scala"  # theirs, left alone
+    f = row(cfg, fid)
+    assert (f["status"], f["fix_status"]) == ("fixed", "committed") and fixer.waiting(cfg) is None
+
+
+def test_a_fix_only_unstaged_in_the_ide_is_still_there_to_stage(cfg, trees, monkeypatch):
+    source, worktree = trees
+    fid = new_finding(cfg)
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
+    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "start", lambda config: None)
+    assert fixer.fix(cfg, fid) == "staged"
+    git(source, "restore", "--staged", "obp-api/src/A.scala")  # unstaged, still changed
+    assert fixer.waiting(cfg).startswith(f"#{fid} is staged") and row(cfg, fid)["fix_status"] == "staged"
+    with pytest.raises(ValueError, match="press Stage"):
+        fixer.commit(cfg, fid)
+    fixer.stage(cfg, fid)
+    assert fixer.unstage(cfg, fid) == {"unstaged": ["obp-api/src/A.scala"]}
+    assert fixer.git(str(source), "diff", "--cached", "--name-only") == ""
+    assert (source / "obp-api/src/A.scala").read_text() == "fixed\n"  # still changed
+    assert row(cfg, fid)["fix_status"] == "staged" and fixer.waiting(cfg).startswith(f"#{fid}")
+    fixer.stage(cfg, fid)
+    assert fixer.commit(cfg, fid)["fix_status"] == "committed"
+
+
+def test_whether_a_fix_is_staged_unstaged_or_partly():
+    files = ["a", "b"]
+    assert [fixer.index_state(files, c) for c in ({"a", "b", "x"}, set(), {"a"})] == ["staged", "unstaged", "partly"]
+
+
+def test_a_fix_unstaged_then_undone_in_the_ide_is_discarded(cfg, trees, monkeypatch):
+    source, worktree = trees
+    fid = new_finding(cfg)
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
+    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    assert fixer.fix(cfg, fid) == "staged"
+    git(source, "restore", "--staged", "obp-api/src/A.scala")
+    git(source, "restore", "obp-api/src/A.scala")
+    assert fixer.waiting(cfg) is None and row(cfg, fid)["fix_status"] == "discarded"
 
 
 def test_discard_takes_the_fix_back_out(cfg, trees, monkeypatch):
@@ -177,7 +235,7 @@ def test_the_claude_command_may_only_edit_the_worktree_source(config, cfg, trees
     tools = cmd[cmd.index("--allowedTools") + 1:cmd.index("--add-dir")]
     assert f"Edit(/{worktree}/obp-api/src/**)" in tools
     assert not any(t.startswith("Bash(git") and (" commit" in t or " push" in t) for t in tools)
-    assert fixer.unavailable_reason(replace(config, fix_worktree="")) is not None
+    assert fixer.unavailable_reason(replace(config, obp_api_source="")) is not None
     assert fixer.unavailable_reason(cfg) is None
 
 
@@ -185,7 +243,7 @@ def test_a_commit_message_is_one_short_line_without_a_number():
     title = {"title": "PUT /obp/v3.1.0/banks/BANK_ID/customers/CUSTOMER_ID/addresses/ID overwrites any address"}
     assert fixer.commit_message("Fixed: x.\nCommit: Fix: #61 balances  need a view.", title) == "Fix: 61 balances need a view"
     assert fixer.commit_message("Fixed: x.\nCommit: Balances need a view", title) == "Fix: Balances need a view"
-    assert fixer.commit_message("Fixed: x.", title) == f"Fix: {title['title']}"
+    assert fixer.commit_message("Fixed: x.", title) == "Fix: PUT /obp/v3.1.0/banks/BANK_ID/customers/CUSTOMER_ID/addresses/ID"  # cut at a word
     long = fixer.commit_message("Fixed: x.\nCommit: " + "word " * 60, title)
     assert len(long) <= fixer.COMMIT_MAX and "\n" not in long and long.startswith("Fix: word")
 
@@ -273,25 +331,18 @@ def test_fix_this_without_tests_stages_a_fix_whose_tests_were_not_run(cfg, trees
     assert "Tests: not run" in row(cfg, fid)["fix"]
 
 
-def test_commit_and_auto_continue_commits_each_next_fix_as_it_is_staged(cfg, trees, monkeypatch):
+def test_a_fix_the_person_changed_before_committing_counts_as_committed(cfg, trees, monkeypatch):
     source, worktree = trees
-    first, second = new_finding(cfg), new_finding(cfg)
+    fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
     monkeypatch.setattr(fixer, "compiles", lambda w: None)
-    monkeypatch.setattr(fixer, "start", lambda config: None)
-    assert fixer.fix(cfg, first) == "staged"
-    fixer.commit(cfg, first, "First fix", auto=True)
-    assert fixer.is_auto(cfg.name)
-
-    def fix_b(*args, **kwargs):
-        (worktree / "obp-api/src/B.scala").write_text("fixed too\n")
-        return None, 0.5, FIXED, None
-    monkeypatch.setattr(fixer, "run_claude", fix_b)
-    assert fixer.fix(cfg, second) == "committed"
-    assert fixer.git(str(source), "log", "-1", "--format=%s") == "Fix: Update Customer Address checks the bank"
-    assert row(cfg, second)["fix_status"] == "committed"
-    fixer.stop_auto(cfg.name)
-    assert not fixer.is_auto(cfg.name)
+    assert fixer.fix(cfg, fid) == "staged"
+    (source / "obp-api/src/A.scala").write_text("fixed my way\n")
+    fixer.git(str(source), "add", "obp-api/src/A.scala")
+    fixer.git(str(source), "commit", "-qm", "Check the bank")
+    assert fixer.waiting(cfg) is None
+    f = row(cfg, fid)
+    assert (f["status"], f["fix_status"], f["fix_message"]) == ("fixed", "committed", "Check the bank")
 
 
 def test_fix_the_build_puts_a_finding_of_the_failure_at_the_head_of_the_queue(cfg, monkeypatch):
@@ -307,3 +358,35 @@ def test_fix_the_build_puts_a_finding_of_the_failure_at_the_head_of_the_queue(cf
     monkeypatch.setattr(fixer.build, "failure", lambda config: None)
     with pytest.raises(ValueError):
         fixer.fix_the_build(cfg)
+
+
+def test_sentinel_makes_its_worktree_with_the_props_when_first_needed(cfg, trees):
+    source, worktree = trees
+    git(source, "worktree", "remove", "--force", str(worktree))
+    props = source / fixer.PROPS
+    props.mkdir(parents=True)
+    (props / "default.props").write_text("db.url=mine\n")
+    fixer.make_worktree(cfg)
+    assert (worktree / ".git").exists() and (worktree / "obp-api/src/A.scala").read_text() == "broken\n"
+    assert (worktree / fixer.PROPS / "default.props").read_text() == "db.url=mine\n"
+    assert fixer.git(str(worktree), "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"  # detached: no branch
+    fixer.make_worktree(cfg)  # already there: nothing to do
+
+
+def test_where_a_committed_fix_is_now_pushed_and_running(tmp_path):
+    source = str(tmp_path / "repo")
+    remote = str(tmp_path / "remote.git")
+    def g(*args):
+        return fixer.git(source, *args)
+    subprocess.run(["git", "init", "-q", "--bare", remote], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "develop", source], check=True)
+    g("config", "user.email", "t@example.com"), g("config", "user.name", "T")
+    g("commit", "-q", "--allow-empty", "-m", "one")
+    old = g("rev-parse", "--short", "HEAD")
+    g("commit", "-q", "--allow-empty", "-m", "the fix")
+    fix = g("rev-parse", "--short", "HEAD")
+    assert fixer.where_committed(source, fix, old) == {"sha": fix, "pushed_to": [], "running": False}
+    g("remote", "add", "origin", remote)
+    g("push", "-q", "origin", "develop")
+    assert fixer.where_committed(source, fix, fix) == {"sha": fix, "pushed_to": ["origin/develop"], "running": True}
+    assert fixer.where_committed(source, fix, "abcdef1")["running"] is None  # a commit the checkout does not have

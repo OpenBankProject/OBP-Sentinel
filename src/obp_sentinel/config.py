@@ -194,10 +194,11 @@ class Config:
     scan_budget_usd: float  # most one scan may spend
     scan_endpoints: int  # endpoints reviewed per scan
 
-    fix_worktree: str  # Fix this: a git worktree of OBP-API that Claude fixes findings in, one commit each
+    fix_worktree: str  # Fix this: Sentinel's own git worktree of OBP-API, next to OBP_API_SOURCE, made when first needed
     fix_budget_usd: float  # most one fix may spend
 
     build_actions_url: str  # the OBP-API build on GitHub Actions, shown at the top of the page (build.py)
+    sonarcloud_project: str  # SonarCloud's key for OBP-API, read as another source of findings (sonar.py); "" for none
 
     @property
     def is_app(self) -> bool:
@@ -285,13 +286,14 @@ class Config:
             ui_port=int(env("SENTINEL_UI_PORT", "8765")),
             analyse_minutes=int(env("SENTINEL_ANALYSE_MINUTES", "60")),
             analyse_min_watch_hours=float(env("SENTINEL_ANALYSE_MIN_WATCH_HOURS", "2")),
-            analyse_budget_usd=float(env("SENTINEL_ANALYSE_BUDGET_USD", "2")),
+            analyse_budget_usd=float(env("SENTINEL_ANALYSE_BUDGET_USD", "10")),
             analyse_timeout_minutes=int(env("SENTINEL_ANALYSE_TIMEOUT_MINUTES", "30")),
             claude_command=env("SENTINEL_CLAUDE_COMMAND", "claude"),
             scan_minutes=int(env("SENTINEL_SCAN_MINUTES", "10")),
-            scan_budget_usd=float(env("SENTINEL_SCAN_BUDGET_USD", "0.5")),
+            scan_budget_usd=float(env("SENTINEL_SCAN_BUDGET_USD", "3")),
             scan_endpoints=int(env("SENTINEL_SCAN_ENDPOINTS", "2")),
-            fix_worktree=env("SENTINEL_FIX_WORKTREE", ""),
-            fix_budget_usd=float(env("SENTINEL_FIX_BUDGET_USD", "3")),
+            fix_worktree=(env("OBP_API_SOURCE", "").rstrip("/") + "-sentinel-fixes") if env("OBP_API_SOURCE", "") else "",
+            fix_budget_usd=float(env("SENTINEL_FIX_BUDGET_USD", "15")),
             build_actions_url="" if is_app else env("OBP_API_BUILD_ACTIONS_URL", ""),
+            sonarcloud_project="" if is_app else env("SONARCLOUD_PROJECT", ""),
         )

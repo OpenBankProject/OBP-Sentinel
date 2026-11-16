@@ -42,12 +42,12 @@ UNDO_PATH = re.compile(r"^/api/findings/(\d+)/undo$")
 TRACE_PATH = re.compile(r"^/api/findings/(\d+)/trace$")
 RECHECK_PATH = re.compile(r"^/api/findings/(\d+)/recheck$")
 FIX_PATH = re.compile(r"^/api/findings/(\d+)/fix$")
-FIX_ACTION_PATH = re.compile(r"^/api/findings/(\d+)/fix/(commit|discard)$")
+FIX_ACTION_PATH = re.compile(r"^/api/findings/(\d+)/fix/(stage|unstage|commit|discard)$")
 FIX_LOG_PATH = re.compile(r"^/api/findings/(\d+)/fix-log$")
 SWEEP_PATH = "/api/findings/recheck-security"
 QUEUE_TESTS_PATH = "/api/fix-queue/tests"
-QUEUE_STOP_AUTO_PATH = "/api/fix-queue/stop-auto"
 FIX_BUILD_PATH = "/api/fix-queue/fix-the-build"
+FIX_RATED_PATH = "/api/fix-queue/fix-all-rated"
 CLAUDE_CHECK_PATH = "/api/claude-check"
 HELP_GLOSSARY_ITEM = "/obp/v7.0.0/api/glossary/OBP-Sentinel"
 MAX_BODY_BYTES = 10_000
@@ -139,7 +139,7 @@ def overview(store: Store, config: Config) -> dict:
         "sweep": recheck.sweep_progress(config.name),
         "fix_unavailable": fixer.unavailable_reason(config),
         "fix_waiting": None if fixer.unavailable_reason(config) else fixer.waiting(config),
-        "fix_auto": fixer.is_auto(config.name),
+        "obp_api_source": config.obp_api_source,  # for the git commands a staged fix is committed with
         "fix_budget_usd": config.fix_budget_usd,
         "build": build.status(config),
         "bug_classes": classes.counts(store),
@@ -251,6 +251,11 @@ def findings(store: Store, config: Config) -> list[dict]:
     rating = dict(store.db.execute(
         f"SELECT f.finding_id, f.verdict FROM feedback f JOIN (SELECT finding_id, MAX(id) AS id FROM feedback "
         f"WHERE verdict IN ({marks}) AND from_sentinel = 0 GROUP BY finding_id) l ON l.id = f.id", RATINGS))
+    to_fix = set(fixer.rated_to_fix(store))
+    # What is staged in the person's checkout, for a fix waiting there: Stage and Unstage follow it
+    cached = set(fixer.git(config.obp_api_source, "diff", "--cached", "--name-only").splitlines()) \
+        if config.obp_api_source and any(f["fix_status"] == "staged" for f in store.findings()) else set()
+    running = (running_commit(store, config) or {}).get("git_commit")
     result = []
     for f in store.findings():
         item = dict(f)
@@ -266,11 +271,17 @@ def findings(store: Store, config: Config) -> list[dict]:
         if item.get("fix_status") == "running":
             item["fix_progress"] = fixer.progress(config.name, f["id"])
         item["fix_files"] = json.loads(item["fix_files"]) if item.get("fix_files") else None
+        if item.get("fix_status") == "staged":
+            item["fix_index"] = fixer.index_state(item["fix_files"] or [], cached)
+        if item.get("fix_status") == "committed" and config.obp_api_source \
+                and (sha := COMMIT_HASH.match(item.get("fix") or "")):
+            item["fix_now"] = fixer.where_committed(config.obp_api_source, sha.group(0), running)  # pushed, running
         item.pop("fix_patch", None)  # kept for Discard, not shown
         item["first_suggested"] = first_suggested.get(f["id"])
         item["comments"] = fixer.comments_of(store, f["id"])  # what people wrote; Fix this follows them
         item["feedback"] = latest_feedback.get(f["id"])
         item["rating"] = rating.get(f["id"])
+        item["to_fix"] = f["id"] in to_fix  # Fix all <its rating> would queue it
         item["evidence_commits"] = {
             sha: info for sha in set(COMMIT_HASH.findall(item["evidence"] or ""))
             if (info := commit_info(config.obp_api_source, sha))
@@ -409,9 +420,22 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     except httpx.HTTPError as e:
                         return self._json(HTTPStatus.BAD_GATEWAY, {"error": f"Could not read the build from GitHub: {e}"})
                 return
-            if path == QUEUE_STOP_AUTO_PATH:
+            if path == FIX_RATED_PATH:
                 if config := self._instance():
-                    return self._json(HTTPStatus.OK, fixer.stop_auto(config.name))
+                    try:
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(min(length, MAX_BODY_BYTES)) or b"{}")
+                        rating, tests = body.get("rating"), body.get("tests", True)
+                    except (json.JSONDecodeError, AttributeError):
+                        rating, tests = None, True
+                    if rating not in fixer.RATED:
+                        return self._json(HTTPStatus.BAD_REQUEST,
+                                          {"error": "Say which rating to fix: relevant, important or urgent."})
+                    if not isinstance(tests, bool):
+                        return self._json(HTTPStatus.BAD_REQUEST, {"error": "tests must be true or false."})
+                    if reason := fixer.unavailable_reason(config) or unavailable_reason(config, scheduled=False):
+                        return self._json(HTTPStatus.CONFLICT, {"error": reason})
+                    return self._json(HTTPStatus.OK, fixer.queue_rated(config, rating, tests))
                 return
             if path == QUEUE_TESTS_PATH:
                 if config := self._instance():
@@ -454,19 +478,12 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 if config := self._instance():
                     if reason := fixer.unavailable_reason(config):
                         return self._json(HTTPStatus.CONFLICT, {"error": reason})
-                    length = int(self.headers.get("Content-Length") or 0)
-                    if length > MAX_BODY_BYTES:
-                        return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Too large"})
+                    act = {"stage": fixer.stage, "unstage": fixer.unstage, "commit": fixer.commit,
+                           "discard": fixer.take_back}[action.group(2)]
                     try:
-                        body = json.loads(self.rfile.read(length) or b"{}")
-                        finding_id = int(action.group(1))
-                        done = (fixer.commit(config, finding_id, str(body.get("message", "")), body.get("auto") is True)
-                                if action.group(2) == "commit" else fixer.take_back(config, finding_id))
-                    except (json.JSONDecodeError, AttributeError):
-                        return self._json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})
+                        return self._json(HTTPStatus.OK, act(config, int(action.group(1))))
                     except ValueError as e:
                         return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
-                    return self._json(HTTPStatus.OK, done)
                 return
             if fix := FIX_PATH.match(path):
                 if config := self._instance():

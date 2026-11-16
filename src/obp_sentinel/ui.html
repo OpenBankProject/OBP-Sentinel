@@ -81,6 +81,8 @@ nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--l
 nav button { min-height: 44px; padding: 0 14px; border: 0; background: none; cursor: pointer; margin-bottom: -1px;
   border-bottom: 2px solid transparent; color: var(--muted); font-weight: 500; }
 nav button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
+nav .rated-label { align-self: center; margin-left: 12px; padding-left: 16px; border-left: 1px solid var(--line-strong);
+  color: var(--muted); font-size: 14px; }
 nav .n { font-family: var(--mono); font-size: 13px; margin-left: 4px; }
 #suggestions { margin-bottom: 28px; }
 .cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
@@ -125,19 +127,28 @@ label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
 label span { font-weight: 400; color: var(--muted); }
 textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px;
   resize: vertical; margin-bottom: 14px; background: var(--surface); }
-.actions { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; align-items: center; }
+.actions { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .actions .act { display: contents; }
 .actions .act[hidden] { display: none; }
+.actions button { min-width: 240px; }
+/* What an action came to, right under its button */
+.actions .outcome { align-self: stretch; margin: -4px 0 6px; padding: 4px 0 4px 14px; border-left: 3px solid var(--line-strong); }
+.actions .outcome[hidden] { display: none; }
+.actions .outcome .previous:last-child { margin-bottom: 0; }
+.actions .outcome summary { cursor: pointer; font-size: 14px; color: var(--muted); margin: 4px 0 8px; }
+#d-state { font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+#d-state.good { color: var(--good); }
+#d-state.busy { color: var(--accent); }
 .grades { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .grades button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: var(--surface); font-weight: 500; cursor: pointer; }
 .grades button:disabled { opacity: 0.5; cursor: default; }
-/* The rating given: filled, Urgent in the danger colour */
-.grades button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-.grades button[data-verdict="urgent"][aria-pressed="true"] { background: var(--danger); border-color: var(--danger); }
-.grades-desc { margin: 6px 0 20px; }
+/* The rating given: filled green with a tick */
+.grades button[aria-pressed="true"] { background: var(--good); border-color: var(--good); color: var(--on-accent); font-weight: 600; }
+.grades button[aria-pressed="true"]::before { content: "✓ "; }
+.grades { margin-bottom: 20px; }
 .desc { font-size: 14px; color: var(--muted); }
-@media (max-width: 560px) { .actions { grid-template-columns: 1fr; gap: 4px; } .actions .desc { margin-bottom: 8px; } }
+@media (max-width: 560px) { .actions button { align-self: stretch; } }
 .actions button { min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: var(--surface); font-weight: 500; cursor: pointer; }
 .actions .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
@@ -182,9 +193,11 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .run-now { margin-left: auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 6px;
   background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
 .run-now:disabled { cursor: default; opacity: 0.55; }
-.sweep { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: -8px 0 20px; }
-.sweep[hidden] { display: none; }
-.sweep .run-now { margin-left: 0; }
+.sweep { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: -8px 0 12px; }
+.sweep[hidden], .sweep button[hidden] { display: none; }
+.sweep button { min-height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--surface); font-size: 14px; cursor: pointer; }
+.sweep button:disabled { cursor: default; opacity: 0.55; }
 .sources:empty { display: none; }
 .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .source { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
@@ -252,6 +265,7 @@ nav.instances .flag.warn { background: var(--warn); }
 .steps.fixlog { max-height: 480px; margin-bottom: 16px; }
 .staged { margin: 0 0 16px; }
 #d-fixing { white-space: pre-line; }
+#d-fix-now { font-weight: 600; margin: 0 0 6px; }
 .fix-queue { margin: 0 0 16px; font-size: 14px; }
 .fix-queue[hidden] { display: none; }
 .fix-queue p { margin: 0 0 4px; }
@@ -269,8 +283,8 @@ nav.instances .flag.warn { background: var(--warn); }
 .build.running b, .build.unknown b { color: var(--warn); }
 .build.running, .build.unknown { border-left-color: var(--warn); }
 .staged[hidden] { display: none; }
-.staged input { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit;
-  font-size: 14px; color: var(--ink); background: var(--bg); margin-bottom: 10px; }
+.staged .commands { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--bg); font-family: var(--mono); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .thinking-now::after { content: "…"; display: inline-block; width: 1.2em; animation: dots 1.4s steps(4, end) infinite;
   overflow: hidden; vertical-align: bottom; }
 @keyframes dots { 0% { width: 0; } 100% { width: 1.2em; } }
@@ -327,14 +341,19 @@ nav.instances .flag.warn { background: var(--warn); }
   <nav aria-label="Filter suggestions" id="tabs"></nav>
   <p class="sub" id="bug-classes" hidden></p>
   <div class="sweep" id="sweep" hidden>
-    <button type="button" class="run-now" id="sweep-btn">Look again at the security findings to review</button>
-    <span class="desc">Claude looks again, one at a time, at each security finding in To review; those it finds fixed move to Done.</span>
+    <button type="button" id="sweep-btn" data-testid="sweep-btn"
+      title="Claude looks again, one at a time, at each security finding in To review; those it finds fixed move to Done.">Look again at the security findings</button>
     <span class="sub" id="sweep-state"></span>
+  </div>
+  <div class="sweep" id="fix-rated" hidden>
+    <button type="button" id="fix-rated-btn" data-testid="fix-rated-btn">Fix all</button>
+    <button type="button" id="fix-rated-fast-btn" data-testid="fix-rated-fast-btn">Fix all without tests</button>
+    <span class="sub" id="fix-rated-state"></span>
   </div>
   <div class="cols">
     <section class="list" aria-label="Suggestions" id="list"></section>
     <article id="detail" hidden>
-      <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-when"></span><span id="d-class"></span><span class="num" id="d-num"></span></div>
+      <div class="head"><span class="cat" id="d-cat"></span><span class="key" id="d-key"></span><span id="d-state"></span><span id="d-when"></span><span id="d-class"></span><span class="num" id="d-num"></span></div>
       <div class="titlebar">
         <h2 id="d-title"></h2>
         <button type="button" id="copy-btn" class="icon" aria-label="Copy for the agent">
@@ -353,13 +372,12 @@ nav.instances .flag.warn { background: var(--warn); }
         <div><small>Trend</small><b id="d-trend"></b></div>
       </div>
       <div class="grades" role="group" aria-label="How much this matters to you">
-        <button type="button" data-verdict="relevant" data-testid="grade-relevant">Relevant</button>
-        <button type="button" data-verdict="important" data-testid="grade-important">Important</button>
-        <button type="button" data-verdict="urgent" data-testid="grade-urgent">Urgent</button>
-        <button type="button" data-verdict="later" data-testid="grade-later">Skip for now</button>
-        <button type="button" data-verdict="dismissed" data-testid="grade-dismissed">Dismiss</button>
+        <button type="button" data-verdict="relevant" data-testid="grade-relevant" title="Worth fixing">Relevant</button>
+        <button type="button" data-verdict="important" data-testid="grade-important" title="Worth fixing soon; counts twice in what Sentinel learns">Important</button>
+        <button type="button" data-verdict="urgent" data-testid="grade-urgent" title="Fix first: also puts it at the head of the Fix this queue">Urgent</button>
+        <button type="button" data-verdict="later" data-testid="grade-later" title="Brings it back later">Skip for now</button>
+        <button type="button" data-verdict="dismissed" data-testid="grade-dismissed" title="Hides it and its log messages for good">Dismiss</button>
       </div>
-      <p class="desc grades-desc">How much this matters to you; Sentinel shows first the kinds of finding you rate. Urgent also puts it at the head of the Fix this queue. Skip for now brings it back later; Dismiss hides it and its log messages for good. A comment typed below is saved with it.</p>
       <h3>Evidence</h3><p id="d-evidence"></p>
       <h3>Why it happens</h3><p id="d-hypothesis"></p>
       <h3>Where in OBP-API</h3><ul class="files" id="d-files"></ul>
@@ -368,45 +386,47 @@ nav.instances .flag.warn { background: var(--warn); }
       <div class="history">
         <div class="introduced" id="d-introduced" hidden></div>
         <div id="d-history"></div>
-        <button type="button" id="trace-btn">Trace history</button>
-        <span class="desc">Lists the commits that changed these lines, back into the Lift code; Claude then says which one introduced the problem (up to $0.30 at API prices).</span>
+        <button type="button" id="trace-btn" title="Which commit introduced the problem">Trace history</button>
       </div>
       <div class="respond">
         <p class="previous" id="d-previous" hidden></p>
-        <p class="previous" id="d-recheck" hidden></p>
-        <p class="previous" id="d-fixing" hidden></p>
-        <div class="staged" id="d-staged" hidden>
-          <h3>Staged in your working tree</h3>
-          <ul class="files" id="d-staged-files"></ul>
-          <label for="fix-message">Commit message</label>
-          <input type="text" id="fix-message" maxlength="200">
-          <div class="actions">
-            <div class="act"><button type="button" class="primary" id="commit-btn">Commit</button>
-              <span class="desc">Commits what is staged in your working tree, this fix and anything you changed in it, with the message above, and moves the finding to Done as fixed. Not pushed. Then the next queued fix starts.</span></div>
-            <div class="act"><button type="button" id="commit-auto-btn">Commit and auto continue</button>
-              <span class="desc">The same, then each next queued fix is committed as soon as it is staged, with Claude's message, until the queue is empty. Fixes that fail or are not an issue are left out as usual. Not pushed.</span></div>
-            <div class="act"><button type="button" id="discard-btn">Discard</button>
-              <span class="desc">Takes this fix back out of your working tree. Then the next queued fix starts.</span></div>
-          </div>
-        </div>
         <div id="d-comments" hidden><h3>Your comments</h3><ul class="files" id="d-comment-list"></ul></div>
         <label for="comment">Comment for Sentinel <span>(optional: Fix this follows it, the analyst reads it)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
-          <div class="act"><button type="button" data-verdict="comment">Save comment</button>
-            <span class="desc">Keeps your comment with the finding and changes nothing else. Fix this follows every comment on the finding, and the analyst reads them.</span></div>
-          <div class="act" id="fix-row"><button type="button" class="primary" id="fix-btn">Fix this</button>
-            <span class="desc" id="fix-desc">Saves what is in the comment box, then queues it. Claude fixes and tests it in Sentinel's own OBP-API worktree, following your comments; Sentinel stages it in your working tree for you to commit.</span></div>
-          <div class="act" id="fix-fast-row"><button type="button" id="fix-fast-btn">Fix this without tests</button>
-            <span class="desc">The same, faster: Claude adds the test scenarios and compiles, but runs no tests; they run in the cloud (CI) once you push. The fix is marked "tests not run" until then.</span></div>
-          <div class="act"><button type="button" data-verdict="fixed">Should be fixed now</button>
-            <span class="desc">You think it is fixed. Moves to Done; the analyst checks that its log errors dropped, and says so if not.</span></div>
-          <div class="act"><button type="button" id="recheck-btn">Look again: still an issue?</button>
-            <span class="desc">Claude reads the code the instance runs now and answers in one line, shown above (up to $0.50 at API prices). Nothing else changes.</span></div>
+          <div class="act"><button type="button" data-verdict="comment" title="Keeps your comment with the finding">Save comment</button></div>
+          <div class="act" id="fix-off-row" hidden><span class="desc full" id="fix-off"></span></div>
+          <div class="act" id="fix-row"><button type="button" class="primary" id="fix-btn" title="Claude fixes and tests it; Sentinel stages it in your working tree">Fix this</button></div>
+          <div class="act" id="fix-fast-row"><button type="button" id="fix-fast-btn" title="The same without running tests; CI runs them once you push">Fix this without tests</button></div>
+          <!-- What the latest fix came to: moved under Fix this or Fix this without tests, whichever made it -->
+          <div class="outcome" id="fix-outcome" hidden>
+            <p class="now" id="d-fix-now" data-testid="fix-now" hidden></p>
+            <p class="previous" id="d-fixing" hidden></p>
+            <div class="staged" id="d-staged" hidden>
+              <h3>The fix's files</h3>
+              <ul class="files" id="d-staged-files"></ul>
+              <p class="desc">Review it in your IDE, then Stage and Commit. Sentinel commits only when you press Commit.</p>
+              <pre class="commands" id="d-commands" data-testid="fix-commands"></pre>
+              <div class="actions">
+                <div class="act"><button type="button" class="fix-action" data-action="stage" data-testid="stage-btn" title="git add this fix's files, with your changes">Stage</button></div>
+                <div class="act"><button type="button" class="fix-action" data-action="unstage" data-testid="unstage-btn" title="Take them out of what is staged; the changes stay">Unstage</button></div>
+                <div class="act"><button type="button" class="fix-action" data-action="commit" data-testid="commit-btn" title="Commit what is staged, with the message above">Commit</button></div>
+                <div class="act"><button type="button" id="copy-commands-btn" title="To run them in a terminal">Copy the commands</button></div>
+                <div class="act"><button type="button" class="fix-action" data-action="discard" id="discard-btn" title="Take this fix back out of your working tree">Discard</button></div>
+              </div>
+            </div>
+            <details id="fix-log-box" hidden>
+              <summary id="fix-log-title">What Claude did</summary>
+              <ol class="steps fixlog" id="d-fix-log" aria-live="polite"></ol>
+            </details>
+          </div>
+          <div class="act"><button type="button" data-verdict="fixed" title="You think it is fixed: moves to Done">Should be fixed now</button></div>
+          <div class="outcome" id="fixed-outcome" hidden><p class="previous" id="d-marked-fixed"></p></div>
+          <div class="act"><button type="button" id="recheck-btn" title="Claude reads the code the instance runs now and answers in one line">Look again: still an issue?</button></div>
+          <div class="outcome" id="recheck-outcome" hidden><p class="previous" id="d-recheck"></p></div>
         </div>
+        <p class="desc"><a href="/help#buttons">What these buttons do</a></p>
         <p class="status" role="status" id="status"></p>
-        <h3 id="fix-log-title" hidden>What Claude did for Fix this</h3>
-        <ol class="steps fixlog" id="d-fix-log" aria-live="polite" hidden></ol>
       </div>
     </article>
   </div>
@@ -441,7 +461,7 @@ nav.instances .flag.warn { background: var(--warn); }
     <div class="claude-row">
       <span class="dot" id="claude-dot"></span>
       <span id="claude-state" aria-live="polite">Claude Code: not checked yet</span>
-      <button type="button" class="run-now" id="claude-check" title="Ask Claude Code one tiny question (a few cents at API prices)">Check Claude Code</button>
+      <button type="button" class="run-now" id="claude-check" title="Ask Claude Code one tiny question">Check Claude Code</button>
     </div>
     <div class="analysis-cols">
       <div>
@@ -494,9 +514,16 @@ const TABS = [
   ['later', 'Snoozed', ['later']],
   ['queued', 'Queued', []],  // Fix this, whatever the status (FIX_TABS): waiting its turn,
   ['fixing', 'Being fixed', []],  // then Claude at work,
-  ['commit', 'To commit', []],  // then staged in the working tree, for a person to Commit or Discard
+  ['commit', 'To commit', []],  // then staged in the working tree, for a person to commit or Discard
   ['done', 'Done', ['accepted', 'acted', 'fixed', 'dismissed']],
 ];
+// Your ratings, whatever stage the finding is at: each a tab after the stages
+const RATED_TABS = [['urgent', 'Urgent'], ['important', 'Important'], ['relevant', 'Relevant'],
+                    ['later', 'Skipped'], ['dismissed', 'Dismissed']].map(([rating, label]) => [`rated-${rating}`, label, rating]);
+const RATED_LABEL = { urgent: 'Urgent', important: 'Important', relevant: 'Relevant', later: 'Skipped for now', dismissed: 'Dismissed' };
+const inTab = (f, tab) => tab.startsWith('rated-')
+  ? `rated-${f.rating}` === tab && (f.rating === 'dismissed' || tabOf(f) !== 'done')  // done: in Done, not under its rating
+  : tabOf(f) === tab;
 const FIX_TABS = { queued: 'queued', running: 'fixing', staged: 'commit' };
 const tabOf = (f) => FIX_TABS[f.fix_status] || (TABS.find((t) => t[2].includes(f.status)) || TABS[0])[0];
 const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Falling' };
@@ -547,9 +574,6 @@ function renderHeader() {
   $('chips').replaceChildren(...securedChip(o.secured));
   renderBuild(o.build);
   $('rules').textContent = `At most ${o.digest_size} per digest, ${o.max_per_week} a week.`;
-  $('fix-desc').textContent = 'Saves what is in the comment box, then queues it. Claude fixes and tests it in Sentinel\'s own OBP-API '
-    + 'worktree, following your comments; Sentinel stages it in your working tree for you to commit only if its tests pass '
-    + `(up to $${o.fix_budget_usd} each at API prices).`;
 }
 
 // The OBP-API build on GitHub Actions (OBP_API_BUILD_ACTIONS_URL): green when it passed, red with the cause if not
@@ -594,26 +618,80 @@ function withFindingLinks(text) {
   });
 }
 
+// The order Fix this works through its queue: paused at the usage limit or Urgent first, then by rating, then priority
+const RATING_RANK = { urgent: 3, important: 2, relevant: 1 };
+const fixOrder = (a, b) => (b.fix_at === 0) - (a.fix_at === 0) || (RATING_RANK[b.rating] || 0) - (RATING_RANK[a.rating] || 0)
+  || b.priority - a.priority;
+
+const RATING_NAME = { urgent: 'Urgent', important: 'Important', relevant: 'Relevant' };
+const toFix = (rating) => state.findings.filter((f) => f.to_fix && f.rating === rating).length;
+
+// On the Urgent, Important or Relevant tab: the rating it shows, else null
+const tabRating = () => (state.tab.match(/^rated-(urgent|important|relevant)$/) || [])[1] || null;
+
+function renderFixRated() {
+  const off = !state.overview || state.overview.fix_unavailable;
+  const rating = tabRating();
+  const n = rating ? toFix(rating) : 0;
+  // Still shown once all are queued, for the message saying so
+  $('fix-rated').hidden = !rating || Boolean(off) || (!n && !$('fix-rated-state').textContent);
+  $('fix-rated-btn').hidden = $('fix-rated-fast-btn').hidden = !n;
+  if (!n) return;
+  $('fix-rated-btn').textContent = `Fix all ${n} ${RATING_NAME[rating]}`;
+  $('fix-rated-btn').title = `Queues Fix this, with tests, for each finding rated ${RATING_NAME[rating]} that Fix this has not been tried on.`;
+  $('fix-rated-fast-btn').textContent = `Fix all ${n} ${RATING_NAME[rating]} without tests`;
+  $('fix-rated-fast-btn').title = 'The same without running tests; CI runs them once you push.';
+}
+
+async function fixAllRated(tests) {
+  const rating = tabRating();
+  const n = toFix(rating);
+  const how = tests ? 'with tests' : 'without tests';
+  if (!confirm(`Queue Fix this, ${how}, for ${n} finding${n === 1 ? '' : 's'} rated ${RATING_NAME[rating]}?`)) return;
+  const buttons = [$('fix-rated-btn'), $('fix-rated-fast-btn')];
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const done = await api('/api/fix-queue/fix-all-rated', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating, tests }) });
+    state.findings = await api('/api/findings');
+    render();
+    $('fix-rated-state').textContent = `${done.queued} ${RATING_NAME[rating]} queued ${how}; see the Queued tab.`;
+    const next = state.findings.find((x) => x.fix_status === 'queued');
+    if (next) pollWhileRunning(next.id, 'fix_status');
+  } catch (e) {
+    $('fix-rated-state').textContent = `Could not queue: ${e.message}`;
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+
+$('fix-rated-btn').addEventListener('click', () => fixAllRated(true));
+$('fix-rated-fast-btn').addEventListener('click', () => fixAllRated(false));
+
 function visible() {
-  const shown = state.findings.filter((f) => tabOf(f) === state.tab);
+  const shown = state.findings.filter((f) => inTab(f, state.tab));
   // Most important first, the kinds you act on before the kinds you dismiss; Queued as Fix this works through it:
   // a fix paused at the usage limit first
-  if (state.tab === 'queued') return shown.sort((a, b) => (b.fix_at === 0) - (a.fix_at === 0) || b.priority - a.priority);
+  if (state.tab === 'queued') return shown.sort(fixOrder);
   return shown.sort((a, b) => (b.rank ?? b.priority) - (a.rank ?? a.priority));
 }
 
 // Suggestions go above the monitoring sections while something waits for review.
 function render() {
-  const count = (id) => state.findings.filter((f) => tabOf(f) === id).length;
-  // Empty tabs are left out, except To review and the one open
-  $('tabs').replaceChildren(...TABS.filter(([id]) => id === 'review' || id === state.tab || count(id)).map(([id, label]) => {
+  const count = (id) => state.findings.filter((f) => inTab(f, id)).length;
+  const tab = ([id, label]) => {
     const b = el('button', { type: 'button' }, [label, el('span', { className: 'n', textContent: count(id) })]);
     b.setAttribute('aria-pressed', String(state.tab === id));
-    b.onclick = () => { state.tab = id; state.selected = null; setStatus(''); render(); };
+    b.onclick = () => { state.tab = id; state.selected = null; setStatus(''); $('fix-rated-state').textContent = ''; render(); };
     return b;
-  }));
+  };
+  // Empty tabs are left out, except To review and the one open
+  const shown = (tabs) => tabs.filter(([id]) => id === 'review' || id === state.tab || count(id));
+  const rated = shown(RATED_TABS);
+  $('tabs').replaceChildren(...shown(TABS).map(tab),
+    ...(rated.length ? [el('span', { className: 'rated-label', textContent: 'Your ratings:' }), ...rated.map(tab)] : []));
 
   renderSweep();
+  renderFixRated();
   // On Done: how many of the fixed bugs were of each class, to see which kinds OBP-API had most
   const bc = (state.overview && state.overview.bug_classes) || [];
   $('bug-classes').hidden = state.tab !== 'done' || !bc.length;
@@ -636,6 +714,7 @@ function render() {
       ]),
       el('div', { className: 't' }, breakAfterSlashes(f.title)),
       el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', STATUS[f.status] || f.status,
+                                         ...(f.rating && !state.tab.startsWith('rated-') ? ['·', RATED_LABEL[f.rating]] : []),
                                          ...(f.needs_id ? ['·', 'Needs a guessed id'] : []),
                                          ...(f.fix_tests === 0 && f.fix_status ? ['·', 'Tests not run'] : []),
                                          ...(f.fix_status ? ['·', FIX_STATUS[f.fix_status] || f.fix_status] : [])]
@@ -680,11 +759,47 @@ function render() {
   $('d-comments').hidden = !(current.comments || []).length;
   $('d-comment-list').replaceChildren(...(current.comments || []).map((c) => el('li', { textContent: c })));
   const fb = current.feedback;
-  $('d-previous').hidden = !fb;
-  if (fb) {
+  const markedFixed = fb && fb.verdict === 'fixed';
+  $('fixed-outcome').hidden = !markedFixed || (fb.comment || '').startsWith('Fix this:');
+  if (markedFixed) $('d-marked-fixed').textContent = `Marked fixed on ${fmtDate(fb.ts)}` + (fb.comment ? `: “${fb.comment}”` : '');
+  $('d-state').replaceChildren(stateOf(current));
+  $('d-state').className = current.status === 'fixed' ? 'good' : ['queued', 'running', 'staged'].includes(current.fix_status) ? 'busy' : '';
+  $('d-previous').hidden = !fb || markedFixed;
+  if (fb && !markedFixed) {
     $('d-previous').textContent = fb.verdict === 'comment' ? `Last comment ${fmtDate(fb.ts)}`
       : `Marked ${fb.verdict} on ${fmtDate(fb.ts)}` + (fb.comment ? `: “${fb.comment}”` : '');
   }
+}
+
+// Where a fix is now, from git when the page asked: not what Senti wrote at the time
+function fixNow(f) {
+  if (f.fix_status === 'staged') {
+    return { staged: 'staged in your working tree, not committed yet.',
+             partly: 'partly staged in your working tree, not committed yet.',
+             unstaged: 'in your working tree, not staged.' }[f.fix_index] || 'in your working tree, not committed yet.';
+  }
+  if (f.fix_status === 'committed' && f.fix_now) {
+    const n = f.fix_now;
+    const pushed = n.pushed_to.length ? `pushed to ${n.pushed_to.join(', ')}` : 'not pushed yet';
+    const runs = n.running === true ? `; ${state.instance} runs it` : n.running === false ? `; ${state.instance} does not run it yet` : '';
+    return `committed as ${n.sha}, ${pushed}${runs}.`;
+  }
+  if (f.fix_status === 'discarded') return 'not in your working tree. Fix this can try again.';
+  return null;
+}
+
+// Where the finding stands, shown by its key
+function stateOf(f) {
+  const sha = f.fix_status === 'committed' && (f.fix || '').split(' ')[0];
+  if (f.fix_status === 'committed' && f.fix_now) {
+    if (!f.fix_now.pushed_to.length) return `Committed · ${sha}, not pushed`;
+    if (f.fix_now.running === false) return `Pushed · ${sha}, not running yet`;
+  }
+  if (f.status === 'fixed') return sha ? `Fixed · ${sha}` : 'Fixed';
+  if (f.fix_status === 'staged') return f.fix_index === 'unstaged' ? 'Fix ready, not staged' : 'Fix staged';
+  if (f.fix_status === 'running') return 'Being fixed';
+  if (f.fix_status === 'queued') return 'Queued for fixing';
+  return STATUS[f.status] || f.status;
 }
 
 // Look again: is it still an issue in the code the instance runs now? (Claude, in the background, kept with the finding)
@@ -695,7 +810,7 @@ function renderRecheck(f) {
     ? 'Looking again at the code the instance runs now. This takes a few minutes; the answer will show here.'
       + (p ? ` Started ${ago(Date.now() / 1000 - p.started)}, ${p.steps} command${p.steps === 1 ? '' : 's'} run so far. Now: ${p.step}` : '')
     : f.recheck_status === 'failed' && !f.recheck ? 'Could not look again.' : f.recheck || '';
-  $('d-recheck').hidden = !answer;
+  $('recheck-outcome').hidden = !answer;
   $('d-recheck').replaceChildren(
     el('b', { textContent: looking || !f.rechecked_at ? 'Claude: ' : `Claude, ${fmtDate(f.rechecked_at)}: ` }), answer);
   $('recheck-btn').disabled = looking;
@@ -714,15 +829,28 @@ function renderFix(f) {
   $('d-staged').hidden = !staged;
   if (staged) {
     $('d-staged-files').replaceChildren(...(f.fix_files || []).map((name) => el('li', { textContent: name })));
-    if (state.fixMessageFor !== f.id) { $('fix-message').value = f.fix_message || ''; state.fixMessageFor = f.id; }
+    $('d-commands').textContent = commitCommands(f);
+    document.querySelector('.fix-action[data-action="stage"]').disabled = f.fix_index === 'staged';
+    document.querySelector('.fix-action[data-action="unstage"]').disabled = f.fix_index === 'unstaged';
+    document.querySelector('.fix-action[data-action="commit"]').disabled = f.fix_index === 'unstaged';
   }
   loadFixLog(f);
+  // Under the button that made the fix
+  $(f.fix_tests === 0 ? 'fix-fast-row' : 'fix-row').after($('fix-outcome'));
+  $('fix-outcome').hidden = !text && !staged && !(f.fix_status && f.fix_status !== 'queued');
   $('d-fixing').hidden = !text;
-  $('d-fixing').replaceChildren(el('b', { textContent: `${FIX_STATUS[f.fix_status] || 'Fix'}${f.fix_at && !['queued', 'running'].includes(f.fix_status) ? `, ${fmtDate(f.fix_at)}` : ''}: ` }),
-                                ...withFindingLinks(text));
+  const now = fixNow(f);
+  $('d-fix-now').hidden = !now;
+  $('d-fix-now').textContent = now ? `Now: ${now}` : '';
+  // What Senti did is kept as it was then; Now says where the fix is today
+  const label = ['queued', 'running'].includes(f.fix_status) ? FIX_STATUS[f.fix_status]
+    : `What Senti did${f.fix_at ? `, ${fmtDate(f.fix_at)}` : ''}`;
+  $('d-fixing').replaceChildren(el('b', { textContent: `${label}: ` }), ...withFindingLinks(text));
   const btn = $('fix-btn');
   btn.classList.remove('busy', 'done');
   $('fix-row').hidden = $('fix-fast-row').hidden = Boolean(why);
+  $('fix-off-row').hidden = !why;
+  $('fix-off').textContent = why ? `No Fix this here: ${why}.` : '';
   btn.disabled = $('fix-fast-btn').disabled = ['queued', 'running', 'staged', 'committed'].includes(f.fix_status);
   $('fix-fast-btn').classList.remove('busy', 'done');
   $('fix-fast-btn').textContent = 'Fix this without tests';
@@ -734,7 +862,8 @@ function renderFix(f) {
 const FIX_LOG_KIND = { thinking: 'Thinking', note: 'Claude', tool: 'Tool', result: 'Tool output', sentinel: 'Sentinel' };
 async function loadFixLog(f) {
   const show = Boolean(f.fix_status) && f.fix_status !== 'queued';
-  $('fix-log-title').hidden = $('d-fix-log').hidden = !show;
+  $('fix-log-box').hidden = !show;
+  if (state.fixLogFor !== f.id) $('fix-log-box').open = f.fix_status === 'running';  // open while Claude works
   if (!show) { state.fixLogFor = null; return; }
   if (state.fixLogFor === f.id && f.fix_status !== 'running') return;
   state.fixLogFor = f.id;
@@ -749,29 +878,52 @@ async function loadFixLog(f) {
   if (atBottom || f.fix_status === 'running') list.scrollTop = list.scrollHeight;
 }
 
-async function fixAction(action, body) {
-  const id = state.selected;
-  $('commit-btn').disabled = $('discard-btn').disabled = $('commit-auto-btn').disabled = true;
+// The commands to commit a staged fix by hand: git add its files, then git commit with its one short line. Quoted for a POSIX
+// shell.
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+function commitCommands(f) {
+  const git = `git -C ${shq(state.overview ? state.overview.obp_api_source : '.')}`;
+  return [`${git} add ${(f.fix_files || []).map(shq).join(' ')}`,
+          `${git} commit -m ${shq(f.fix_message || f.title)}`].join('\n');
+}
+
+$('copy-commands-btn').addEventListener('click', async () => {
   try {
-    const done = await api(`/api/findings/${id}/fix/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                                                  body: JSON.stringify(body) });
+    await navigator.clipboard.writeText($('d-commands').textContent);
+    setStatus('Copied the commands.');
+  } catch (e) {
+    setStatus(`Could not copy: ${e.message}`, true);
+  }
+});
+
+// Stage, Commit and Discard a staged fix. Only Commit and Discard let the queue go on.
+const FIX_DONE = {
+  stage: (id, r) => `Staged ${r.staged.length} file${r.staged.length === 1 ? '' : 's'} for #${id}.`,
+  unstage: (id, r) => `Unstaged ${r.unstaged.length} file${r.unstaged.length === 1 ? '' : 's'} for #${id}; your changes are still in them.`,
+  commit: (id, r) => `Committed the fix for #${id} as ${r.commit}.`,
+  discard: (id) => `Took the fix for #${id} out of your working tree.`,
+};
+document.querySelectorAll('.fix-action').forEach((button) => button.addEventListener('click', async () => {
+  const id = state.selected;
+  const action = button.dataset.action;
+  if (action === 'commit') {
+    const f = state.findings.find((x) => x.id === id);
+    if (!confirm(`Commit the fix for #${id} with the message:\n\n${f.fix_message || f.title}`)) return;
+  }
+  button.disabled = true;
+  try {
+    const done = await api(`/api/findings/${id}/fix/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     state.findings = await api('/api/findings');
     state.fixLogFor = null;
-    if (body.auto) state.overview.fix_auto = true;
     render();
-    setStatus(action === 'commit' ? `Committed ${done.commit} for #${id}.${body.auto ? ' Auto continue is on.' : ''}`
-      : `Took the fix for #${id} out of your working tree.`);
-    const next = state.findings.find((x) => x.fix_status === 'queued');
+    setStatus(FIX_DONE[action](id, done));
+    const next = ['commit', 'discard'].includes(action) && state.findings.find((x) => x.fix_status === 'queued');
     if (next) pollWhileRunning(next.id, 'fix_status');
   } catch (e) {
     setStatus(`Could not ${action}: ${e.message}`, true);
-  } finally {
-    $('commit-btn').disabled = $('discard-btn').disabled = $('commit-auto-btn').disabled = false;
+    button.disabled = false;  // on success, render() has set it from what is staged
   }
-}
-$('commit-btn').addEventListener('click', () => fixAction('commit', { message: $('fix-message').value }));
-$('commit-auto-btn').addEventListener('click', () => fixAction('commit', { message: $('fix-message').value, auto: true }));
-$('discard-btn').addEventListener('click', () => fixAction('discard', {}));
+}));
 
 // The Fix this queue across all tabs: which finding is being fixed, how many wait, and how the others ended
 function renderFixQueue() {
@@ -780,7 +932,7 @@ function renderFixQueue() {
   const running = of('running')[0];
   const paused = of('queued').find((f) => (f.fix || '').startsWith('Paused'));
   const staged = of('staged')[0];
-  const queued = of('queued').sort((a, b) => (b.fix_at === 0) - (a.fix_at === 0) || b.priority - a.priority);  // as fixed
+  const queued = of('queued').sort(fixOrder);  // as fixed
   const waiting = !running && !staged && queued.length && state.overview && state.overview.fix_waiting;
   const named = (f) => withFindingLinks(`#${f.id}`);
   const now = running ? ['Being fixed: ', ...named(running), running.fix_tests === 0 ? ', without tests' : ', with tests']
@@ -801,9 +953,6 @@ function renderFixQueue() {
                          el('p', { className: 'queue-tests' }, [
                            queueTestsButton('Fix all queued with tests', true, queued.every((f) => f.fix_tests !== 0)),
                            queueTestsButton('Fix all queued without tests', false, queued.every((f) => f.fix_tests === 0))])] : []),
-    ...(state.overview && state.overview.fix_auto ? [el('p', { className: 'queue-tests' }, [
-      el('b', { textContent: 'Auto continue is on: ' }), 'each fix is committed as soon as it is staged, until the queue is empty.',
-      stopAutoButton()])] : []),
     ...(ended.length ? [el('p', { className: 'sub', textContent: `So far: ${ended.join(', ')}` })] : []));
 }
 
@@ -826,23 +975,6 @@ function fixBuildButton() {
     }
   });
   return el('span', {}, [btn, said]);
-}
-
-// Stops auto continue: the next fix is staged for you to Commit or Discard again
-function stopAutoButton() {
-  const btn = el('button', { type: 'button', textContent: 'Stop auto continue' });
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    try {
-      await api('/api/fix-queue/stop-auto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      state.overview.fix_auto = false;
-      render();
-    } catch (e) {
-      setStatus(`Could not stop auto continue: ${e.message}`, true);
-      btn.disabled = false;
-    }
-  });
-  return btn;
 }
 
 // How the queued findings will be fixed: all with tests, all without, or how many of each
@@ -913,7 +1045,9 @@ function renderSweep() {
   const toReview = state.findings.filter((f) => f.status === 'suggested' && f.category === 'security').length;
   $('sweep').hidden = state.tab !== 'review' || (!toReview && !sw);
   $('sweep-btn').disabled = !toReview || !!(sw && sw.running);
-  $('sweep-state').textContent = !sw ? (toReview ? `${toReview} to look at, one at a time, up to $0.50 each at API prices.` : '')
+  $('sweep-btn').textContent = toReview ? `Look again at the ${toReview} security finding${toReview > 1 ? 's' : ''}`
+    : 'Look again at the security findings';
+  $('sweep-state').textContent = !sw ? ''
     : sw.running ? `Looking again: ${sw.done} of ${sw.total} done, ${sw.fixed} fixed and moved to Done so far. `
       + 'The finding being looked at shows what Claude is doing.'
     : `Looked again at ${sw.total} on ${fmtDate(sw.finished)}: ${sw.fixed} fixed and moved to Done. `
@@ -1092,7 +1226,14 @@ async function respond(verdict) {
   if (verdict === 'dismissed' && !confirm(`Dismiss #${id}? It and its log messages are hidden for good; this cannot be undone.`)) return;
   const buttons = document.querySelectorAll('button[data-verdict]');
   buttons.forEach((b) => { b.disabled = true; });
+  const rated = state.findings.find((x) => x.id === id);
+  const before = rated && rated.rating;
   try {
+    // A rating shows as selected at once (and goes back if it cannot be recorded)
+    if (rated && document.querySelector(`.grades button[data-verdict="${verdict}"]`)) {
+      document.querySelectorAll('.grades button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.verdict === verdict)));
+      rated.rating = verdict;
+    }
     const done = await api(`/api/findings/${id}/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1111,6 +1252,10 @@ async function respond(verdict) {
     if (verdict !== 'dismissed') $('status').append(' ', undoLink(id));
     if (verdict === 'urgent' && !done.not_queued) pollWhileRunning(id, 'fix_status');
   } catch (e) {
+    if (rated) {
+      rated.rating = before;
+      document.querySelectorAll('.grades button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.verdict === before)));
+    }
     setStatus(`Could not record: ${e.message}`, true);
   } finally {
     buttons.forEach((b) => { b.disabled = false; });
@@ -1440,7 +1585,7 @@ function renderAnalysis(n) {
   runNow.disabled = running || Boolean(n.by_hand_unavailable);
   runNow.title = running ? 'An analysis is running' : n.by_hand_unavailable
     || 'Starts the analyst now, whatever its schedule says: it reads what was collected, investigates the '
-       + `source, records findings and writes a digest (up to $${n.budget_usd} at API prices).`;
+       + `source, records findings and writes a digest.`;
   autoOpen($('n-more'), running || Boolean(run && run.status === 'failed'));
   const showResult = run && !running && (run.result || run.error);
   $('n-result').hidden = !showResult;
@@ -1474,10 +1619,9 @@ function renderAnalysis(n) {
   $('n-runs').replaceChildren(...(n.runs.length ? n.runs.map((r) => el('li', {}, [
     el('span', { textContent: `#${r.id} ${clock(r.started_at)}` }),
     stateEl(r.status === 'done' ? 'ok' : r.status === 'failed' ? 'bad' : 'warn', RUN_STATUS[r.status] || r.status),
-    el('span', { textContent: [r.ended_at ? duration(r.ended_at - r.started_at) : null,
-                               r.cost_usd != null ? `$${r.cost_usd.toFixed(2)}` : null].filter(Boolean).join(' · ') }),
+    el('span', { textContent: r.ended_at ? duration(r.ended_at - r.started_at) : '' }),
     el('span', { className: 'why', textContent: r.trigger }),
-  ])) : [el('li', { className: 'why', textContent: `None yet. Budget per run: $${n.budget_usd}.` })]));
+  ])) : [el('li', { className: 'why', textContent: 'None yet.' })]));
   return running;
 }
 
@@ -1496,7 +1640,7 @@ function renderClaude(n) {
   const c = n.claude_check, done = n.last_answered;
   const [dot, text] = claudeChecking ? ['live', 'Claude Code: asking it a question…']
     : c && c.ok && (!done || c.ts >= done.ended_at) ? ['good', `Claude Code answers: ${c.model || 'model not reported'}`
-        + ` replied in ${c.seconds}s` + (c.cost_usd != null ? ` ($${c.cost_usd.toFixed(3)})` : '') + ` · checked ${dayClock(c.ts)}`]
+        + ` replied in ${c.seconds}s` + ` · checked ${dayClock(c.ts)}`]
     : c && !c.ok && (!done || c.ts >= done.ended_at) ? ['bad', `Claude Code did not answer (checked ${dayClock(c.ts)}): ${c.error}`]
     : done ? ['good', `Claude Code answered in run #${done.id}, which finished ${dayClock(done.ended_at)}`]
     : n.by_hand_unavailable ? ['warn', `Claude Code cannot run here: ${n.by_hand_unavailable}`]
@@ -1557,7 +1701,7 @@ function renderScanner(sc) {
   $('scan-dot').className = 'dot ' + (sc.running ? 'live' : sc.on && !sc.unavailable ? 'good' : 'bad');
   $('scan-go').disabled = sc.on || Boolean(sc.unavailable);
   $('scan-stop').disabled = !sc.on && !sc.running;
-  const each = `${sc.endpoints_per_scan} endpoints every ${sc.every_minutes} min, at most $${sc.budget_usd} a scan`;
+  const each = `${sc.endpoints_per_scan} endpoints every ${sc.every_minutes} min`;
   $('scan-state').textContent = sc.unavailable ? `Scanner cannot run: ${sc.unavailable}`
     : sc.running ? `Scanning: scan #${current.id} started ${clock(current.started_at)}` + (current.last_step ? ` · ${current.last_step}` : '')
       + (sc.on ? '' : ' · stopping')
@@ -1575,8 +1719,7 @@ function renderScanner(sc) {
   }
   autoOpen($('scan-more'), sc.running || Boolean(current && current.status === 'failed'));
   $('scan-runs').replaceChildren(...(sc.scans.length ? sc.scans.map((r) => el('li', {}, [
-    `#${r.id} ${dayClock(r.started_at)} · ${r.status}` + (r.model ? ` · ${r.model}` : '')
-      + (r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ''),
+    `#${r.id} ${dayClock(r.started_at)} · ${r.status}` + (r.model ? ` · ${r.model}` : ''),
     ...(r.error || r.result ? [el('br'), r.error || r.result] : []),
     ...(r.reviewed.length ? [el('span', { className: 'tpl n units', textContent:
       'Recorded, not read again until changed:\n' + r.reviewed.map((e) => `${e.operation_id} at ${e.git_commit.slice(0, 12)}\n`

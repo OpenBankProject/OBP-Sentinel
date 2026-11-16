@@ -27,7 +27,7 @@ SEEDS = (  # the classes to start from; Claude adds others when none fits
 )
 CLASS_LINE = re.compile(r"^Class:\s*(.+)$", re.M)
 CLASS_MAX = 80
-BUDGET_USD = 0.5  # a headless Claude Code run costs about $0.1 (at API prices) before it starts
+BUDGET_USD = 2
 TIMEOUT_MINUTES = 5
 PER_CHECK = 5
 

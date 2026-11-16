@@ -18,7 +18,7 @@ from .store import Store, now
 
 logger = logging.getLogger(__name__)
 
-BUDGET_USD = 0.5
+BUDGET_USD = 3
 TIMEOUT_MINUTES = 10
 SEEN_HOURS = 24
 _running: dict[tuple[str, int], dict] = {}  # (instance, finding id) being looked at again → its progress

@@ -1,20 +1,24 @@
 """Fix this: Claude fixes the findings a person queued, and stages each fix in that person's working tree.
 
 Queued with the Fix this button on the page. One at a time, in the background, Claude works in Sentinel's own git
-worktree of OBP-API (SENTINEL_FIX_WORKTREE), set to the commit the person's checkout (OBP_API_SOURCE) is at, with its
+worktree of OBP-API (OBP_API_SOURCE with -sentinel-fixes after it, made the first time it is needed), set to the commit the person's checkout (OBP_API_SOURCE) is at, with its
 own build and its own test database. It first checks that the problem is really in the code, then makes the
 smallest change, compiles and runs the test suites that cover it. It may edit files in the worktree, run Maven
 offline there and read git; nothing else (no commit, no push, no network). Sentinel itself compiles again and, if
 that passes, applies the change to the person's checkout and stages it (git apply --index, which refuses rather
-than touch a file with changes of their own), so it shows in their IDE. On the page they edit the suggested commit
-message and Commit, or Discard. The next fix waits until they have: one commit per fix. Everything Claude did,
+than touch a file with changes of their own), so it shows in their IDE. Once they have reviewed it, they press Stage
+(git add its files again, with any changes they made) and Commit on the page, or run the git commands it shows, or
+Discard it. Sentinel commits only when they press Commit. The next fix waits until they have committed or discarded
+it: one commit per fix. Everything Claude did,
 tool results too, is kept with the finding (fix_steps) and shown on the page as it happens.
 """
 
 import fcntl
+import getpass
 import json
 import logging
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -36,12 +40,11 @@ PARITY_SCRIPTS = ("scripts/check_lift_http4s_resource_doc_parity.py", "scripts/r
 GIT_READ_COMMANDS = ("status", "diff", "log", "show", "grep")
 LOCK_FILE = "work/fixer.lock"  # one fix at a time across Sentinel processes: they share the worktree
 _lock = threading.Lock()  # and across this process's instances
-COMMIT_MAX = 200  # the commit message: one line, starting "Fix: "
+COMMIT_MAX = 72  # the commit message: one short line in plain English, starting "Fix: "
 LIMIT = re.compile(r"hit your .{0,30}limit|reached your .{0,30}limit|usage limit|rate.limit", re.I)  # Claude's plan
 PAUSE_MINUTES = 30  # at the plan's usage limit the queue waits, rather than failing every finding left in it
-WAIT_SECONDS = 30  # how often a queue waiting for a Commit or Discard looks again
+WAIT_SECONDS = 30  # how often a queue waiting for the person to commit or discard a fix looks again
 _workers: set[str] = set()  # instances whose queue is being worked through
-_auto: set[str] = set()  # instances that commit each fix as it is staged, until their queue is empty
 _progress: dict[tuple[str, int], dict] = {}  # (instance, finding id) being fixed → its progress
 
 
@@ -49,17 +52,42 @@ def unavailable_reason(config: Config) -> str | None:
     """Why Fix this cannot run for this instance, or None if it can."""
     if config.is_app:
         return "Fix this is for OBP-API findings only"
-    if not config.fix_worktree:
-        return "SENTINEL_FIX_WORKTREE is not set to a git worktree of OBP-API"
-    if not (Path(config.fix_worktree) / ".git").exists():
-        return f"{config.fix_worktree} is not a git worktree"
     if not config.obp_api_source or not (Path(config.obp_api_source) / ".git").exists():
         return "OBP_API_SOURCE is not set to the OBP-API checkout the fixes are staged in"
     return None
 
 
+PROPS = "obp-api/src/main/resources/props"
+
+
+def make_worktree(config: Config) -> None:
+    """Make Sentinel's worktree next to OBP_API_SOURCE if it is not there yet: detached (no branch), with copies of
+    the checkout's props files, which git ignores."""
+    worktree, source = Path(config.fix_worktree), Path(config.obp_api_source)
+    if (worktree / ".git").exists():
+        return
+    made = run_git(str(source), "worktree", "add", "--detach", str(worktree))
+    if made.returncode != 0:
+        raise ValueError(f"Could not make the worktree {worktree}: {(made.stderr or made.stdout).strip()[:300]}")
+    for props in (source / PROPS).glob("*.props"):
+        if not (worktree / PROPS / props.name).exists():
+            (worktree / PROPS).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(props, worktree / PROPS / props.name)
+
+
 def run_git(cwd: str, *args: str, data: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", cwd, *args], input=data, capture_output=True, text=True, timeout=120)
+
+
+def where_committed(source: str, sha: str, running: str | None) -> dict:
+    """Where a committed fix is now: the remote branches that have it (as of the checkout's last fetch or push), and
+    whether `running`, the commit the instance runs, includes it (None when unknown)."""
+    out = run_git(source, "branch", "-r", "--contains", sha, "--format=%(refname:short)")
+    pushed = [b for b in out.stdout.split() if not b.endswith("/HEAD")] if out.returncode == 0 else []
+    runs = None
+    if running and run_git(source, "cat-file", "-e", f"{running}^{{commit}}").returncode == 0:
+        runs = run_git(source, "merge-base", "--is-ancestor", sha, running).returncode == 0
+    return {"sha": sha, "pushed_to": pushed, "running": runs}
 
 
 def git(cwd: str, *args: str) -> str:
@@ -159,8 +187,7 @@ def prompt(finding: dict, worktree: str, comments: list[str] = (), known_classes
            "Tests: not run: <the suites and scenarios you added or changed, for CI to run>\n")
         + "Commit: <the commit message: one line starting \"Fix: Make sure that\", in plain words saying what is now "
         f"ensured, never that something was wrong before, at most {COMMIT_MAX} characters, no #number, no full stop, "
-        "e.g. Fix: Make sure that Update Customer "
-        "Address only changes an address of the customer in the path, at the bank in the path>\n"
+        "e.g. Fix: Make sure that Update Customer Address checks the bank>\n"
         f"{classes.instruction(list(known_classes))}\nor\n"
         "Not an issue: <one or two sentences: what you saw in the code that already prevents it>.\nor\n"
         "Could not fix: <one or two sentences: why, in words>."
@@ -201,6 +228,44 @@ def queue(config: Config, finding_id: int, tests: bool = True, first: bool = Fal
         store.close()
     start(config)
     return {"fix_status": status}
+
+
+# The latest rating a person gave a finding, as a number: Urgent 3, Important 2, Relevant 1, else 0 (also after a
+# later Skip for now or Dismiss). Fixes are made in this order, then by priority.
+RATING_RANK = """COALESCE((SELECT CASE fb.verdict WHEN 'urgent' THEN 3 WHEN 'important' THEN 2 WHEN 'relevant' THEN 1 END
+    FROM feedback fb WHERE fb.finding_id = findings.id AND fb.from_sentinel = 0
+      AND fb.verdict IN ('relevant', 'important', 'urgent', 'later', 'dismissed')
+    ORDER BY fb.id DESC LIMIT 1), 0)"""
+
+
+RATED = {"relevant": 1, "important": 2, "urgent": 3}
+
+
+def rated_to_fix(store: Store, rating: str | None = None) -> list[int]:
+    """Findings rated `rating` (or any of Relevant, Important and Urgent) that Fix this has never been tried on, and
+    that are not fixed or dismissed: what Fix all Relevant, Important or Urgent queues, most urgent first."""
+    which = f"= {RATED[rating]}" if rating else "> 0"
+    return [r[0] for r in store.db.execute(
+        f"SELECT id FROM findings WHERE {RATING_RANK} {which} AND fix_status IS NULL "
+        f"AND status NOT IN ('fixed', 'dismissed') ORDER BY {RATING_RANK} DESC, priority DESC")]
+
+
+def queue_rated(config: Config, rating: str, tests: bool = True) -> dict:
+    """Fix all Relevant, Important or Urgent: queue each finding rated `rating` in `rated_to_fix`, with or without
+    tests. Returns how many were queued."""
+    store = Store(config.db_path)
+    try:
+        ids = rated_to_fix(store, rating)
+        ts = now()
+        for finding_id in ids:
+            store.db.execute("UPDATE findings SET fix_status = 'queued', fix = NULL, fix_at = ?, fix_tests = ? "
+                             "WHERE id = ?", (ts, int(tests), finding_id))
+        store.commit()
+    finally:
+        store.close()
+    if ids:
+        start(config)
+    return {"queued": len(ids)}
 
 
 def fix_the_build(config: Config) -> dict:
@@ -274,9 +339,9 @@ def start(config: Config) -> None:
 def _next(config: Config) -> int | None:
     store = Store(config.db_path)
     try:
-        # A fix paused at the usage limit (fix_at 0) first, then the most important
-        row = store.db.execute("SELECT id FROM findings WHERE fix_status = 'queued' "
-                               "ORDER BY fix_at = 0 DESC, priority DESC, fix_at, id LIMIT 1").fetchone()
+        # A fix paused at the usage limit or rated Urgent (fix_at 0) first, then by rating, then the most important
+        row = store.db.execute(f"SELECT id FROM findings WHERE fix_status = 'queued' "
+                               f"ORDER BY fix_at = 0 DESC, {RATING_RANK} DESC, priority DESC, fix_at, id LIMIT 1").fetchone()
         return row[0] if row else None
     finally:
         store.close()
@@ -284,7 +349,8 @@ def _next(config: Config) -> int | None:
 
 def settle(config: Config) -> None:
     """A staged fix the person committed or took out without the page (in their IDE, with git): record it as
-    committed (the latest commit to its files) or discarded, so the queue goes on. Only when nothing is staged."""
+    committed (the latest commit to its files) or discarded, so the queue goes on. Only when nothing is staged. A fix
+    the person only unstaged, whose files still differ from the last commit, is left as it is."""
     source = config.obp_api_source
     if git(source, "diff", "--cached", "--name-only"):
         return  # still staged, or being committed in pieces: the person decides
@@ -301,8 +367,16 @@ def settle(config: Config) -> None:
             branch = git(source, "rev-parse", "--abbrev-ref", "HEAD")
             _record(config, row["id"], "committed", f"{sha} on {branch}: {subject}",
                     f"Fix this: committed {sha} on {branch} (outside Sentinel): {subject}", message=subject, patch=None)
+        elif files and git(source, "status", "--porcelain", "--", *files):
+            continue  # unstaged but still in the working tree (theirs or as Claude left it): Stage brings it back
         elif not patch or run_git(source, "apply", "--cached", "--check", "-", data=patch).returncode == 0:
             _record(config, row["id"], "discarded", row["fix"], patch=None)
+        else:  # neither in nor out as staged: the person changed it, then committed it
+            sha = git(source, "log", "-1", "--format=%h", "--", *files)
+            subject = git(source, "log", "-1", "--format=%s", sha)
+            branch = git(source, "rev-parse", "--abbrev-ref", "HEAD")
+            _record(config, row["id"], "committed", f"{sha} on {branch}: {subject}",
+                    f"Fix this: committed {sha} on {branch}, with your changes: {subject}", message=subject, patch=None)
 
 
 def waiting(config: Config) -> str | None:
@@ -340,7 +414,6 @@ def _work(config: Config) -> None:
     finally:
         with _lock:
             _workers.discard(config.name)
-            _auto.discard(config.name)  # the queue is empty: auto continue ends with it
 
 
 def _record(config: Config, finding_id: int, status: str, answer: str | None, comment: str | None = None,
@@ -382,6 +455,9 @@ def fix(config: Config, finding_id: int) -> str:
                 _progress[key]["step"] = text.splitlines()[0].replace(f"{Path(worktree).resolve()}/", "")[:200]
 
     try:
+        if not (Path(worktree) / ".git").exists():
+            make_worktree(config)
+            log("sentinel", f"Sentinel made its worktree {worktree}, with copies of your props files")
         discard(worktree)  # whatever an interrupted fix left behind
         head = git(source, "rev-parse", "HEAD")
         git(worktree, "checkout", "-q", "--detach", head)
@@ -442,15 +518,6 @@ def fix(config: Config, finding_id: int) -> str:
         if bug_class := classes.parse(result):
             store.db.execute("UPDATE findings SET bug_class = ? WHERE id = ?", (bug_class, finding_id))
             store.commit()
-        if is_auto(config.name):  # Commit and auto continue: commit it with Claude's message, then the next one
-            try:
-                commit(config, finding_id, message, auto=True)
-            except ValueError as e:
-                stop_auto(config.name)  # left staged for the person to Commit or Discard
-                log("sentinel", f"Auto continue stopped, could not commit: {e}")
-                return "staged"
-            log("sentinel", f"Auto continue: committed with the message: {message}")
-            return "committed"
         return "staged"
     finally:
         with _lock:
@@ -467,46 +534,6 @@ def _staged(store: Store, finding_id: int):
     return row
 
 
-def commit(config: Config, finding_id: int, message: str, auto: bool = False) -> dict:
-    """Commit what is staged in the person's working tree (the fix, and whatever they changed in it), with their
-    message, and let the queue go on. With `auto`, each next fix is committed as it is staged, until the queue is
-    empty."""
-    message = " ".join((message or "").split())
-    if not message:
-        raise ValueError("The commit message is empty")
-    store = Store(config.db_path)
-    try:
-        _staged(store, finding_id)
-    finally:
-        store.close()
-    source = config.obp_api_source
-    if not git(source, "diff", "--cached", "--name-only"):
-        raise ValueError("Nothing is staged in your working tree")
-    done = run_git(source, "commit", "-q", "-m", message)
-    if done.returncode != 0:
-        raise ValueError(f"git commit: {(done.stderr or done.stdout).strip()[:300]}")
-    sha = git(source, "rev-parse", "--short", "HEAD")
-    branch = git(source, "rev-parse", "--abbrev-ref", "HEAD")
-    _record(config, finding_id, "committed", f"{sha} on {branch}: {message}",
-            f"Fix this: committed {sha} on {branch}: {message}", message=message, patch=None)
-    with _lock:
-        (_auto.add if auto else _auto.discard)(config.name)
-    start(config)
-    return {"fix_status": "committed", "commit": sha}
-
-
-def is_auto(instance: str) -> bool:
-    with _lock:
-        return instance in _auto
-
-
-def stop_auto(instance: str) -> dict:
-    """Stop auto continue: the next fix is staged for the person to Commit or Discard again."""
-    with _lock:
-        _auto.discard(instance)
-    return {"auto": False}
-
-
 def take_back(config: Config, finding_id: int) -> dict:
     """Discard: take the staged fix back out of the person's working tree, and let the queue go on."""
     store = Store(config.db_path)
@@ -521,6 +548,75 @@ def take_back(config: Config, finding_id: int) -> dict:
     _record(config, finding_id, "discarded", row["fix"], patch=None)
     start(config)
     return {"fix_status": "discarded"}
+
+
+def message_of(row) -> str:
+    """The commit message of a staged fix: Claude's one short line, else the finding's title. The page shows the same."""
+    return row["fix_message"] or row["title"]
+
+
+def stage(config: Config, finding_id: int) -> dict:
+    """Stage: git add the fix's files again, with whatever the person changed in them in their IDE."""
+    store = Store(config.db_path)
+    try:
+        files = json.loads(_staged(store, finding_id)["fix_files"] or "[]")
+    finally:
+        store.close()
+    out = run_git(config.obp_api_source, "add", "-A", "--", *files)
+    if out.returncode != 0:
+        raise ValueError(f"git add: {(out.stderr or out.stdout).strip()[:300]}")
+    return {"staged": files}
+
+
+def unstage(config: Config, finding_id: int) -> dict:
+    """Unstage: take the fix's files out of what is staged, leaving them changed in the working tree."""
+    store = Store(config.db_path)
+    try:
+        files = json.loads(_staged(store, finding_id)["fix_files"] or "[]")
+    finally:
+        store.close()
+    out = run_git(config.obp_api_source, "reset", "-q", "--", *files)
+    if out.returncode != 0:
+        raise ValueError(f"git reset: {(out.stderr or out.stdout).strip()[:300]}")
+    return {"unstaged": files}
+
+
+def index_state(files: list[str], cached: set[str]) -> str:
+    """Whether a fix's files are staged ("staged"), not staged ("unstaged") or some of each ("partly"); `cached` is
+    what `git diff --cached --name-only` lists."""
+    staged = sum(1 for name in files if name in cached)
+    return "staged" if files and staged == len(files) else "unstaged" if not staged else "partly"
+
+
+def commit(config: Config, finding_id: int) -> dict:
+    """Commit, when the person presses it: commit what is staged, with the fix's message, and let the queue go on.
+    Refuses when something other than the fix's files is staged, so nothing else goes in by mistake."""
+    store = Store(config.db_path)
+    try:
+        row = _staged(store, finding_id)
+    finally:
+        store.close()
+    source = config.obp_api_source
+    staged = git(source, "diff", "--cached", "--name-only").splitlines()
+    if not staged:
+        raise ValueError("Nothing is staged in your working tree: press Stage first")
+    if others := sorted(set(staged) - set(json.loads(row["fix_files"] or "[]"))):
+        raise ValueError(f"Other files are staged too ({', '.join(others[:5])}): unstage them, or commit with git yourself")
+    subject = message_of(row)
+    done = run_git(source, "commit", "-q", "-m", subject)
+    if done.returncode != 0:
+        said = (done.stderr or done.stdout).strip()
+        if "Author identity unknown" in said or "unable to auto-detect email" in said:
+            raise ValueError(f"git does not know who to commit as: Sentinel runs as the user {getpass.getuser()}, "
+                             f"not as you. Set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME and "
+                             f"GIT_COMMITTER_EMAIL in Sentinel's .env to your name and email, and restart Sentinel")
+        raise ValueError(f"git commit: {said[:300]}")
+    sha = git(source, "rev-parse", "--short", "HEAD")
+    branch = git(source, "rev-parse", "--abbrev-ref", "HEAD")
+    _record(config, finding_id, "committed", f"{sha} on {branch}: {subject}",
+            f"Fix this: committed {sha} on {branch}: {subject}", message=subject, patch=None)
+    start(config)
+    return {"fix_status": "committed", "commit": sha}
 
 
 def log_of(store: Store, finding_id: int) -> list[dict]:

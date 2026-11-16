@@ -17,7 +17,7 @@ from .store import Store
 logger = logging.getLogger(__name__)
 
 ANSWER = re.compile(r"^Needs a guessed id:\s*(yes|no)\b", re.I | re.M)
-BUDGET_USD = 0.5
+BUDGET_USD = 2
 PER_CHECK = 5
 
 
