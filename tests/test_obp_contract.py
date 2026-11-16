@@ -21,10 +21,18 @@ NOT_CALLS = {
         "the helper every self._request call goes through; each of those calls is listed by its own line",
     ("src/obp_sentinel/signatures.py", "OBP_PATH_RE = re.compile("):
         "a pattern that finds OBP-API paths in log lines",
+    ("src/obp_sentinel/health.py", "OBP_VERSION_PATH = re.compile("):
+        "a pattern that finds OBP-API paths in the error messages the health page shows",
+    ("src/obp_sentinel/obp_client.py", "{self.config.monitoring_path}/log-cache/{level}"):
+        "an app's own monitoring endpoint (see about in contract.json), not an OBP-API call",
+    ("src/obp_sentinel/obp_client.py", "{self.config.monitoring_path}/telemetry"):
+        "an app's own monitoring endpoint (see about in contract.json), not an OBP-API call",
     ("src/obp_sentinel/health.py", "expects a different answer from OBP-API's GET /obp/v7.0.0/banks/SYS/my/roles/ROLE"):
         "advice shown on the health page; the call itself is listed in obp_client.py",
 }
 VERSION = re.compile(r"/obp/(v\d+\.\d+\.\d+)/")
+# The OBPClient methods that send a request to an OBP-API path (_request) or to a URL (_request_url)
+CALL_HELPERS = {"_request", "_request_url"}
 
 
 def load(name: str) -> dict:
@@ -58,28 +66,46 @@ def _docstrings(tree: ast.AST) -> set[int]:
     return ids
 
 
-def obp_path_lines() -> list[tuple[str, int, str]]:
+# A string naming an OBP-API path or the start of one: /obp/v7.0.0/..., /obp/{version}/..., /obp/dynamic-entity/...
+# (no version at all), or a piece such as "/obp/" put together with `+`. /obp-oidc is not an OBP-API path.
+OBP_PATH_PIECE = re.compile(r"/obp(?![\w-])")
+
+
+def obp_path_lines_in(rel: str, text: str) -> list[tuple[str, int, str]]:
     """Lines of Python source that make an OBP-API call: a string (not a docstring or comment) naming an OBP-API
-    path, or a call of OBPClient._request, which puts /obp/{version}/ in front of its path.
-    (file relative to the repository, line number, line)."""
+    path or a piece of one, or a call of OBPClient._request or _request_url (which put /obp/{version}/ in front of
+    their path, or take a whole URL). For a _request_url call whose URL is a variable, the line that sets the variable
+    is part of the call. (file relative to the repository, line number, line)."""
     out = set()
-    for path in sorted(SOURCE.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        rel = path.relative_to(ROOT).as_posix()
-        text = path.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        tree = ast.parse(text)
-        skip = _docstrings(tree)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.JoinedStr) or (isinstance(node, ast.Constant) and isinstance(node.value, str)
-                                                   and id(node) not in skip):
-                # A string can run over several lines: take the line that names the path
-                out.update((rel, n, lines[n - 1]) for n in range(node.lineno, node.end_lineno + 1)
-                           if "/obp/v" in lines[n - 1] or "/obp/{" in lines[n - 1])
-            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "_request":
-                out.add((rel, node.lineno, lines[node.lineno - 1]))
+    lines = text.splitlines()
+    tree = ast.parse(text)
+    skip = _docstrings(tree)
+    assigned = {}  # variable -> (line number, line) of its latest assignment so far
+    for node in sorted((n for n in ast.walk(tree) if hasattr(n, "lineno")), key=lambda n: n.lineno):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            assigned[node.targets[0].id] = lines[node.lineno - 1]
+        if isinstance(node, ast.JoinedStr) or (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                                               and id(node) not in skip):
+            # A string can run over several lines: take the line that names the path. Look at the string's own
+            # text, not the rest of its line (a comment after it)
+            segment = (ast.get_source_segment(text, node) or "").splitlines()
+            out.update((rel, node.lineno + i, lines[node.lineno + i - 1]) for i, part in enumerate(segment)
+                       if OBP_PATH_PIECE.search(part))
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in CALL_HELPERS:
+            line = lines[node.lineno - 1]
+            url = node.args[1] if node.func.attr == "_request_url" and len(node.args) > 1 else None
+            if isinstance(url, ast.Name) and url.id in assigned:
+                line += " " + assigned[url.id].strip()
+            out.add((rel, node.lineno, line))
     return sorted(out)
+
+
+def obp_path_lines() -> list[tuple[str, int, str]]:
+    out = []
+    for path in sorted(SOURCE.rglob("*.py")):
+        if "__pycache__" not in path.parts:
+            out += obp_path_lines_in(path.relative_to(ROOT).as_posix(), path.read_text(encoding="utf-8"))
+    return out
 
 
 def test_every_call_in_the_contract_is_in_its_source_file():
@@ -180,3 +206,23 @@ def test_a_renamed_or_removed_field_is_reported():
     either = {"reads": ["allowed|allowed_for_auth_modes"]}
     assert undocumented_reads(either, {"allowed_for_auth_modes"}) == []
     assert undocumented_reads(either, set()) == ["allowed|allowed_for_auth_modes"]
+
+
+def test_the_scan_finds_a_path_put_together_from_pieces_a_path_without_a_version_and_a_request_by_url():
+    # The scan itself: base + "/obp/" + version, a /obp/dynamic-entity path, a _request_url call (also when its URL is
+    # set on a line above) and a plain _request call are found; /obp-oidc, a docstring and a comment are not
+    source = '''def probe(client, base, ver, url):
+    """Docstring naming /obp/v7.0.0/root."""
+    a = base + "/obp/" + ver + "/banks"
+    b = f"{base}/obp/dynamic-entity/x"
+    c = "https://host/obp/dynamic-entity/y"
+    d = "http://localhost:9000/obp-oidc"  # /obp/v7.0.0/root
+    url = base + ver
+    e = client._request_url("GET", url)
+    f = client._request("GET", ver, "banks")
+    g = other.fetch(url)
+    return a, b, c, d, e, f, g
+'''
+    found = obp_path_lines_in("example.py", source)
+    assert [n for _, n, _ in found] == [3, 4, 5, 8, 9]
+    assert "url = base + ver" in found[3][2]
