@@ -69,7 +69,7 @@ checks, even where the logs show nothing wrong.
   dismissed. Once a category has 3 responses, its
   findings are shown and put in the digest earlier or later (priority × a weight from 0.5 to 1.5); a finding of
   impact 4 or more is never put later. The analyst also reads your reasons for dismissing findings, so it does not
-  raise that kind of problem again. Only what you choose to do counts, not what you open or read; Look again marking
+  raise that kind of problem again. Only what you choose to do counts, not what you open or read; Rescan marking
   a finding fixed does not count either. The page says what it has learned above the tabs, with Forget to start again.
 
 Towards a running OBP-API instance Sentinel is read-only: it does not change log levels or any other setting.

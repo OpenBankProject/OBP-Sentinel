@@ -358,7 +358,7 @@ nav.instances .flag.warn { background: var(--warn); }
   <p class="sub" id="bug-classes" hidden></p>
   <div class="sweep" id="sweep" hidden>
     <button type="button" id="sweep-btn" data-testid="sweep-btn"
-      title="Claude looks again, one at a time, at each security finding in To review; those it finds fixed move to Done.">Look again at the security findings</button>
+      title="Claude rescans, one at a time, each security finding in To review; those it finds fixed move to Done.">Rescan the security findings</button>
     <span class="sub" id="sweep-state"></span>
   </div>
   <div class="sweep" id="fix-rated" hidden>
@@ -444,7 +444,7 @@ nav.instances .flag.warn { background: var(--warn); }
           </div>
           <div class="act"><button type="button" data-verdict="fixed" title="You think it is fixed: moves to Done">Should be fixed now</button></div>
           <div class="outcome" id="fixed-outcome" hidden><p class="previous" id="d-marked-fixed"></p></div>
-          <div class="act"><button type="button" id="recheck-btn" title="Claude reads the code the instance runs now and answers in one line">Look again: still an issue?</button></div>
+          <div class="act"><button type="button" id="recheck-btn" title="Claude reads the code the instance runs now and answers in one line; if it finds the finding fixed, it moves to Done">Rescan</button></div>
           <div class="outcome" id="recheck-outcome" hidden><p class="previous" id="d-recheck"></p></div>
         </div>
         <p class="desc"><a href="/help#buttons">What these buttons do</a></p>
@@ -835,14 +835,14 @@ function stateOf(f) {
   return statusLabel(f);
 }
 
-// Look again: is it still an issue in the code the instance runs now? (Claude, in the background, kept with the finding)
+// Rescan: is it still an issue in the code the instance runs now? (Claude, in the background, kept with the finding)
 function renderRecheck(f) {
   const looking = f.recheck_status === 'running';
   const p = looking && f.recheck_progress;
   const answer = looking
-    ? 'Looking again at the code the instance runs now. This takes a few minutes; the answer will show here.'
+    ? 'Rescanning the code the instance runs now. This takes a few minutes; the answer will show here.'
       + (p ? ` Started ${ago(Date.now() / 1000 - p.started)}, ${p.steps} command${p.steps === 1 ? '' : 's'} run so far. Now: ${p.step}` : '')
-    : f.recheck_status === 'failed' && !f.recheck ? 'Could not look again.' : f.recheck || '';
+    : f.recheck_status === 'failed' && !f.recheck ? 'Could not rescan.' : f.recheck || '';
   $('recheck-outcome').hidden = !answer;
   $('d-recheck').replaceChildren(
     el('b', { textContent: looking || !f.rechecked_at ? 'Claude: ' : `Claude, ${fmtDate(f.rechecked_at)}: ` }), answer);
@@ -1095,18 +1095,18 @@ async function queueFix(btn, tests) {
   }
 }
 
-// Look again at every security finding to review, one at a time; those Claude finds fixed move to Done
+// Rescan every security finding to review, one at a time; those Claude finds fixed move to Done
 function renderSweep() {
   const sw = state.overview && state.overview.sweep;
   const toReview = state.findings.filter((f) => f.status === 'suggested' && f.category === 'security').length;
   $('sweep').hidden = state.tab !== 'review' || (!toReview && !sw);
   $('sweep-btn').disabled = !toReview || !!(sw && sw.running);
-  $('sweep-btn').textContent = toReview ? `Look again at the ${toReview} security finding${toReview > 1 ? 's' : ''}`
-    : 'Look again at the security findings';
+  $('sweep-btn').textContent = toReview ? `Rescan the ${toReview} security finding${toReview > 1 ? 's' : ''}`
+    : 'Rescan the security findings';
   $('sweep-state').textContent = !sw ? ''
-    : sw.running ? `Looking again: ${sw.done} of ${sw.total} done, ${sw.fixed} fixed and moved to Done so far. `
+    : sw.running ? `Rescanning: ${sw.done} of ${sw.total} done, ${sw.fixed} fixed and moved to Done so far. `
       + 'The finding being looked at shows what Claude is doing.'
-    : `Looked again at ${sw.total} on ${fmtDate(sw.finished)}: ${sw.fixed} fixed and moved to Done. `
+    : `Rescanned ${sw.total} on ${fmtDate(sw.finished)}: ${sw.fixed} fixed and moved to Done. `
       + 'Each finding shows Claude\'s answer.';
 }
 
@@ -1129,7 +1129,7 @@ $('sweep-btn').addEventListener('click', async () => {
     render();
     pollSweep();
   } catch (e) {
-    $('sweep-state').textContent = `Could not look again: ${e.message}`;
+    $('sweep-state').textContent = `Could not rescan: ${e.message}`;
     $('sweep-btn').disabled = false;
   }
 });
@@ -1155,7 +1155,7 @@ $('recheck-btn').addEventListener('click', async () => {
     render();
     pollWhileRunning(id, 'recheck_status');
   } catch (e) {
-    setStatus(`Could not look again: ${e.message}`, true);
+    setStatus(`Could not rescan: ${e.message}`, true);
     $('recheck-btn').disabled = false;
   }
 });

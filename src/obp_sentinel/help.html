@@ -85,7 +85,7 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
     but runs no tests; they run in the cloud (CI) once you push. The fix is marked "tests not run" until then.</li>
   <li><strong>Should be fixed now</strong> says you think it is fixed. The finding moves to Done, and the analyst
     checks that its log errors dropped, and says so if not.</li>
-  <li><strong>Look again: still an issue?</strong> has Claude read the code the instance runs now and answer in one
+  <li><strong>Rescan</strong> has Claude read the code the instance runs now and answer in one
     line. If Claude finds it fixed, naming the commit that fixed it, the finding moves to Done. Any other answer
     changes nothing. It reads the deployed commit, so a fix you have committed but not deployed still shows as an
     issue.</li>
