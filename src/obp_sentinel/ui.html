@@ -533,7 +533,7 @@ nav.instances .flag.warn { background: var(--warn); }
 // Everything shown comes from sentinel.db, partly derived from OBP-API logs: set as text, never as HTML.
 // In the order a finding moves through them, as on a kanban board
 const TABS = [
-  ['open', 'Not yet suggested', ['open']],
+  ['open', 'Not suggested yet', ['open']],
   ['review', 'To review', ['suggested']],
   ['later', 'Snoozed', ['later']],
   ['queued', 'Queued', []],  // Fix this, whatever the status (FIX_TABS): waiting its turn,
@@ -550,11 +550,15 @@ const inTab = (f, tab) => tab.startsWith('rated-')
   : tabOf(f) === tab;
 const FIX_TABS = { queued: 'queued', running: 'fixing', staged: 'commit' };
 const tabOf = (f) => FIX_TABS[f.fix_status] || (TABS.find((t) => t[2].includes(f.status)) || TABS[0])[0];
+// A suggested finding says when Sentinel first suggested it (put it in a digest), e.g. Suggested to you on 15 Nov
+const statusLabel = (f) => f.status === 'suggested' && f.first_suggested
+  ? `Suggested to you on ${new Date(f.first_suggested * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+  : STATUS[f.status] || f.status;
 const TREND = { new: 'New', rising: 'Rising', stable: 'Stable', falling: 'Falling' };
-const STATUS = { suggested: 'In a digest', open: 'Not yet suggested', later: 'Snoozed', accepted: 'Accepted', acted: 'Some action taken',
+const STATUS = { suggested: 'Suggested to you', open: 'Not suggested yet', later: 'Snoozed', accepted: 'Accepted', acted: 'Some action taken',
                  fixed: 'Fixed', dismissed: 'Dismissed' };
 const FIX_STATUS = { queued: 'Queued for fixing', running: 'Being fixed', staged: 'Fix staged', committed: 'Fix committed',
-                     skipped: 'Not fixed: no issue found', failed: 'Fix failed', discarded: 'Fix discarded' };
+                     skipped: 'Not fixed: no change needed', failed: 'Fix failed', discarded: 'Fix discarded' };
 const CAT_COLOR = { bug: 'var(--danger)', reliability: 'var(--danger)', security: 'var(--danger)' };
 const state = { instance: null, instances: [], tab: 'review', selected: null, findings: [], overview: null, learned: null };
 
@@ -737,7 +741,7 @@ function render() {
         el('span', { className: 'num', textContent: `#${f.id}` }),
       ]),
       el('div', { className: 't' }, breakAfterSlashes(f.title)),
-      el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', STATUS[f.status] || f.status,
+      el('div', { className: 'meta' }, [TREND[f.trend] || f.trend, '·', statusLabel(f),
                                          ...(f.rating && !state.tab.startsWith('rated-') ? ['·', RATED_LABEL[f.rating]] : []),
                                          ...(f.needs_id ? ['·', 'Needs a guessed id'] : []),
                                          ...(f.fix_tests === 0 && f.fix_status ? ['·', 'Tests not run'] : []),
@@ -828,7 +832,7 @@ function stateOf(f) {
   if (f.fix_status === 'staged') return f.fix_index === 'unstaged' ? 'Fix ready, not staged' : 'Fix staged';
   if (f.fix_status === 'running') return 'Being fixed';
   if (f.fix_status === 'queued') return 'Queued for fixing';
-  return STATUS[f.status] || f.status;
+  return statusLabel(f);
 }
 
 // Look again: is it still an issue in the code the instance runs now? (Claude, in the background, kept with the finding)
@@ -993,7 +997,7 @@ function renderFixQueue() {
     : waiting ? [`Waiting: ${waiting}`] : null;
   const ended = [
     of('committed').length ? `${of('committed').length} committed` : null,
-    of('skipped').length ? `${of('skipped').length} not an issue` : null,
+    of('skipped').length ? `${of('skipped').length} needed no change` : null,
     of('failed').length ? `${of('failed').length} failed` : null,
     of('discarded').length ? `${of('discarded').length} discarded` : null,
   ].filter(Boolean);

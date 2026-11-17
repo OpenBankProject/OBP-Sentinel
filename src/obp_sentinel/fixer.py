@@ -42,6 +42,8 @@ LOCK_FILE = "work/fixer.lock"  # one fix at a time across Sentinel processes: th
 _lock = threading.Lock()  # and across this process's instances
 COMMIT_MAX = 72  # the commit message: one short line in plain English, starting "Fix: "
 LIMIT = re.compile(r"hit your .{0,30}limit|reached your .{0,30}limit|usage limit|rate.limit", re.I)  # Claude's plan
+OUTCOMES = ("Fixed:", "Already fixed:", "Not an issue:", "Could not fix:")  # how Claude's answer may start
+STILL_OPEN = ("open", "suggested", "accepted", "later")  # statuses Already fixed may change to fixed
 PAUSE_MINUTES = 30  # at the plan's usage limit the queue waits, rather than failing every finding left in it
 WAIT_SECONDS = 30  # how often a queue waiting for the person to commit or discard a fix looks again
 _workers: set[str] = set()  # instances whose queue is being worked through
@@ -148,7 +150,8 @@ def prompt(finding: dict, worktree: str, comments: list[str] = (), known_classes
            "they may narrow or change what to do, and come before the suggested change above:\n"
            + "".join(f"- {c}\n" for c in comments) + "\n" if comments else "")
         + f"1. Check that the problem is really in the code at {worktree} (Read, Grep, Glob). If it is not, change "
-        "nothing and say so.\n"
+        f"nothing and say so: if a commit since the finding was written fixed it (git -C {worktree} log -- <path>, then "
+        "git show <commit>), it is Already fixed, else Not an issue.\n"
         "2. Make the smallest change that fixes it, in the style of the code around it, with Edit or Write, only in "
         f"{', '.join(f'{worktree}/{d}' for d in SOURCE_DIRS)}. Leave obp-commons alone unless the fix needs it. Give "
         "every line or block you add or change a short comment saying what it does and why (e.g. // the message must "
@@ -189,6 +192,8 @@ def prompt(finding: dict, worktree: str, comments: list[str] = (), known_classes
         f"ensured, never that something was wrong before, at most {COMMIT_MAX} characters, no #number, no full stop, "
         "e.g. Fix: Make sure that Update Customer Address checks the bank>\n"
         f"{classes.instruction(list(known_classes))}\nor\n"
+        "Already fixed: by <short hash> (<date>, <author>): <one sentence: what that commit changed that prevents it>.\n"
+        "or\n"
         "Not an issue: <one or two sentences: what you saw in the code that already prevents it>.\nor\n"
         "Could not fix: <one or two sentences: why, in words>."
     )
@@ -416,6 +421,25 @@ def _work(config: Config) -> None:
             _workers.discard(config.name)
 
 
+def outcome(result: str | None) -> str | None:
+    """Claude's answer from its outcome line (Fixed:, Already fixed:, …) on, whatever it wrote before it, without its
+    Commit: and Class: lines, which are read on their own."""
+    lines = [l.strip() for l in (result or "").splitlines() if l.strip()]
+    start = next((i for i, l in enumerate(lines) if l.startswith(OUTCOMES)), 0)
+    return "\n".join(l for l in lines[start:] if not l.startswith(("Commit:", "Class:")))[:2000] or None
+
+
+def mark_fixed(config: Config, finding_id: int, comment: str) -> None:
+    """Mark a finding fixed, as Sentinel's own response (not learnt from), unless it is fixed or dismissed already."""
+    store = Store(config.db_path)
+    try:
+        if store.db.execute("SELECT status FROM findings WHERE id = ?", (finding_id,)).fetchone()["status"] in STILL_OPEN:
+            store.add_feedback(finding_id, "fixed", comment[:2000], config.snooze_days, from_sentinel=True)
+            store.commit()
+    finally:
+        store.close()
+
+
 def _record(config: Config, finding_id: int, status: str, answer: str | None, comment: str | None = None,
             at: int | None = None, **columns) -> None:
     """`at` 0 puts a finding back at the head of the queue; `columns` are other fix_ columns to set; a `comment`
@@ -475,9 +499,7 @@ def fix(config: Config, finding_id: int) -> str:
             log("sentinel", f"Claude's usage limit: paused until {again}")
             _record(config, finding_id, "queued", f"Paused at Claude's usage limit; trying again at {again}.", at=0)
             return "paused"
-        # The whole answer but its Commit: and Class: lines, kept on their own
-        answer = "\n".join(l.strip() for l in (result or "").strip().splitlines()
-                           if l.strip() and not l.strip().startswith(("Commit:", "Class:")))[:2000] or None
+        answer = outcome(result)
         changed = git(worktree, "status", "--porcelain", "--", *SOURCE_DIRS)
         said = next((l for l in (answer or "").splitlines() if l.startswith("Tests:")), "")
         if tests and answer and answer.startswith("Fixed:") and changed and not said.startswith("Tests: passed"):
@@ -485,6 +507,12 @@ def fix(config: Config, finding_id: int) -> str:
             log("sentinel", "Not staged: the tests did not pass")
             _record(config, finding_id, "failed", f"Not staged, because the tests did not pass.\n{answer}"[:2000])
             return "failed"
+        if not error and answer and answer.startswith("Already fixed:"):
+            discard(worktree)
+            log("sentinel", "Already fixed: the finding is marked fixed")
+            _record(config, finding_id, "skipped", answer)
+            mark_fixed(config, finding_id, f"Fix this: {answer}")
+            return "skipped"
         if error or not answer or not answer.startswith("Fixed:") or not changed:
             discard(worktree)
             status = "skipped" if answer and answer.startswith("Not an issue:") else "failed"

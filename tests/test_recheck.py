@@ -5,8 +5,8 @@ from obp_sentinel.store import Store, now
 from test_history import git, make_repo
 
 
-def finding(store, files=("A.scala:2",), signature_ids=()):
-    fid = store.upsert_finding({"key": "k", "title": "t", "category": "bug", "signature_ids": list(signature_ids),
+def finding(store, files=("A.scala:2",), signature_ids=(), key="k"):
+    fid = store.upsert_finding({"key": key, "title": "t", "category": "bug", "signature_ids": list(signature_ids),
                                 "evidence": "e", "hypothesis": "h", "files": list(files), "suggested_fix": "f",
                                 "impact": 1, "confidence": 0.5, "effort": 1, "trend": "new"})
     store.commit()
@@ -82,3 +82,21 @@ def test_looking_again_at_the_security_findings_to_review_moves_the_fixed_ones_t
     comment = store.db.execute("SELECT comment FROM feedback WHERE finding_id = ?", (ids["fixed"],)).fetchone()[0]
     assert comment.startswith("Look again: Fixed at abc")
     recheck._sweeps.clear()
+
+
+def test_look_again_on_one_finding_moves_it_to_done_when_fixed_but_not_a_dismissed_one(config, monkeypatch):
+    store = Store(config.db_path)
+    fixed, dismissed, still = finding(store), finding(store, key="d"), finding(store, key="s")
+    store.db.execute("UPDATE findings SET status = 'suggested' WHERE id IN (?, ?)", (fixed, still))
+    store.db.execute("UPDATE findings SET status = 'dismissed' WHERE id = ?", (dismissed,))
+    store.commit()
+    store.close()
+    monkeypatch.setattr(recheck, "run_claude", lambda cmd, *a: (None, 0.1, (
+        "Still an issue at abc: no check." if f"prompt {still}" in cmd else "Fixed at abc by abc (2026-10-11, Ada): it checks."), None))
+    monkeypatch.setattr(recheck, "command", lambda cfg, text: text)
+    assert recheck._look_and_mark(config, fixed, f"prompt {fixed}") is True
+    assert recheck._look_and_mark(config, dismissed, f"prompt {dismissed}") is False
+    assert recheck._look_and_mark(config, still, f"prompt {still}") is False
+    store = Store(config.db_path)
+    status = {r[0]: r[1] for r in store.db.execute("SELECT id, status FROM findings")}
+    assert status == {fixed: "fixed", dismissed: "dismissed", still: "suggested"}

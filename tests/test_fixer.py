@@ -198,6 +198,28 @@ def test_not_an_issue_changes_nothing(cfg, trees, monkeypatch):
     assert f["status"] == "open" and f["fix"] == "Not an issue: it already checks."
 
 
+def test_already_fixed_changes_nothing_and_moves_the_finding_to_done(cfg, trees, monkeypatch):
+    source, worktree = trees
+    fid = new_finding(cfg)
+    answer = "Already fixed: by 7171cd85b (2026-11-16, Ada): it refuses an amount not above 0."
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, answer, change=False))
+    assert fixer.fix(cfg, fid) == "skipped"
+    f = row(cfg, fid)
+    assert f["status"] == "fixed" and f["fix"] == answer
+    store = Store(cfg.db_path)
+    fb = store.db.execute("SELECT comment, from_sentinel FROM feedback WHERE finding_id = ?", (fid,)).fetchone()
+    assert fb["comment"] == f"Fix this: {answer}" and fb["from_sentinel"] == 1  # not learnt from
+
+
+def test_the_answer_is_read_from_its_outcome_line_whatever_comes_before(cfg, trees, monkeypatch):
+    source, worktree = trees
+    fid = new_finding(cfg)
+    monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, "I've fixed it in both places.\n\n" + FIXED))
+    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    assert fixer.fix(cfg, fid) == "staged"
+    assert row(cfg, fid)["fix"].startswith("Fixed: it checks.")
+
+
 def test_at_the_usage_limit_the_finding_goes_back_to_the_head_of_the_queue(cfg, trees, monkeypatch):
     source, worktree = trees
     fid = new_finding(cfg)

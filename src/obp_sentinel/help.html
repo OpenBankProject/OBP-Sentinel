@@ -86,8 +86,11 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
   <li><strong>Should be fixed now</strong> says you think it is fixed. The finding moves to Done, and the analyst
     checks that its log errors dropped, and says so if not.</li>
   <li><strong>Look again: still an issue?</strong> has Claude read the code the instance runs now and answer in one
-    line. Nothing else changes. It reads the deployed commit, so a fix you have committed but not deployed still
-    shows as an issue.</li>
+    line. If Claude finds it fixed, naming the commit that fixed it, the finding moves to Done. Any other answer
+    changes nothing. It reads the deployed commit, so a fix you have committed but not deployed still shows as an
+    issue.</li>
+  <li>If <strong>Fix this</strong> finds that a commit has already fixed the problem, it changes nothing and moves
+    the finding to Done, naming that commit.</li>
 </ul>
 <h3>A fix in your working tree</h3>
 <p>Under Fix this, <strong>Now</strong> says where the fix is today, read from git each time you open the finding:

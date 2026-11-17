@@ -3,7 +3,8 @@
 Asked for with the Look again button on the page. Claude, in the background, reads the finding, the code at the
 commit the instance runs now, the commits that changed the finding's files since it was found, and whether its log
 signatures are still seen, and answers in one line kept with the finding. Read only, like Trace history: git log,
-show, blame and diff on the source, nothing else. The finding's status is left for a person to change.
+show, blame and diff on the source, nothing else. When Claude finds it fixed in the code, the finding is marked
+fixed (Done on the page), with Claude's answer as the comment; any other answer leaves its status as it was.
 """
 
 import json
@@ -19,6 +20,7 @@ from .store import Store, now
 logger = logging.getLogger(__name__)
 
 BUDGET_USD = 3
+STILL_OPEN = ("open", "suggested", "accepted", "later")  # statuses Look again may change to fixed
 TIMEOUT_MINUTES = 10
 SEEN_HOURS = 24
 _running: dict[tuple[str, int], dict] = {}  # (instance, finding id) being looked at again → its progress
@@ -127,7 +129,7 @@ def _start(config: Config, finding_id: int) -> str | None:
 def recheck(config: Config, finding_id: int) -> dict:
     """Start looking at a finding again, unless that is already going. The answer is kept with the finding."""
     if text := _start(config, finding_id):
-        threading.Thread(target=_look, args=(config, finding_id, text), daemon=True,
+        threading.Thread(target=_look_and_mark, args=(config, finding_id, text), daemon=True,
                          name=f"recheck-{config.name}-{finding_id}").start()
     return {"recheck_status": "running", "recheck_progress": progress(config.name, finding_id)}
 
@@ -198,24 +200,36 @@ def sweep(config: Config) -> dict:
     return dict(shown)
 
 
-def look_and_mark(config: Config, finding_id: int) -> bool:
-    """Look again at one finding, here and now; mark it fixed, with Claude's answer as the comment, if Claude finds
-    it fixed. True if so. A failure is logged, not raised, so one finding does not stop the others."""
-    try:
-        text = _start(config, finding_id)
-        answer = _look(config, finding_id, text) if text else None
-    except Exception as e:
-        logger.warning("Looking again at finding %s (%s) failed: %s", finding_id, config.name, e)
-        return False
+def mark_if_fixed(config: Config, finding_id: int, answer: str | None) -> bool:
+    """Mark a finding fixed, with Claude's answer as the comment, if the answer says it is fixed and the finding is
+    still open (not already fixed or dismissed). True if marked. Sentinel does not learn from it."""
     if not (answer and answer.startswith("Fixed at")):
         return False
     store = Store(config.db_path)
     try:
+        row = store.db.execute("SELECT status FROM findings WHERE id = ?", (finding_id,)).fetchone()
+        if not row or row["status"] not in STILL_OPEN:
+            return False
         store.add_feedback(finding_id, "fixed", f"Look again: {answer}", config.snooze_days, from_sentinel=True)
         store.commit()
     finally:
         store.close()
     return True
+
+
+def _look_and_mark(config: Config, finding_id: int, text: str) -> bool:
+    return mark_if_fixed(config, finding_id, _look(config, finding_id, text))
+
+
+def look_and_mark(config: Config, finding_id: int) -> bool:
+    """Look again at one finding, here and now; mark it fixed if Claude finds it fixed. True if so. A failure is
+    logged, not raised, so one finding does not stop the others."""
+    try:
+        text = _start(config, finding_id)
+        return _look_and_mark(config, finding_id, text) if text else False
+    except Exception as e:
+        logger.warning("Looking again at finding %s (%s) failed: %s", finding_id, config.name, e)
+        return False
 
 
 def _sweep(config: Config, ids: list[int]) -> None:
