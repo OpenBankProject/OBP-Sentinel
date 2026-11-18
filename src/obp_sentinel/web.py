@@ -22,7 +22,7 @@ from importlib.resources import files
 
 import httpx
 
-from . import build, classes, fixer, history, preferences, recheck
+from . import build, classes, fixer, history, preferences, recheck, replies, sonar
 from .analyst import Analyst, check_claude, decide, unavailable_reason
 from .config import Config
 from .health import health
@@ -268,6 +268,10 @@ def findings(store: Store, config: Config) -> list[dict]:
             item["recheck_status"] = "failed"  # Sentinel stopped while looking
         elif item.get("recheck_status") == "running":
             item["recheck_progress"] = recheck.progress(config.name, f["id"])
+        if item.get("reply_status") == "running":
+            if (shown := replies.progress(config.name, f["id"])) is None:
+                item["reply_status"] = "failed"  # Sentinel stopped while answering
+            item["reply_progress"] = shown
         if item.get("fix_status") == "running":
             item["fix_progress"] = fixer.progress(config.name, f["id"])
         item["fix_files"] = json.loads(item["fix_files"]) if item.get("fix_files") else None
@@ -373,6 +377,13 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                     return self._json(HTTPStatus.OK, {**progress(configs, reviews), "scanner": scanner.status()})
                 finally:
                     reviews.close()
+            if path == "/api/sonar-settings":  # the suggested SonarCloud settings for the instance's project
+                if config := self._instance():
+                    try:
+                        self._json(HTTPStatus.OK, sonar.settings(config) or {})
+                    except (httpx.HTTPError, KeyError, ValueError) as e:
+                        self._json(HTTPStatus.BAD_GATEWAY, {"error": f"Could not read SonarCloud: {e}"})
+                return
             if log := FIX_LOG_PATH.match(path):
                 if config := self._instance():
                     self._json(HTTPStatus.OK, self._with_store(config, lambda s: fixer.log_of(s, int(log.group(1)))))
@@ -542,6 +553,10 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 self._with_store(config, record)
             except ValueError as e:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+            if verdict == COMMENT:  # the agent answers it, and may act on it
+                if reason := unavailable_reason(config, scheduled=False):
+                    return self._json(HTTPStatus.OK, {"ok": True, "not_answered": reason})
+                return self._json(HTTPStatus.OK, {"ok": True, **replies.start(config, int(match.group(1)))})
             if verdict != "urgent":
                 return self._json(HTTPStatus.OK, {"ok": True})
             # Urgent: Fix this, at the head of the queue, when Claude Code can fix it here

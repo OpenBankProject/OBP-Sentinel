@@ -40,6 +40,7 @@ PARITY_SCRIPTS = ("scripts/check_lift_http4s_resource_doc_parity.py", "scripts/r
 GIT_READ_COMMANDS = ("status", "diff", "log", "show", "grep")
 LOCK_FILE = "work/fixer.lock"  # one fix at a time across Sentinel processes: they share the worktree
 _lock = threading.Lock()  # and across this process's instances
+COMMENT_MAX = 80  # a code comment a fix adds: one plain line
 COMMIT_MAX = 72  # the commit message: one short line in plain English, starting "Fix: "
 LIMIT = re.compile(r"hit your .{0,30}limit|reached your .{0,30}limit|usage limit|rate.limit", re.I)  # Claude's plan
 OUTCOMES = ("Fixed:", "Already fixed:", "Not an issue:", "Could not fix:")  # how Claude's answer may start
@@ -154,9 +155,11 @@ def prompt(finding: dict, worktree: str, comments: list[str] = (), known_classes
         "git show <commit>), it is Already fixed, else Not an issue.\n"
         "2. Make the smallest change that fixes it, in the style of the code around it, with Edit or Write, only in "
         f"{', '.join(f'{worktree}/{d}' for d in SOURCE_DIRS)}. Leave obp-commons alone unless the fix needs it. Give "
-        "every line or block you add or change a short comment saying what it does and why (e.g. // the message must "
-        "be in the room in the path, else any participant reads any room), in the comment style of the file. Say what "
-        "the code does now and what it guards against, never that something was wrong before. Read "
+        "each block you add or change one short comment, in plain English, saying what it does and why: one line of "
+        f"at most {COMMENT_MAX} characters, everyday words, no error names, no list of callers, no attack story "
+        "(e.g. // only messages in this room). Do not comment a line the code already explains, and do not repeat a "
+        "comment you wrote elsewhere. Use the comment style of the file. Say what the code does now, never that "
+        "something was wrong before. Read "
         f"{worktree}/CLAUDE.md first: it says how endpoints and their tests are written. If the endpoint did this "
         f"right in Lift, do what Lift did (Read {LIFT_REFERENCE} for the commit to git show it at).\n"
         "   A new check that fails returns an OBP error message from ErrorMessages with the HTTP code that matches it: "

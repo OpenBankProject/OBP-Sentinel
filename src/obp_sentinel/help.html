@@ -75,8 +75,12 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
 <h3>Acting on a finding</h3>
 <p>What each button leads to is shown underneath it.</p>
 <ul>
-  <li><strong>Save comment</strong> keeps your comment with the finding and changes nothing else. Fix this follows
-    every comment on the finding, and the analyst reads them.</li>
+  <li><strong>Save comment</strong> keeps your comment with the finding, and Senti answers it within a few minutes,
+    under the finding. Ask it anything about the finding or its fix. If you ask it to do something it can do (rate the
+    finding, skip it, dismiss it, mark it fixed, rescan it, or fix it again), it does that one thing and says so. Fix
+    it again takes a staged fix back out of your working tree first, unless you have changed those files since. Only
+    your latest comment and its answer are shown; Fix this follows every comment on the finding, and the analyst
+    reads them.</li>
   <li><strong>Fix this</strong> saves the comment box, then queues the finding. Claude fixes it in Sentinel's own
     worktree of OBP-API, following your comments, and runs the tests that cover it. If they pass, Sentinel stages the
     change in your working tree. Fixes are made one at a time: the next starts once you have committed or discarded

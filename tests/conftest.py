@@ -49,3 +49,9 @@ def config(tmp_path, monkeypatch):
         min_priority=1.0,
         snooze_days=7,
     )
+
+
+@pytest.fixture(autouse=True)
+def no_real_replies(monkeypatch):
+    """Saving a comment starts Senti's answer: no test runs the real Claude Code for it."""
+    monkeypatch.setattr("obp_sentinel.replies.run_claude", lambda *a, **k: ("not in tests", 0.0, None, None))

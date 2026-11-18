@@ -426,3 +426,8 @@ def test_where_a_committed_fix_is_now_pushed_and_running(tmp_path):
     g("push", "-q", "origin", "develop")
     assert fixer.where_committed(source, fix, fix) == {"sha": fix, "pushed_to": ["origin/develop"], "running": True}
     assert fixer.where_committed(source, fix, "abcdef1")["running"] is None  # a commit the checkout does not have
+
+
+def test_a_fix_is_asked_for_short_plain_comments():
+    text = fixer.prompt({"title": "t", "evidence": "e", "hypothesis": "h", "files": "[]", "suggested_fix": "f"}, "/w")
+    assert f"one line of at most {fixer.COMMENT_MAX} characters" in text and "plain English" in text

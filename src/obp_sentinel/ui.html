@@ -173,6 +173,8 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .actions button.done { background: var(--good); border-color: var(--good); color: var(--on-accent); opacity: 1; }
 .status { margin: 14px 0 0; font-size: 14px; color: var(--accent); min-height: 1.5em; }
 .status.error { color: var(--danger); }
+.exchange { border-left: 3px solid var(--line); padding-left: 10px; margin: 0 0 14px; }
+.exchange p { margin: 0 0 6px; white-space: pre-line; }
 .previous { font-size: 14px; color: var(--muted); margin: 0 0 14px; }
 .history { margin: 0 0 20px; }
 .history p { margin: 0 0 8px; }
@@ -410,8 +412,12 @@ nav.instances .flag.warn { background: var(--warn); }
       </div>
       <div class="respond">
         <p class="previous" id="d-previous" hidden></p>
-        <div id="d-comments" hidden><h3>Your comments</h3><ul class="files" id="d-comment-list"></ul></div>
-        <label for="comment">Comment for Sentinel <span>(optional: Fix this follows it, the analyst reads it)</span></label>
+        <div class="exchange" id="d-exchange" hidden data-testid="reply">
+          <p><b>You: </b><span id="d-reply-to"></span></p>
+          <p><b id="d-reply-who">Senti: </b><span id="d-reply"></span></p>
+          <p class="previous" id="d-comments-count" hidden></p>
+        </div>
+        <label for="comment">Comment or question for Senti <span>(Senti answers it, and does what you ask: rate, skip, dismiss, mark fixed, rescan or fix again)</span></label>
         <textarea id="comment" rows="2" maxlength="2000"></textarea>
         <div class="actions">
           <div class="act"><button type="button" data-verdict="comment" title="Keeps your comment with the finding">Save comment</button></div>
@@ -526,6 +532,23 @@ nav.instances .flag.warn { background: var(--warn); }
     </div>
     <h3>What is scanned, per instance</h3>
     <ul class="waiting" id="source-instances"></ul>
+    </details>
+  </section>
+  <section class="activity analysis" aria-labelledby="sonar-title" id="sonar-box" hidden>
+    <div class="pulse-row">
+      <span class="pulse"><span id="sonar-title">SonarCloud settings</span></span>
+      <span class="sub" id="sonar-when"></span>
+    </div>
+    <details class="more" id="sonar-more">
+    <summary>Suggested settings file</summary>
+    <ul class="waiting" id="sonar-notes"></ul>
+    <h3>What the suggestion changes</h3>
+    <ul class="waiting" id="sonar-effects"></ul>
+    <h3 id="sonar-file-title"></h3>
+    <pre class="commands" id="sonar-suggested" data-testid="sonar-suggested"></pre>
+    <div class="act"><button type="button" id="sonar-copy">Copy</button></div>
+    <details id="sonar-current-box"><summary id="sonar-current-title">The files as they are now</summary>
+      <pre class="commands" id="sonar-current"></pre></details>
     </details>
   </section>
 </main>
@@ -755,13 +778,14 @@ function render() {
       if (b.offsetTop < list.scrollTop || b.offsetTop + b.offsetHeight > list.scrollTop + list.clientHeight)
         list.scrollTop = b.offsetTop - 4;
     });
-    const pick = () => { state.selected = f.id; $('comment').value = ''; setStatus(''); render(); };
+    const pick = () => { state.selected = f.id; setStatus(''); render(); };
     b.onclick = () => { if (!String(getSelection())) pick(); };  // not when the click ended a text selection
     b.onkeydown = (e) => { if (e.key === 'Enter') pick(); };
     return b;
   }) : [el('div', { className: 'empty', textContent: 'Nothing here. Sentinel only suggests what it is sure about.' })]));
 
   $('detail').hidden = !current;
+  showCommentDraft(current && current.id);
   if (!current) return;
   $('d-cat').textContent = current.category;
   $('d-cat').style.color = CAT_COLOR[current.category] || 'var(--muted)';
@@ -789,8 +813,7 @@ function render() {
   $('d-hypothesis').textContent = current.hypothesis;
   $('d-files').replaceChildren(...current.files.map((f) => el('li', { textContent: f })));
   $('d-fix').textContent = current.suggested_fix;
-  $('d-comments').hidden = !(current.comments || []).length;
-  $('d-comment-list').replaceChildren(...(current.comments || []).map((c) => el('li', { textContent: c })));
+  renderReply(current);
   const fb = current.feedback;
   const markedFixed = fb && fb.verdict === 'fixed';
   $('fixed-outcome').hidden = !markedFixed || (fb.comment || '').startsWith('Fix this:');
@@ -836,6 +859,25 @@ function stateOf(f) {
 }
 
 // Rescan: is it still an issue in the code the instance runs now? (Claude, in the background, kept with the finding)
+// Only the latest comment and Senti's answer to it; earlier comments are kept, and Fix this follows them all
+function renderReply(f) {
+  const comments = f.comments || [];
+  const latest = f.reply_to || comments[comments.length - 1];
+  $('d-exchange').hidden = !latest;
+  if (!latest) return;
+  const answering = f.reply_status === 'running';
+  const p = answering && f.reply_progress;
+  $('d-reply-to').textContent = latest;
+  $('d-reply-who').textContent = answering || !f.replied_at ? 'Senti: ' : `Senti, ${fmtDate(f.replied_at)}: `;
+  $('d-reply').textContent = answering
+    ? 'Answering…' + (p && p.steps ? ` ${p.steps} command${p.steps === 1 ? '' : 's'} run so far. Now: ${p.step}` : '')
+    : f.reply_status === 'failed' && !f.reply ? 'Could not answer.'
+    : f.reply || 'No answer yet (comments saved before Senti answered them are not answered).';
+  const earlier = comments.length - 1;
+  $('d-comments-count').hidden = earlier < 1;
+  $('d-comments-count').textContent = `${earlier} earlier comment${earlier === 1 ? '' : 's'}: Fix this follows them all.`;
+}
+
 function renderRecheck(f) {
   const looking = f.recheck_status === 'running';
   const p = looking && f.recheck_progress;
@@ -921,6 +963,24 @@ async function loadFixLog(f) {
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 // The commit message: your edit if you made one, else Claude's one line
 const commitDrafts = {};
+// The comment box keeps an unsaved draft for each finding, like the commit message: another finding shows its own
+const commentDrafts = {};
+function showCommentDraft(id) {
+  const box = $('comment');
+  if (box.dataset.for === String(id)) return;
+  box.value = (id != null && commentDrafts[id]) || '';
+  box.dataset.for = id == null ? '' : String(id);
+}
+function clearComment(id) {
+  delete commentDrafts[id];
+  if ($('comment').dataset.for === String(id)) $('comment').value = '';
+}
+$('comment').addEventListener('input', () => {
+  const id = $('comment').dataset.for;
+  if (!id) return;
+  if ($('comment').value.trim()) commentDrafts[id] = $('comment').value;
+  else delete commentDrafts[id];
+});
 const commitMessage = (f) => commitDrafts[f.id] ?? (f.fix_message || f.title);
 
 function commitCommands(f) {
@@ -1072,7 +1132,7 @@ async function queueFix(btn, tests) {
     if (comment) {  // what is in the box when Fix this is pressed is saved first, so the fix follows it
       await api(`/api/findings/${id}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                   body: JSON.stringify({ verdict: 'comment', comment }) });
-      $('comment').value = '';
+      clearComment(id);
     }
     const queued = await api(`/api/findings/${id}/fix`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                           body: JSON.stringify({ tests }) });
@@ -1085,7 +1145,7 @@ async function queueFix(btn, tests) {
     setStatus(`#${id} queued for fixing${tests ? '' : ' without tests'}${ahead ? `, after ${ahead} more` : ', starting now'}. `
       + 'It is on the Queued tab.');
     renderFixQueue();
-    setTimeout(() => { if (state.selected === id) render(); }, 1500);
+    setTimeout(() => { if (state.selected === id) renderUnlessTyping(); }, 1500);
     pollWhileRunning(id, 'fix_status');
   } catch (e) {
     setStatus(`Could not queue: ${e.message}`, true);
@@ -1117,7 +1177,7 @@ function pollSweep() {
       [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);
     } catch { return; }
     if (!state.overview.sweep || !state.overview.sweep.running) clearInterval(poll);
-    if (document.activeElement?.id !== 'comment') render();
+    renderUnlessTyping();
   }, 5000);
 }
 
@@ -1140,7 +1200,7 @@ function pollWhileRunning(id, field) {
     const findings = await api('/api/findings').catch(() => null);
     const g = findings && findings.find((x) => x.id === id);
     if (!g || !['running', 'queued'].includes(g[field])) clearInterval(poll);
-    if (findings) { state.findings = findings; if (document.activeElement?.id !== 'comment') render(); }
+    if (findings) { state.findings = findings; renderUnlessTyping(); }
   }, 5000);
 }
 
@@ -1295,7 +1355,7 @@ async function respond(verdict) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ verdict, comment: $('comment').value }),
     });
-    $('comment').value = '';
+    clearComment(id);
     state.findings = await api('/api/findings');
     render();
     loadLearned();
@@ -1304,7 +1364,10 @@ async function respond(verdict) {
     const queue = verdict !== 'urgent' ? ''
       : done.not_queued ? ` Not queued for fixing: ${done.not_queued}`
       : ' It is at the head of the Fix this queue; Undo leaves it there.';
-    setStatus(verdict === 'comment' ? `Comment saved for #${id}.` : `Recorded “${said}” for #${id}.${queue}`);
+    setStatus(verdict !== 'comment' ? `Recorded “${said}” for #${id}.${queue}`
+      : done.not_answered ? `Comment saved for #${id}. Senti cannot answer it here: ${done.not_answered}`
+      : `Comment saved for #${id}. Senti is answering it.`);
+    if (verdict === 'comment' && !done.not_answered) pollWhileRunning(id, 'reply_status');
     if (verdict !== 'dismissed') $('status').append(' ', undoLink(id));
     if (verdict === 'urgent' && !done.not_queued) pollWhileRunning(id, 'fix_status');
   } catch (e) {
@@ -1355,6 +1418,21 @@ function renderLearned() {
     + `, except findings of impact ${p.high_impact} or more`);
   box.replaceChildren(`From your responses, ${parts.join('; ')}. `, forget);
 }
+
+// What refreshes by itself never redraws the findings while someone is in a field: the redraw waits, and happens
+// once they leave it. Unsaved comments are kept per finding (commentDrafts), so a redraw never moves one.
+let renderWaiting = false;
+const typing = () => {
+  const a = document.activeElement;
+  return Boolean(a && (a.matches('textarea, input, select') || a.isContentEditable));
+};
+function renderUnlessTyping() {
+  if (typing()) { renderWaiting = true; return; }
+  renderWaiting = false;
+  render();
+}
+const renderIfWaiting = () => setTimeout(() => { if (renderWaiting) renderUnlessTyping(); }, 0);
+document.addEventListener('focusout', renderIfWaiting);
 
 async function load() {
   try {
@@ -1420,6 +1498,9 @@ function openInstance(name) {
   load();
   loadActivity();
   loadAnalysis();
+  $('sonar-box').hidden = true;
+  $('sonar-more').open = false;
+  loadSonar();  // shows the panel only when the instance names a SonarCloud project
 }
 
 // --- Activity --------------------------------------------------------------------------------
@@ -1612,7 +1693,7 @@ async function refresh() {
   try {
     [state.overview, state.findings] = await Promise.all([api('/api/overview'), api('/api/findings')]);
     renderHeader();
-    if (!document.activeElement || document.activeElement.id !== 'comment') render();
+    renderUnlessTyping();
   } catch (e) { /* the activity section already says so */ }
 }
 
@@ -1750,6 +1831,42 @@ async function loadSource() {
   sourceTimer = setTimeout(loadSource, sourceScanning ? 5000 : 60000);
 }
 let sourceTimer = null, sourceScanning = false;
+
+// The suggested SonarCloud settings for the instance's project; read when opened (it asks SonarCloud)
+async function loadSonar() {
+  const shown = state.instance;
+  $('sonar-when').textContent = 'Reading SonarCloud…';
+  try {
+    const s = await api('/api/sonar-settings');
+    if (shown !== state.instance) return;
+    $('sonar-box').hidden = !s.project;
+    if (!s.project) return;
+    const issues = (c) => [c.vulnerabilities && `${c.vulnerabilities} vulnerabilities`, c.bugs && `${c.bugs} bugs`,
+      c.security_hotspots && `${c.security_hotspots} security hotspots`, c.code_smells && `${c.code_smells} code smells`]
+      .filter(Boolean).join(', ') || 'no issues';
+    $('sonar-when').textContent = `${s.project} · SonarCloud reads ${s.reads}`
+      + (s.changed ? ' · a change is suggested' : ' · nothing to change');
+    $('sonar-notes').replaceChildren(...s.notes.map((n) => el('li', { textContent: n })));
+    $('sonar-effects').replaceChildren(...(s.effects.length ? s.effects.map((e) => el('li', {}, [
+      el('code', { textContent: e.lines.join('  ') }), el('br'), `${e.what} Today SonarCloud reports there: ${issues(e.counts)}.`]))
+      : [el('li', { className: 'n', textContent: 'Nothing: there are no test or developer-tool folders to sort out.' })]));
+    $('sonar-file-title').textContent = `Suggested ${s.reads}: copy it to the root of the repository and commit it`;
+    $('sonar-suggested').textContent = s.suggested;
+    $('sonar-current').textContent = Object.entries(s.current)
+      .map(([name, text]) => `# ${name}${text == null ? ': none' : ''}\n${text || ''}`).join('\n');
+  } catch (e) {
+    $('sonar-when').textContent = `Could not read SonarCloud: ${e.message}`;
+  }
+}
+$('sonar-more').addEventListener('toggle', () => { if ($('sonar-more').open) loadSonar(); });
+$('sonar-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('sonar-suggested').textContent);
+    setStatus('Copied the suggested settings file.');
+  } catch (e) {
+    setStatus(`Could not copy: ${e.message}`, true);
+  }
+});
 
 function renderScanner(sc) {
   const current = sc.scans[0];

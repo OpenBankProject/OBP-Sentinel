@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 
 import httpx
 
@@ -209,3 +210,130 @@ def check_forever(configs: list[Config], stopped: threading.Event) -> None:
                 logger.info("SonarCloud %s (%s): %s", config.sonarcloud_project, config.name, done)
             except (httpx.HTTPError, ValueError, KeyError) as e:
                 logger.warning("Could not read SonarCloud %s: %s", config.sonarcloud_project, e)
+
+
+# --- Suggested SonarCloud settings, for the panel on the page ------------------------------------------------------
+#
+# SonarCloud analyses a project in one of two ways. Automatic analysis (no scanner in CI) reads .sonarcloud.properties;
+# a scanner run in CI reads sonar-project.properties. Settings in the other file are not used. Sentinel suggests the
+# file SonarCloud reads, so that test code counts as tests and developer scripts are left out, and says how many
+# issues each line moves. It never writes the file: the person copies it, and commits it if they agree.
+
+SETTINGS_SECONDS = 3600  # read from SonarCloud at most once an hour per project
+SET_HERE = ("sonar.sources", "sonar.tests", "sonar.exclusions", "sonar.test.inclusions")
+DEV_ONLY = ("scripts",)  # top-level folders of developer tools, not part of what is built or run
+METRICS = ("vulnerabilities", "bugs", "security_hotspots", "code_smells")
+_settings: dict[str, tuple[float, dict]] = {}
+
+
+def _show(source: str, path: str) -> str | None:
+    out = subprocess.run(["git", "-C", source, "show", f"HEAD:{path}"], capture_output=True, text=True)
+    return out.stdout if out.returncode == 0 else None
+
+
+def _scanner_in_ci(source: str) -> bool:
+    """True when a GitHub workflow at HEAD runs a SonarCloud or SonarQube scanner."""
+    out = subprocess.run(["git", "-C", source, "grep", "-il", "-e", "sonarcloud", "-e", "sonarqube", "-e", "sonar-scanner",
+                          "-e", "sonar:sonar", "HEAD", "--", ".github/workflows"], capture_output=True, text=True)
+    return out.returncode == 0 and bool(out.stdout.strip())
+
+
+def _counts(project: str, path: str) -> dict[str, int]:
+    """SonarCloud's open issue counts in one folder; zeros if it does not know the folder."""
+    try:
+        data = _get("measures/component", {"component": f"{project}:{path}", "metricKeys": ",".join(METRICS)})
+    except httpx.HTTPStatusError:
+        return dict.fromkeys(METRICS, 0)
+    got = {m["metric"]: int(float(m.get("value", 0))) for m in data.get("component", {}).get("measures", [])}
+    return {m: got.get(m, 0) for m in METRICS}
+
+
+def _properties(text: str | None) -> dict[str, str]:
+    found = {}
+    for line in (text or "").splitlines():
+        if "=" in line and not line.lstrip().startswith(("#", "!")):
+            key, value = line.split("=", 1)
+            found[key.strip()] = value.strip()
+    return found
+
+
+def _kept_lines(text: str | None) -> str:
+    """A properties file without the settings Sentinel sets, its comments kept with the lines they describe."""
+    kept, comment = [], []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("#", "!")) or not stripped:
+            comment.append(line)
+            continue
+        if line.split("=", 1)[0].strip() in SET_HERE:
+            comment = []
+            continue
+        kept += comment + [line]
+        comment = []
+    return "\n".join(kept).strip()
+
+
+def suggest(project: str, source: str) -> dict:
+    """The file SonarCloud reads for this project, as it is and as Sentinel suggests it, with what each change does."""
+    ci = _scanner_in_ci(source)
+    reads, other = ("sonar-project.properties", ".sonarcloud.properties") if ci else (".sonarcloud.properties",
+                                                                                         "sonar-project.properties")
+    current = {reads: _show(source, reads), other: _show(source, other)}
+    top = _git(source, "ls-tree", "-d", "--name-only", "HEAD").splitlines()
+    test_dirs = [f"{d}/src/test" for d in top if _git(source, "ls-tree", "-d", "--name-only", "HEAD", f"{d}/src/test")]
+    dev_dirs = [d for d in DEV_ONLY if d in top]
+    known_tests = _get("components/tree", {"component": project, "qualifiers": "UTS", "ps": 1})["paging"]["total"]
+
+    def total(paths):
+        sums = dict.fromkeys(METRICS, 0)
+        for path in paths:
+            for metric, n in _counts(project, path).items():
+                sums[metric] += n
+        return sums
+
+    was = _properties(current[reads] or current[other])  # its own exclusions are kept
+    exclusions = [e for e in (was.get("sonar.exclusions", "").split(",")) if e.strip()]
+    exclusions += [f"{d}/**" for d in dev_dirs if f"{d}/**" not in exclusions]
+    effects = []
+    if test_dirs:
+        effects.append({"lines": ["sonar.tests=.", "sonar.test.inclusions=**/src/test/**"],
+                        "what": f"Counts {', '.join(test_dirs)} as test code, which SonarCloud checks with its rules for "
+                                f"tests: most security rules, such as hard-coded passwords, do not apply there.",
+                        "counts": total(test_dirs)})
+    if dev_dirs or test_dirs:
+        effects.append({"lines": [f"sonar.exclusions={','.join(exclusions + ['**/src/test/**'])}"],
+                        "what": (f"Leaves {', '.join(d + '/' for d in dev_dirs)} out: developer tools run by hand, not "
+                                 "part of what is built or run. " if dev_dirs else "")
+                                + "Test code is left out of the main code, so it is not checked twice.",
+                        "counts": total(dev_dirs)})
+    lines = [f"# Read by SonarCloud's {'scanner in CI' if ci else 'automatic analysis'}.",
+             "# Main code is everything but the tests and the developer tools; tests are checked as tests.",
+             "sonar.sources=.", effects[-1]["lines"][0] if effects else "sonar.exclusions=**/src/test/**"]
+    if test_dirs:
+        lines += effects[0]["lines"]
+    kept = _kept_lines(current[reads] or current[other])
+    suggested = "\n".join(lines) + ("\n\n" + kept if kept else "") + "\n"
+    notes = []
+    if current[other] and not current[reads]:
+        notes.append(f"SonarCloud {'runs from a workflow' if ci else 'analyses this project by itself (no workflow runs a scanner)'}"
+                     f", so it reads {reads}, not {other}. The settings in {other} are not used: "
+                     f"SonarCloud knows {known_tests} test file{'s' if known_tests != 1 else ''}. "
+                     f"The suggestion keeps them and puts them in {reads}.")
+    if "sonar.issue.ignore.multicriteria" in suggested and not ci:
+        notes.append("If SonarCloud still reports the issues the sonar.issue.ignore lines leave out, set them in SonarCloud "
+                     "instead: Administration, Analysis Scope, Ignore Issues on Multiple Criteria.")
+    return {"project": project, "reads": reads, "ci": ci, "current": current, "suggested": suggested,
+            "effects": effects, "notes": notes, "known_test_files": known_tests,
+            "changed": (current[reads] or "").strip() != suggested.strip()}
+
+
+def settings(config: Config) -> dict | None:
+    """suggest() for an instance's SonarCloud project, kept for SETTINGS_SECONDS; None if it names none."""
+    project = config.sonarcloud_project
+    if not project or not config.obp_api_source:
+        return None
+    at, made = _settings.get(project, (0.0, None))
+    if made is None or time.time() - at > SETTINGS_SECONDS:
+        made = suggest(project, config.obp_api_source)
+        _settings[project] = (time.time(), made)
+    return made

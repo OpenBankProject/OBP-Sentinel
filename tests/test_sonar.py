@@ -75,3 +75,30 @@ def test_a_finding_sonarcloud_no_longer_reports_is_marked_fixed_unless_dismissed
 def test_each_project_is_read_once_into_the_first_instance_naming_it(config):
     a, b, c = (replace(config, name=n, sonarcloud_project=p) for n, p in (("a", ""), ("b", PROJECT), ("c", PROJECT)))
     assert [x.name for x in sonar.instances([a, b, c])] == ["b"]
+
+
+def test_suggests_the_file_sonarcloud_reads_with_tests_as_tests_and_scripts_left_out(tmp_path, monkeypatch):
+    import subprocess
+    repo = tmp_path / "api"
+    for path, text in {"obp-api/src/main/A.scala": "a", "obp-api/src/test/ATest.scala": "t", "scripts/run.py": "r",
+                       "sonar-project.properties": "# why\nsonar.issue.ignore.multicriteria=e1\nsonar.exclusions=docs/**\n"}.items():
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text(text)
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "c"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+    def get(path, params):
+        if path == "components/tree":
+            return {"paging": {"total": 0}}
+        if path == "measures/component":
+            n = {f"{PROJECT}:obp-api/src/test": 24, f"{PROJECT}:scripts": 7}[params["component"]]
+            return {"component": {"measures": [{"metric": "vulnerabilities", "value": str(n)}]}}
+        raise AssertionError(path)
+    monkeypatch.setattr(sonar, "_get", get)
+    s = sonar.suggest(PROJECT, str(repo))
+    assert s["reads"] == ".sonarcloud.properties" and not s["ci"]  # no workflow runs a scanner
+    assert "sonar.tests=.\nsonar.test.inclusions=**/src/test/**" in s["suggested"]
+    assert "sonar.exclusions=docs/**,scripts/**,**/src/test/**" in s["suggested"]  # its own exclusions kept
+    assert "# why\nsonar.issue.ignore.multicriteria=e1" in s["suggested"]  # kept, with its comment
+    assert [e["counts"]["vulnerabilities"] for e in s["effects"]] == [24, 7]
+    assert "reads .sonarcloud.properties, not sonar-project.properties" in s["notes"][0]

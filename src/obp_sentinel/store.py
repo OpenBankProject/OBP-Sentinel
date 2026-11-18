@@ -130,6 +130,10 @@ CREATE TABLE IF NOT EXISTS findings (
     fix_patch     TEXT,                    -- the staged fix, to take it back out (Discard)
     bug_class     TEXT,                    -- the kind of bug, for counting what was fixed (classes.py)
     fix_tests     INTEGER,                 -- 0: Fix this without tests (the tests are left to CI); else they are run
+    reply         TEXT,                    -- the agent's answer to the person's latest comment (replies.py)
+    reply_to      TEXT,                    -- that comment
+    reply_status  TEXT,                    -- running | done | failed
+    replied_at    INTEGER,
     needs_id      INTEGER                  -- 1: an attacker must know an id of another's object they cannot list or
                                            -- see; lowers the priority (NEEDS_ID_WEIGHT). NULL: not judged yet
 );
@@ -253,7 +257,8 @@ class Store:
                  "fix_at": "INTEGER", "fix_message": "TEXT", "fix_files": "TEXT", "fix_patch": "TEXT",
                  "introduced_commit": "TEXT", "introduced_when": "TEXT", "introduced_who": "TEXT",
                  "introduced_where": "TEXT", "bug_class": "TEXT",
-                 "needs_id": "INTEGER", "fix_tests": "INTEGER"}  # after the first databases were made
+                 "needs_id": "INTEGER", "fix_tests": "INTEGER",
+                 "reply": "TEXT", "reply_to": "TEXT", "reply_status": "TEXT", "replied_at": "INTEGER"}  # after the first databases were made
         for column, kind in added.items():
             if column not in have:
                 self.db.execute(f"ALTER TABLE findings ADD COLUMN {column} {kind}")

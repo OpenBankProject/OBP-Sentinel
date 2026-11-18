@@ -64,6 +64,10 @@ checks, even where the logs show nothing wrong.
   on the page. `acted` means someone tried
   to act on the suggestion; the analyst then checks whether the problem went away. Dismissing a finding also
   hides its signatures from future summaries.
+- **Answering comments** (`replies.py`): when you save a comment on the page, Claude answers it in the background,
+  reading the finding, what was done about it and the code. If the comment asks for something Sentinel can do (rate,
+  skip, dismiss, mark fixed, Rescan, fix again), Sentinel does that one thing; Claude itself only reads. Only the
+  latest comment and its answer are kept on the finding.
 - **Learning from your responses**: across all instances, Sentinel counts per category how many findings you acted
   on (relevant, acted, fixed, or committed a fix; important counts twice, urgent three times) and how many you
   dismissed. Once a category has 3 responses, its
