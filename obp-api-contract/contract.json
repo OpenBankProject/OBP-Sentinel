@@ -11,7 +11,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_ROOT_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_ROOT_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [
     "git_commit"
@@ -27,7 +27,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [
     "entries[].message"
@@ -46,7 +46,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [
     "entries[].message"
@@ -65,7 +65,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [
     "entries[].message"
@@ -84,7 +84,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [
     "entries[].message"
@@ -103,7 +103,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [
     "entries[].message"
@@ -122,7 +122,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [
     "entries[].message"
@@ -141,7 +141,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_TELEMETRY_API_VERSION\", \"v7.0.0\")"
+    "needle": "api_version(\"OBP_TELEMETRY_API_VERSION\", \"v7.0.0\")"
    },
    "reads": [
     "api_instance_id",
@@ -162,7 +162,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_AGGREGATE_METRICS_API_VERSION\", \"v6.0.0\")"
+    "needle": "api_version(\"OBP_AGGREGATE_METRICS_API_VERSION\", \"v6.0.0\")"
    },
    "reads": [
     "count",
@@ -318,7 +318,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [],
    "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
@@ -332,7 +332,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [],
    "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
@@ -346,7 +346,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [],
    "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
@@ -360,7 +360,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [],
    "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
@@ -374,7 +374,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [],
    "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
@@ -388,7 +388,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
+    "needle": "api_version(\"OBP_LOG_CACHE_API_VERSION\", \"v5.1.0\")"
    },
    "reads": [],
    "note": "Sent with no token, for each level in SENTINEL_LOG_LEVELS and for all, to check that it is refused (check_secured); only the status code is read."
@@ -402,7 +402,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_TELEMETRY_API_VERSION\", \"v7.0.0\")"
+    "needle": "api_version(\"OBP_TELEMETRY_API_VERSION\", \"v7.0.0\")"
    },
    "reads": [],
    "note": "Sent with no token, to check that it is refused (check_secured); only the status code is read."
@@ -416,7 +416,7 @@
    ],
    "version_from": {
     "source": "src/obp_sentinel/config.py",
-    "needle": "env(\"OBP_AGGREGATE_METRICS_API_VERSION\", \"v6.0.0\")"
+    "needle": "api_version(\"OBP_AGGREGATE_METRICS_API_VERSION\", \"v6.0.0\")"
    },
    "reads": [],
    "note": "Sent with no token, to check that it is refused (check_secured); only the status code is read."
