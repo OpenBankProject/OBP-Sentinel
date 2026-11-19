@@ -60,21 +60,6 @@ def _prefix(name: str) -> str:
     return "" if name == DEFAULT_INSTANCE else name.upper().replace("-", "_") + "_"
 
 
-# Sentinel calls OBP-API on v5.1.0 or newer, so a deployment can switch the older versions off.
-MIN_OBP_API_VERSION = (5, 1, 0)
-_OBP_API_VERSION = re.compile(r"v([0-9]+)\.([0-9]+)\.([0-9]+)")
-
-
-def _api_version(setting: str, value: str) -> str:
-    """`value`, the OBP-API version `setting` gives, if it is written like v5.1.0 and is not older than that."""
-    match = _OBP_API_VERSION.fullmatch(value)
-    if not match:
-        raise ConfigError(f"{setting} is {value!r}, which is not an OBP-API version such as v5.1.0.")
-    if tuple(int(part) for part in match.groups()) < MIN_OBP_API_VERSION:
-        raise ConfigError(f"{setting} is {value}, but Sentinel only calls OBP-API v5.1.0 or newer.")
-    return value
-
-
 class ConfigError(Exception):
     pass
 
@@ -255,9 +240,6 @@ class Config:
             name = setting(key)
             return os.environ[name] if name else default
 
-        def api_version(key: str, default: str) -> str:
-            return _api_version(setting(key) or key, env(key, default))
-
         monitoring_path = APPS[app].monitoring_path if is_app else ""
         return cls(
             name=name,
@@ -271,10 +253,10 @@ class Config:
             oidc_client_setting=setting("OIDC_CLIENT_ID") or _prefix(name) + "OIDC_CLIENT_ID",
             obp_api_url=(Config.from_env(parent).obp_base_url if is_app
                          else env("OBP_BASE_URL", "http://localhost:8080").rstrip("/")),
-            log_cache_api_version=api_version("OBP_LOG_CACHE_API_VERSION", "v5.1.0"),
-            telemetry_api_version=api_version("OBP_TELEMETRY_API_VERSION", "v7.0.0"),
-            aggregate_metrics_api_version=api_version("OBP_AGGREGATE_METRICS_API_VERSION", "v6.0.0"),
-            root_api_version=api_version("OBP_ROOT_API_VERSION", "v5.1.0"),
+            log_cache_api_version=env("OBP_LOG_CACHE_API_VERSION", "v5.1.0"),
+            telemetry_api_version=env("OBP_TELEMETRY_API_VERSION", "v7.0.0"),
+            aggregate_metrics_api_version=env("OBP_AGGREGATE_METRICS_API_VERSION", "v6.0.0"),
+            root_api_version=env("OBP_ROOT_API_VERSION", "v5.1.0"),
             obp_api_source=os.environ.get(APPS[app].source_setting, "") if is_app else env("OBP_API_SOURCE", ""),
             obp_api_github_repo=APPS[app].github_repo if is_app else env("OBP_API_GITHUB_REPO", "OpenBankProject/OBP-API"),
             db_path=env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db"),
