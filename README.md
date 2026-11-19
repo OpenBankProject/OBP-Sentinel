@@ -154,16 +154,16 @@ root endpoint on every poll, and the analyst reads the source at that commit.
 instance: `sentinel --instance staging status`, or set `SENTINEL_INSTANCE`; with a single instance there
 is nothing to choose.
 
-### Apps: API Explorer II, the API Manager, the Portal, Cohort, OBP-OIDC
+### Apps: API Explorer II, the API Manager, the Portal, Cohort, OBP-OIDC, the Sandbox Populator
 
 These apps serve their own log cache and Telemetry, in OBP-API's shape, at `/api/monitoring/...` (API Explorer
-II) and `/monitoring/...` (API Manager, Portal, Cohort, OBP-OIDC). Each is listed on the app's `/status` page. They check
+II) and `/monitoring/...` (API Manager, Portal, Cohort, OBP-OIDC, Sandbox Populator). Each is listed on the app's `/status` page. They check
 Sentinel's token with OBP-API (`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`), so they need the same Roles as
 OBP-API's own endpoints: `CanGetSystemLogCache<Level>` (or `CanGetSystemLogCacheAll`) and `CanGetTelemetry`.
 
 Sentinel finds each OBP-API instance's apps in its public app directory (`GET /obp/v6.0.0/app-directory`:
 `public_obp_api_explorer_url`, `public_obp_api_manager_url`, `public_obp_portal_url`, `public_obp_cohort_url`,
-`public_obp_oidc_url`), read at startup and kept in
+`public_obp_oidc_url`, `public_obp_sandbox_populator_url`), read at startup and kept in
 the instance's database for when OBP-API cannot be reached. Each app becomes an instance of its own, named
 `<instance>-<app>` (`local-explorer`) and shown as a tab after its OBP-API instance. The only settings are the
 checkouts the analyst reads, shared by all instances:
@@ -242,7 +242,7 @@ uv run sentinel feedback 4 dismissed --comment "Expected when clients send bad I
 ```
 
 A quiet localhost gives Sentinel nothing to find: run OBP-load-tester, OBP-End-To-End-Testing or
-OBP-Sandbox-Populator against it.
+the Sandbox Populator (in OBP-Frontend) against it.
 
 ## Commands
 
