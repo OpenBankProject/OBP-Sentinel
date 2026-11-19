@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from obp_sentinel import collector as collector_module
 from obp_sentinel.collector import Collector, bucket_of, new_entries
 from obp_sentinel.store import Store
@@ -167,3 +169,44 @@ def test_declaration_and_root_outcomes_are_kept_for_the_page(config, tmp_path):
     client.marked = True
     collector.poll_once()
     assert store.get_state("platform_app") == {**store.get_state("platform_app"), "ok": True, "consumer_id": "c1", "missing": []}
+
+
+def test_telemetry_is_pruned_sooner_than_aggregates(tmp_path):
+    store = Store(str(tmp_path / "s.db"))
+    t = collector_module.now()
+    store.db.execute("INSERT INTO signatures (id, level, logger, exception, endpoint, template, first_seen, last_seen)"
+                     " VALUES ('sig', 'ERROR', 'c.Foo', '', '', 'problem', ?, ?)", (t - 10 * 86400, t))
+    for age_hours in (72, 47, 1):
+        ts = t - age_hours * 3600
+        store.record_telemetry(ts, "i1", "abc", [("obp.api.endpoint.requests", "counter", "{}", "count", 1.0)] * 3)
+        store.db.execute("INSERT INTO observations (signature_id, bucket_start, count) VALUES ('sig', ?, 1)", (ts,))
+        store.record_metric_bucket(ts, {"count": 5})
+    store.record_metric_bucket(t - 15 * 86400, {"count": 5})  # past the 14 days
+
+    store.prune(retention_days=14, telemetry_retention_hours=48)
+
+    snapshots = [r[0] for r in store.db.execute("SELECT ts FROM telemetry_snapshots ORDER BY ts")]
+    assert snapshots == [t - 47 * 3600, t - 3600]
+    # The values of the pruned snapshot went with it
+    assert store.db.execute("SELECT COUNT(*) FROM telemetry_values").fetchone()[0] == 6
+    assert store.db.execute(
+        "SELECT COUNT(*) FROM telemetry_values WHERE snapshot_id NOT IN (SELECT id FROM telemetry_snapshots)"
+    ).fetchone()[0] == 0
+    # Aggregates keep the 72h-old row until retention_days
+    assert store.db.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 3
+    assert [r[0] for r in store.db.execute("SELECT bucket_start FROM metric_buckets ORDER BY bucket_start")] == [
+        t - 72 * 3600, t - 47 * 3600, t - 3600]
+
+
+def test_poll_prunes_with_the_telemetry_retention(config, tmp_path, monkeypatch):
+    calls = []
+    store = Store(str(tmp_path / "s.db"))
+    monkeypatch.setattr(store, "prune", lambda *args: calls.append(args))
+    collector = Collector(replace(config, retention_days=9, telemetry_retention_hours=12), store, None)
+    # No OBP-API in tests: every part of a poll answers at once
+    collector.declare_platform_app = lambda: None
+    collector.poll_logs = lambda level: f"{level} ok"
+    for part in ("poll_root", "poll_telemetry", "poll_metrics", "poll_reach", "check_secured"):
+        setattr(collector, part, lambda: "ok")
+    collector.poll_once()
+    assert calls == [(9, 12)]
