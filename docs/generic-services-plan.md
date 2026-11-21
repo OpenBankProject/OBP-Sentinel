@@ -167,8 +167,10 @@ Still OBP-only, until a second kind needs them: the source review (`source.py` a
 
 ### 4. The web page
 
-- Show services against environments, as on senti.tesobe.com: one row per service, one column per environment, each cell an instance with its commit and how many findings it has. A cell opens the instance's tab as today.
-- Help text comes with Senti rather than from OBP-API's Glossary; the OBP source can add a link to the Glossary item.
+Done:
+
+- The two rows of tabs (OBP-API instances, then the open one's apps) are now one grid, as on senti.tesobe.com: a row per service, with its kind, and a column per environment, in `senti.toml`'s order. Each cell holds the service's instances there, named by where they are deployed (`apisandbox`, `ogcr`), each with how old its commit is, whether Senti is connected, and how many findings wait for review. A cell opens the instance as the tabs did. The line under the grid says which service and environment is open.
+- The help page's "About Senti" section comes from a pack: the OBP pack reads OBP-API's Glossary item OBP-Sentinel and links to it in API Explorer II when the app directory lists one (`packs/obp/help.py`). Without OBP-API the section is hidden.
 
 ### 5. Prometheus and Loki
 

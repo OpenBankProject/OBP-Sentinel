@@ -24,8 +24,9 @@ import httpx
 
 from . import build, classes, fixer, history, preferences, recheck, replies, sonar
 from .analyst import Analyst, check_claude, decide, unavailable_reason
-from .config import Config
+from .config import Config, current_setup
 from .health import health
+from .packs.obp import help as obp_help
 from .scanner import Scanner
 from .source import Reviews, progress
 from .store import COMMENT, GRADES, VERDICTS, Store, now
@@ -49,7 +50,6 @@ QUEUE_TESTS_PATH = "/api/fix-queue/tests"
 FIX_BUILD_PATH = "/api/fix-queue/fix-the-build"
 FIX_RATED_PATH = "/api/fix-queue/fix-all-rated"
 CLAUDE_CHECK_PATH = "/api/claude-check"
-HELP_GLOSSARY_ITEM = "/obp/v7.0.0/api/glossary/OBP-Sentinel"
 MAX_BODY_BYTES = 10_000
 COMMIT_HASH = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")  # at least one letter: not a plain number
 _commits: dict[tuple[str, str], dict | None] = {}  # commits never change, so neither do their dates and authors
@@ -86,11 +86,28 @@ def running_commit(store: Store, config: Config) -> dict | None:
             "found_in": found_in if info else None}
 
 
-def instance_status(store: Store, config: Config) -> dict:
-    """For the instance tabs: which commit each runs, how old it is, whether Senti is connected, and how many
-    problems stop it."""
+def environment_order(configs: list[Config]) -> dict[str, int]:
+    """Each environment's place, from a developer's machine to production: as senti.toml lists them, else in the
+    order the instances come."""
+    setup = current_setup()
+    names = [e.name for e in setup.environments] if setup else []
+    for c in configs:
+        if c.environment not in names:
+            names.append(c.environment)
+    return {name: i for i, name in enumerate(names)}
+
+
+def instance_status(store: Store, config: Config, environments: dict[str, int] | None = None) -> dict:
+    """For the grid of services and environments: which service and environment the instance belongs to, which commit
+    it runs and how old it is, whether Senti is connected, how many problems stop it, and how many findings wait for
+    review."""
     h = health(store, config)
+    to_review = store.db.execute(
+        "SELECT COUNT(*) FROM findings WHERE status = 'suggested' "  # the page's To review tab
+        "AND COALESCE(fix_status, '') NOT IN ('queued', 'running', 'staged')").fetchone()[0]
     return {"name": config.name, "parent": config.parent, "obp_base_url": config.obp_base_url + config.monitoring_path,
+            "service": config.service, "kind": config.kind, "environment": config.environment,
+            "environment_rank": (environments or {}).get(config.environment, 0), "to_review": to_review,
             "commit": running_commit(store, config), "connected": h["connected"], "problems": len(h["problems"])}
 
 
@@ -368,7 +385,9 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             if path == "/api/help":
                 return self._json(HTTPStatus.OK, help_text(configs))
             if path == "/api/instances":
-                return self._json(HTTPStatus.OK, [self._with_store(c, lambda s, c=c: instance_status(s, c)) for c in configs])
+                environments = environment_order(configs)
+                return self._json(HTTPStatus.OK, [self._with_store(c, lambda s, c=c: instance_status(s, c, environments))
+                                                  for c in configs])
             if path == "/api/preferences":  # learned from the responses on every instance of this one's kind
                 if config := self._instance():
                     self._json(HTTPStatus.OK, {**preferences.learn(configs, config.kind),
@@ -630,14 +649,8 @@ def make_server(configs: list[Config], host: str, port: int, extra_hosts: tuple[
 
 
 def help_text(configs: list[Config]) -> dict:
-    """The help page's text: the OBP-Sentinel glossary item, read from the first OBP-API instance (no token needed)."""
-    obp = next((c for c in configs if not c.is_app), configs[0])
-    url = obp.obp_base_url + HELP_GLOSSARY_ITEM
-    try:
-        with urllib.request.urlopen(url, timeout=15) as response:
-            return {"url": url, "html": json.load(response)["description"]["html"]}
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        return {"url": url, "error": str(e)[:300]}
+    """What a pack adds to the help page (packs/obp/help.py: OBP-API's Glossary item), or {"none": true}."""
+    return obp_help.about(configs) or {"none": True}
 
 
 def serve(configs: list[Config], host: str, port: int, extra_hosts: tuple[str, ...] = (),

@@ -62,12 +62,22 @@ details.more > summary { cursor: pointer; color: var(--muted); font-size: 14px; 
 .chip.guard.open { border-color: var(--bad); color: var(--bad); font-weight: 600; }
 .chip.guard.unknown { border-color: var(--warn); }
 .chip.guard.unknown .mark { color: var(--warn); }
-nav.instances { max-width: 1280px; margin: 0 auto; padding: 0 16px; border-bottom: 0; }
-nav.instances button { font-size: 18px; font-weight: 600; }
-nav.instances:not(.apps) button[aria-pressed="true"] { font-size: 22px; }
-nav.instances[hidden] { display: none; }
-nav.instances.apps button { font-size: 14px; font-weight: 400; }
-nav.instances.apps button[aria-pressed="true"] { font-size: 17px; font-weight: 600; }
+/* The grid of services (rows) and environments (columns); each cell holds the instances there */
+.fleet { max-width: 1280px; margin: 0 auto; padding: 6px 16px 10px; overflow-x: auto; }
+.fleet[hidden] { display: none; }
+.fleet table { border-collapse: collapse; font-size: 14px; }
+.fleet th { text-align: left; padding: 4px 16px 4px 0; font-size: 12px; font-weight: 500; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.fleet th[scope="row"] { font-size: 14px; font-weight: 600; color: var(--ink); text-transform: none; letter-spacing: 0; }
+.fleet th[scope="row"] .kind { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+.fleet td { padding: 3px 16px 3px 0; white-space: nowrap; }
+.fleet td button { display: inline-flex; align-items: center; gap: 2px; min-height: 32px; margin: 0 6px 0 0; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit;
+  cursor: pointer; }
+.fleet td button:hover { border-color: var(--line-strong); }
+.fleet td button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+.fleet .count { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--accent); color: var(--on-accent);
+  font-size: 12px; font-weight: 600; }
 .host { max-width: 1280px; margin: 0 auto; padding: 12px 16px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 32px; }
 #watching { font-size: 15px; overflow-wrap: anywhere; }
 #watching b { font-weight: 600; }
@@ -259,11 +269,11 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .problem summary { cursor: pointer; color: var(--muted); }
 .problem pre { margin: 6px 0 0; padding: 8px 10px; background: var(--bg); border-radius: 6px; font: 12px/1.45 var(--mono);
   white-space: pre-wrap; overflow-wrap: anywhere; }
-nav.instances .age { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
-nav.instances .flag { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-left: 6px;
+.fleet .age { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.fleet .flag { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-left: 6px;
   vertical-align: middle; }
-nav.instances .flag.good { background: var(--good); }
-nav.instances .flag.warn { background: var(--warn); }
+.fleet .flag.good { background: var(--good); }
+.fleet .flag.warn { background: var(--warn); }
 
 /* Analysis */
 .analysis-cols { display: flex; flex-wrap: wrap; gap: 20px 32px; }
@@ -329,8 +339,7 @@ nav.instances .flag.warn { background: var(--warn); }
     <a class="help-link" href="/help">Help</a>
     <button type="button" id="theme"></button>
   </div>
-  <nav class="instances" id="instances" aria-label="OBP-API instances" hidden></nav>
-  <nav class="instances apps" id="apps" aria-label="Apps of this instance" hidden></nav>
+  <div class="fleet" id="fleet" role="navigation" aria-label="Services and environments" hidden></div>
   <div class="host">
     <div>
       <div class="where">
@@ -618,8 +627,10 @@ function renderHeader() {
   const o = state.overview;
   const c = o.commit;
   const why = !c ? '' : c.commit_ts ? ` (${commitAge(c, true)})`
-    : ' (age unknown: not in the OBP-API checkout nor on GitHub)';
-  $('watching').replaceChildren(el('b', { textContent: `Watching ${o.obp_base_url}` }),
+    : ' (age unknown: not in the checkout nor on GitHub)';
+  const open = state.instances.find((i) => i.name === state.instance);
+  $('watching').replaceChildren(el('b', { textContent: open ? `Watching ${open.service} in ${open.environment}` : 'Watching' }),
+    ` at ${o.obp_base_url}`,
     c ? ` · commit ${c.git_commit.slice(0, 12)}${why}` : '');
   // No figures here: the sections below show them. Only a warning, when an endpoint answers without a token.
   $('chips').replaceChildren(...securedChip(o.secured));
@@ -1450,41 +1461,48 @@ async function load() {
   }
 }
 
-// Two rows of tabs: the OBP-API instances (none when there is only one), then the open instance and its apps
-// (none when it has no apps); the open one is kept in the URL's #
-function instanceTab(i, label) {
+// The grid: one row per service (in the order they come), one column per environment (from a developer's machine to
+// production), each cell the service's instances there. Hidden when there is only one instance. The open one is kept
+// in the URL's #.
+function instanceButton(i, label) {
   const age = commitAge(i.commit);
-  const b = el('button', { type: 'button', title: `${i.obp_base_url}` + (i.commit ? ` · commit ${i.commit.git_commit.slice(0, 12)}` : '')
+  const b = el('button', { type: 'button', title: `${i.service} in ${i.environment}: ${i.obp_base_url}`
+    + (i.commit ? ` · commit ${i.commit.git_commit.slice(0, 12)}` : '')
     + (i.connected ? ' · connected' : ' · not connected')
-    + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : '') }, [label]);
+    + (i.problems ? ` · ${i.problems} problem${i.problems > 1 ? 's' : ''} to fix` : '')
+    + (i.to_review ? ` · ${i.to_review} to review` : '') }, [label]);
   if (age) b.append(el('span', { className: 'age', textContent: age }));
   // Green: connected. Amber: connected, with something else to fix. Red: not connected.
   b.append(el('span', { className: 'flag' + (!i.connected ? '' : i.problems ? ' warn' : ' good'), role: 'img',
                         ariaLabel: !i.connected ? 'not connected' : i.problems ? 'connected, something to fix' : 'connected' }));
+  if (i.to_review) b.append(el('span', { className: 'count', textContent: String(i.to_review),
+                                          ariaLabel: `${i.to_review} to review` }));
+  b.setAttribute('aria-pressed', String(state.instance === i.name));
+  b.onclick = () => openInstance(i.name);
   return b;
 }
 
 function renderInstances() {
-  const open = state.instances.find((i) => i.name === state.instance);
-  const top = open ? (open.parent || open.name) : null;
-  const obps = state.instances.filter((i) => !i.parent);
-  const nav = $('instances');
-  nav.hidden = obps.length < 2;
-  nav.replaceChildren(...obps.map((i) => {
-    const b = instanceTab(i, i.name);
-    b.setAttribute('aria-pressed', String(top === i.name));
-    b.onclick = () => openInstance(i.name);
-    return b;
-  }));
-  const apps = state.instances.filter((i) => i.parent && i.parent === top);
-  const row = $('apps');
-  row.hidden = !apps.length;
-  row.replaceChildren(...[state.instances.find((i) => i.name === top), ...apps].filter(Boolean).map((i) => {
-    const b = instanceTab(i, !i.parent ? 'OBP-API' : i.name.startsWith(i.parent + '-') ? i.name.slice(i.parent.length + 1) : i.name);
-    b.setAttribute('aria-pressed', String(state.instance === i.name));
-    b.onclick = () => openInstance(i.name);
-    return b;
-  }));
+  const grid = $('fleet');
+  grid.hidden = state.instances.length < 2;
+  if (grid.hidden) return;
+  const services = [...new Set(state.instances.map((i) => i.service))];
+  const environments = [...new Set(state.instances.map((i) => i.environment))]
+    .sort((a, b) => state.instances.find((i) => i.environment === a).environment_rank
+                  - state.instances.find((i) => i.environment === b).environment_rank);
+  // A cell's instance is named by where it is deployed: its own name, or its OBP-API instance's for an OBP app
+  const placeOf = (i) => i.parent || i.name;
+  const head = el('tr', {}, [el('th', { scope: 'col', textContent: 'Service' }),
+                             ...environments.map((e) => el('th', { scope: 'col', textContent: e }))]);
+  const rows = services.map((service) => {
+    const of = state.instances.filter((i) => i.service === service);
+    return el('tr', {}, [
+      el('th', { scope: 'row' }, [service, el('span', { className: 'kind', textContent: of[0].kind })]),
+      ...environments.map((e) => el('td', {}, of.filter((i) => i.environment === e)
+        .map((i) => instanceButton(i, placeOf(i))))),
+    ]);
+  });
+  grid.replaceChildren(el('table', {}, [el('thead', {}, [head]), el('tbody', {}, rows)]));
 }
 
 function openInstance(name) {

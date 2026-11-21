@@ -117,12 +117,15 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
   request. Each links to the issue on SonarCloud. Static analysis can be wrong, so read the code before you press Fix
   this. When SonarCloud stops reporting it, the finding moves to Done.</p>
 </section>
+<section id="about">
 <h2>About Senti</h2>
 <div id="help"><p class="lead">Loading the OBP-Sentinel glossary item from OBP-API…</p></div>
 <p class="source" id="source"></p>
+</section>
 </main>
 <script>
-// The text is OBP-API's glossary item OBP-Sentinel, read by Senti. Only plain text formatting is kept from its HTML.
+// When Senti watches OBP-API, the text is its glossary item OBP-Sentinel (packs/obp/help.py). Only plain text formatting
+// is kept from its HTML. Without OBP-API there is nothing to show, and the section is hidden.
 const KEEP = new Set(['H1', 'H2', 'H3', 'H4', 'P', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'CODE', 'PRE', 'A',
                       'BLOCKQUOTE', 'BR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
 function clean(node) {
@@ -141,6 +144,10 @@ function clean(node) {
 }
 (async () => {
   const help = await fetch('/api/help').then((r) => r.json()).catch((e) => ({ error: e.message }));
+  if (help.none) {
+    document.getElementById('about').hidden = true;
+    return;
+  }
   if (help.error) {
     document.getElementById('help').replaceChildren(Object.assign(document.createElement('p'), {
       textContent: `Could not read the OBP-Sentinel glossary item from OBP-API: ${help.error}. ` +
@@ -148,7 +155,13 @@ function clean(node) {
   } else {
     document.getElementById('help').replaceChildren(clean(new DOMParser().parseFromString(help.html, 'text/html').body));
   }
-  if (help.url) document.getElementById('source').textContent = `From OBP-API's glossary: ${help.url}`;
+  const source = document.getElementById('source');
+  if (help.link) {
+    source.replaceChildren("From OBP-API's glossary: ", Object.assign(document.createElement('a'),
+      { href: help.link, textContent: 'OBP-Sentinel in API Explorer' }));
+  } else if (help.url) {
+    source.textContent = `From OBP-API's glossary: ${help.url}`;
+  }
 })();
 </script>
 </body>

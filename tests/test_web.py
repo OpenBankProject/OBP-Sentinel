@@ -296,3 +296,44 @@ def test_fix_the_rated_findings_from_the_page(server, config, monkeypatch):
     assert status == 200 and json.loads(data) == {"queued": 1}
     item = json.loads(request(server, "GET", "/api/findings")[1])[0]
     assert (item["fix_status"], item["to_fix"]) == ("queued", False)
+
+
+def serving(configs):
+    """A server for these instances; returns its port and a function that stops it."""
+    allowed = set()
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(configs, allowed))
+    port = httpd.server_address[1]
+    allowed.update({f"127.0.0.1:{port}", f"localhost:{port}"})
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return port, lambda: (httpd.shutdown(), httpd.server_close())
+
+
+def test_each_instance_says_its_service_environment_and_findings_to_review(config, tmp_path):
+    store = Store(config.db_path)
+    suggested = store.upsert_finding(finding("one"))
+    store.upsert_finding(finding("two"))  # not suggested yet
+    store.db.execute("UPDATE findings SET status = 'suggested' WHERE id = ?", (suggested,))
+    store.commit()
+    store.close()
+    prod = replace(config, name="prod", environment="production", db_path=str(tmp_path / "prod.db"))
+    portal = replace(config, name="local-portal", parent="default", service="portal", kind="sveltekit",
+                     monitoring_path="/monitoring", db_path=str(tmp_path / "portal.db"))
+    port, stop = serving([prod, config, portal])
+    try:
+        instances = {i["name"]: i for i in json.loads(request(port, "GET", "/api/instances")[1])}
+    finally:
+        stop()
+    assert (instances["default"]["service"], instances["default"]["environment"], instances["default"]["to_review"]) == (
+        "obp-api", "default", 1)
+    assert (instances["local-portal"]["service"], instances["local-portal"]["kind"]) == ("portal", "sveltekit")
+    # environments in the order the instances come, without senti.toml
+    assert (instances["prod"]["environment_rank"], instances["default"]["environment_rank"]) == (0, 1)
+    assert instances["prod"]["to_review"] == 0
+
+
+def test_the_help_page_shows_no_glossary_item_without_obp_api(config):
+    port, stop = serving([replace(config, name="site", service="site", kind="sveltekit")])
+    try:
+        assert json.loads(request(port, "GET", "/api/help")[1]) == {"none": True}
+    finally:
+        stop()

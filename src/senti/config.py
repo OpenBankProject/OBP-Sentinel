@@ -101,9 +101,14 @@ def discover_apps(config: "Config") -> dict[str, str]:
     return urls
 
 
+def app_url(config: "Config", app: str) -> str | None:
+    """An app of the OBP-API instance this configuration belongs to, as last found in its app directory."""
+    return _app_urls(config.parent or config.name).get(app)
+
+
 def api_manager_url(config: "Config") -> str | None:
     """The API Manager of the OBP-API instance this configuration belongs to, as last found in its app directory."""
-    return _app_urls(config.parent or config.name).get("manager")
+    return app_url(config, "manager")
 
 
 def _app_urls(parent: str) -> dict[str, str]:
