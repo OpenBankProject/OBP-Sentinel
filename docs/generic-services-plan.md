@@ -156,10 +156,14 @@ Moved to phase 3, because they belong with the prompts and the fix toolchain: th
 
 ### 3. Generic prompts and fixes
 
-- Give each kind its summary sections, source review (how endpoints are found in its code) and fix toolchain, moving the OBP parts of `summary.py`, `source.py`, `fixer.py` and `history.py` into `packs/obp/`.
-- Split the two agent files into generic agents and notes per kind (`kinds/notes/obp-api.md`, `sveltekit.md` and so on). Lift history moves into the `obp-api` notes.
-- `fixer.py` takes its build and test commands, allowed folders and extra steps from the kind, overridable per service.
-- `analyst.py`, `replies.py`, `classes.py` and `history.py` say "the service" and use its name and repository.
+Done:
+
+- Every AI run is told which service it works on (`context.py`): its name, kind, instance, environment and source, then the kind's notes and the service's own notes. The kinds' notes are in `kinds/notes/` and `packs/obp/notes/obp-api.md`; every OBP app gets `packs/obp/notes/obp-app.md` as its service notes, with its folder in OBP-Frontend. A service's `notes` in `senti.toml` replace them.
+- The analyst agent is generic: where the code is, Lift, Roles and OBP error codes moved into the `obp-api` notes. Replies, bug classes and Trace history say "the service"; Trace history takes the kind's history notes (OBP-API's: Lift).
+- Fix this takes its build, compile and test commands, the folders a fix may change, the scripts it may run, the ignored files the build needs and its rules from the kind's toolchain (`packs/obp/toolchain.py` for OBP-API). A kind without a toolchain says Fix this is not set up for it yet.
+- The analyst's summary names the service, kind and environment, and leaves out the calls section when the source offers no metrics.
+
+Still OBP-only, until a second kind needs them: the source review (`source.py` and the `senti-source-reviewer` agent: Scala endpoints, Roles), which only the `obp` source offers; the bug classes Senti starts from (`classes.SEEDS`); the Telemetry sections of the summary (phase 5); and the health page's OBP wording.
 
 ### 4. The web page
 

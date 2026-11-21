@@ -1,0 +1,1 @@
+This is an OBP app: it calls OBP-API, and checks Senti's token with it. Its Telemetry counts its requests by route and its calls to OBP-API by outcome; it has no metrics of its own. A problem that is really OBP-API's (an OBP error code the app only passes on) belongs to the OBP-API instance: say so in the finding rather than looking for a fix in the app.

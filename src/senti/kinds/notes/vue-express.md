@@ -1,0 +1,2 @@
+- The Vue client is under `src/`; the Express server, which the browser calls, is under `server/` (routes, services). Server-side problems are the ones in the logs.
+- An error is logged as `TypeError: message` (or another `...Error`) followed by `at ...` stack lines.

@@ -14,7 +14,7 @@ import threading
 
 from .analyst import GIT_READ_COMMANDS, run_claude, unavailable_reason
 from .config import Config
-from .packs.obp import LIFT_REFERENCE  # where each API version's Lift code was last live
+from .kinds import kind_of
 from .store import Store, introduced_parts
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,8 @@ def history_of(config: Config, files: list[str], evidence: str = "") -> list[dic
     return [line_history(config.obp_api_source, ref, commit) for ref in files]
 
 
-def prompt(finding: dict, history: list[dict], source: str) -> str:
+def prompt(finding: dict, history: list[dict], source: str, history_notes: str = "") -> str:
+    """`history_notes`: what to know about this kind of code when tracing a problem back (kinds/)."""
     lines = "\n".join(
         f"- {h['file']}:\n" + ("\n".join(f"  {c['commit']} {c['date']} {c['author']}: {c['subject']}" for c in h["commits"])
                                 or f"  (no history: {h.get('error', 'none found')})")
@@ -83,9 +84,7 @@ def prompt(finding: dict, history: list[dict], source: str) -> str:
         f"does. Only git -C {source} followed by {', '.join(GIT_READ_COMMANDS)} is allowed, one command at a time: "
         "a pipe, &&, ; , cd or a redirect is refused. Keep output short with git's own options instead (-- <path>, "
         "-U3, --stat, -n). To read code before a commit: git show <commit>^:<path>, or git grep -n <text> <commit>^ -- <path>.\n"
-        "Endpoints were moved from Lift to http4s in May 2026, so the oldest commit may be that move: then follow "
-        f"the problem into the Lift code (Read {LIFT_REFERENCE}: the last live Lift commit per API version, and the "
-        "checks Lift did by itself) and judge there which commit introduced it.\n"
+        + (f"{history_notes}\n" if history_notes else "") +
         "The point is who introduced the problem, and when: if it is older than the oldest commit you can see (code "
         "moved from another file), follow it back (git log -S<text> -- <older path>, git blame <commit>^ -- <path>) "
         "to the commit that first wrote it.\n\n"
@@ -138,7 +137,7 @@ def trace(config: Config, finding_id: int, background: bool = True) -> dict:
 
 def _judge(config: Config, finding_id: int, finding: dict, history: list[dict]) -> None:
     try:
-        error, cost, result, _ = run_claude(command(config, prompt(finding, history, config.obp_api_source)), {},
+        error, cost, result, _ = run_claude(command(config, prompt(finding, history, config.obp_api_source, kind_of(config.kind).history_notes)), {},
                                             TIMEOUT_MINUTES, lambda kind, text: kind == "tool" and logger.info(
                                                 "Tracing finding %s (%s): %s", finding_id, config.name, text),
                                             threading.Event())

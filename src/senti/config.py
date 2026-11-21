@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 from dotenv import find_dotenv, load_dotenv
 
+from .packs.obp import APP_NOTES
 from .packs.obp.app_directory import APPS, kept_directory, read_app_directory
 from .model import OBP_API, Environment, Instance, Service, Setup, SetupError, load as load_setup, setup_path
 
@@ -141,6 +142,7 @@ class Config:
     service: str  # the service it is an instance of (service.name)
     kind: str  # what the service's code is (model.KINDS); what Senti learns is kept per kind
     environment: str  # local, test, staging, production... (deployment.environment.name)
+    service_notes: str  # what every AI run is told about this service, after its kind's notes (context.py)
     obp_base_url: str  # for an app, the app's own URL
     monitoring_path: str  # "" for OBP-API; for an app, where its log-cache and telemetry endpoints are
     parent: str  # for an app, its OBP-API instance; "" for OBP-API
@@ -271,6 +273,9 @@ class Config:
             service=service,
             kind=kind,
             environment=listed.environment if listed else (parent or name),
+            service_notes=((app_service and app_service.notes)
+                           or APP_NOTES + (f" Its code is in `{APPS[app].folder}/` of its checkout." if APPS[app].folder else "")
+                           if is_app else obp_service.notes if listed else ""),
             obp_base_url=(_app_urls(parent)[app] if is_app else listed.url if listed
                           else env("OBP_BASE_URL", "http://localhost:8080")).rstrip("/"),
             monitoring_path=monitoring_path,

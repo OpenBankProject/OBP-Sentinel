@@ -7,6 +7,10 @@ from senti import fixer
 from senti.store import Store
 from test_history import git
 from test_recheck import finding
+from senti.kinds import Toolchain
+from senti.packs.obp.toolchain import TOOLCHAIN
+
+PROPS = "obp-api/src/main/resources/props"
 
 
 @pytest.fixture
@@ -64,7 +68,7 @@ def test_a_fix_is_staged_in_the_persons_working_tree_for_them_to_commit(cfg, tre
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "staged"
     assert (source / "obp-api/src/A.scala").read_text() == "fixed\n"
     assert fixer.git(str(source), "diff", "--cached", "--name-only") == "obp-api/src/A.scala"  # staged: seen in the IDE
@@ -86,7 +90,7 @@ def test_stage_and_commit_from_the_page_commit_only_when_pressed(cfg, trees, mon
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     monkeypatch.setattr(fixer, "start", lambda config: None)
     assert fixer.fix(cfg, fid) == "staged"
     assert fixer.git(str(source), "log", "--format=%s") == "first"  # nothing committed until Commit is pressed
@@ -109,7 +113,7 @@ def test_a_fix_only_unstaged_in_the_ide_is_still_there_to_stage(cfg, trees, monk
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     monkeypatch.setattr(fixer, "start", lambda config: None)
     assert fixer.fix(cfg, fid) == "staged"
     git(source, "restore", "--staged", "obp-api/src/A.scala")  # unstaged, still changed
@@ -129,7 +133,7 @@ def test_commit_uses_the_persons_edited_message_made_one_line(cfg, trees, monkey
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     monkeypatch.setattr(fixer, "start", lambda config: None)
     assert fixer.fix(cfg, fid) == "staged"
     with pytest.raises(ValueError, match="empty"):
@@ -148,7 +152,7 @@ def test_a_fix_unstaged_then_undone_in_the_ide_is_discarded(cfg, trees, monkeypa
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "staged"
     git(source, "restore", "--staged", "obp-api/src/A.scala")
     git(source, "restore", "obp-api/src/A.scala")
@@ -159,7 +163,7 @@ def test_discard_takes_the_fix_back_out(cfg, trees, monkeypatch):
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "staged"
     assert fixer.take_back(cfg, fid) == {"fix_status": "discarded"}
     assert (source / "obp-api/src/A.scala").read_text() == "broken\n"
@@ -172,7 +176,7 @@ def test_a_fix_never_touches_a_file_the_person_is_changing(cfg, trees, monkeypat
     fid = new_finding(cfg)
     (source / "obp-api/src/A.scala").write_text("my own edit\n")
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "failed"
     assert (source / "obp-api/src/A.scala").read_text() == "my own edit\n"
     assert "it does not apply to your working tree" in row(cfg, fid)["fix"]
@@ -182,7 +186,7 @@ def test_a_fix_that_does_not_compile_is_thrown_away(cfg, trees, monkeypatch):
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: "error: not found")
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: "error: not found")
     assert fixer.fix(cfg, fid) == "failed"
     assert (worktree / "obp-api/src/A.scala").read_text() == "broken\n"
     assert (source / "obp-api/src/A.scala").read_text() == "broken\n"
@@ -215,7 +219,7 @@ def test_the_answer_is_read_from_its_outcome_line_whatever_comes_before(cfg, tre
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, "I've fixed it in both places.\n\n" + FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "staged"
     assert row(cfg, fid)["fix"].startswith("Fixed: it checks.")
 
@@ -298,7 +302,7 @@ def test_the_full_log_has_tool_results_and_edits_but_the_analysts_steps_do_not()
 def test_a_fix_committed_or_taken_out_outside_sentinel_lets_the_queue_go_on(cfg, trees, monkeypatch):
     source, worktree = trees
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     committed, taken_out = new_finding(cfg), new_finding(cfg)
     assert fixer.fix(cfg, committed) == "staged"
     git(source, "commit", "-qm", "Committed in the IDE")
@@ -318,7 +322,7 @@ def test_a_fix_whose_tests_did_not_pass_is_not_staged_and_says_why(cfg, trees, m
     answer = ("Fixed: it checks the bank now.\nTests: did not pass: another test run held the test server's port, so "
               "CustomerTest could not start.\nCommit: Get Customer checks the bank")
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, answer))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "failed"
     assert (source / "obp-api/src/A.scala").read_text() == "broken\n"
     f = row(cfg, fid)
@@ -361,7 +365,7 @@ def test_fix_this_without_tests_stages_a_fix_whose_tests_were_not_run(cfg, trees
         prompts.append(args[0][args[0].index("-p") + 1])
         return claude_that(worktree, answer)(*args, **kwargs)
     monkeypatch.setattr(fixer, "run_claude", run)
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "staged"
     assert "do not run any tests" in prompts[0] and "-DwildcardSuites" not in prompts[0]
     assert "Tests: not run" in row(cfg, fid)["fix"]
@@ -371,7 +375,7 @@ def test_a_fix_the_person_changed_before_committing_counts_as_committed(cfg, tre
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "staged"
     (source / "obp-api/src/A.scala").write_text("fixed my way\n")
     fixer.git(str(source), "add", "obp-api/src/A.scala")
@@ -399,12 +403,12 @@ def test_fix_the_build_puts_a_finding_of_the_failure_at_the_head_of_the_queue(cf
 def test_sentinel_makes_its_worktree_with_the_props_when_first_needed(cfg, trees):
     source, worktree = trees
     git(source, "worktree", "remove", "--force", str(worktree))
-    props = source / fixer.PROPS
+    props = source / PROPS
     props.mkdir(parents=True)
     (props / "default.props").write_text("db.url=mine\n")
     fixer.make_worktree(cfg)
     assert (worktree / ".git").exists() and (worktree / "obp-api/src/A.scala").read_text() == "broken\n"
-    assert (worktree / fixer.PROPS / "default.props").read_text() == "db.url=mine\n"
+    assert (worktree / PROPS / "default.props").read_text() == "db.url=mine\n"
     assert fixer.git(str(worktree), "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"  # detached: no branch
     fixer.make_worktree(cfg)  # already there: nothing to do
 
@@ -429,5 +433,23 @@ def test_where_a_committed_fix_is_now_pushed_and_running(tmp_path):
 
 
 def test_a_fix_is_asked_for_short_plain_comments():
-    text = fixer.prompt({"title": "t", "evidence": "e", "hypothesis": "h", "files": "[]", "suggested_fix": "f"}, "/w")
+    text = fixer.prompt({"title": "t", "evidence": "e", "hypothesis": "h", "files": "[]", "suggested_fix": "f"}, "/w",
+                        TOOLCHAIN)
     assert f"one line of at most {fixer.COMMENT_MAX} characters" in text and "plain English" in text
+
+
+def test_the_rules_and_build_come_from_the_kinds_toolchain():
+    text = fixer.prompt({"title": "t", "evidence": "e", "hypothesis": "h", "files": "[]", "suggested_fix": "f"}, "/w",
+                        TOOLCHAIN)
+    assert "4. Compile: mvn -o -q -f /w/pom.xml -pl obp-commons,obp-api test-compile" in text
+    assert "python3 /w/scripts/check_lift_http4s_resource_doc_parity.py" in text and "ErrorMessages" in text
+    plain = Toolchain(build=lambda w: ["npm", "--prefix", w], compile_goal=("run", "check"), test_goal="test -- <files>",
+                      source_dirs=("src",))
+    text = fixer.prompt({"title": "t", "evidence": "e", "hypothesis": "h", "files": "[]", "suggested_fix": "f"}, "/w",
+                        plain)
+    assert "4. Compile: npm --prefix /w run check" in text and "npm --prefix /w test -- <files>" in text
+    assert "only in /w/src." in text and "ErrorMessages" not in text and "python3" not in text
+
+
+def test_fix_this_is_not_offered_for_a_kind_without_a_toolchain(config):
+    assert "not set up for sveltekit services" in fixer.unavailable_reason(replace(config, kind="sveltekit"))

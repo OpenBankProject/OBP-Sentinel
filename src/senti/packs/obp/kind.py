@@ -8,8 +8,12 @@ a line is read, so all OBP services read lines the same way and their history st
 """
 
 import re
+from pathlib import Path
 
-from ...kinds import Kind, LogFormat
+from ...kinds import Kind, LogFormat, notes
+from . import LIFT_REFERENCE
+
+NOTES = Path(__file__).parent / "notes"
 
 OBP_LOG_FORMAT = LogFormat(
     line=re.compile(r"^\[(?P<ts>[^\]]+)\]\s+\[(?P<thread>[^\]]*)\]\s+\[(?P<logger>[^\]]*)\]\s?(?P<body>.*)$", re.S),
@@ -23,5 +27,23 @@ OBP_LOG_FORMAT = LogFormat(
     path_kept=3,
 )
 
-KIND = Kind("obp-api", "OBP-API: Scala, http4s with Lift history, resource docs, Roles and connectors, built with Maven.",
-            OBP_LOG_FORMAT)
+HISTORY_NOTES = (
+    "Endpoints were moved from Lift to http4s in May 2026, so the oldest commit may be that move: then follow the "
+    f"problem into the Lift code (Read {LIFT_REFERENCE}: the last live Lift commit per API version, and the checks "
+    "Lift did by itself) and judge there which commit introduced it."
+)
+
+
+def _kind() -> Kind:
+    from .toolchain import TOOLCHAIN
+
+    return Kind(
+        "obp-api", "the Open Bank Project API, in Scala with http4s (and Lift history), resource docs, Roles and connectors, built with Maven.",
+        OBP_LOG_FORMAT,
+        notes=notes(NOTES / "obp-api.md").replace("{lift_reference}", f"`{LIFT_REFERENCE}`"),
+        history_notes=HISTORY_NOTES,
+        toolchain=TOOLCHAIN,
+    )
+
+
+KIND = _kind()

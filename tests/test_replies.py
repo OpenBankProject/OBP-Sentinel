@@ -40,7 +40,7 @@ def test_fix_again_takes_a_staged_fix_back_out_and_queues_it(cfg, trees, monkeyp
     source, worktree = trees
     fid = new_finding(cfg)
     monkeypatch.setattr(fixer, "run_claude", claude_that(worktree, FIXED))
-    monkeypatch.setattr(fixer, "compiles", lambda w: None)
+    monkeypatch.setattr(fixer, "compiles", lambda w, t: None)
     assert fixer.fix(cfg, fid) == "staged"
     monkeypatch.setattr(fixer, "start", lambda config: None)  # the queue is not worked through here
     said = replies.act(cfg, fid, "fix again without tests")

@@ -1,0 +1,6 @@
+- The code is in `obp-api/src/main/scala` (endpoints under `code/api/<standard>/<version>`), with shared types in `obp-commons/src`. To find where a log message is written, grep its fixed words in `obp-api/src/main/scala`.
+- Endpoints moved from Lift to http4s in May 2026. For an endpoint, also read it as it was in Lift: {lift_reference} lists the last live Lift commit per API version, and the checks Lift did by itself. Say in the evidence whether the problem was already there in Lift.
+- An endpoint is known by its operation id (`OBPv5.1.0-getBanks`). Who may call it is set by Roles, held by a User as an Entitlement or by an application as a Scope. Errors are OBP error messages (`OBP-20001: User not logged in`) from `ErrorMessages`.
+- The Telemetry counts requests per operation id (`obp.api.endpoint.requests`) and calls to the connector per method (`obp.api.connector.calls`, failures tagged). The metrics are OBP-API's own record of every API call: count, response times, distinct users and consumers.
+- Important paths: authentication, consents, payments and account access.
+- 4xx responses logged as warnings because a client sent bad input are expected, not a finding, unless OBP-API handles them wrongly.

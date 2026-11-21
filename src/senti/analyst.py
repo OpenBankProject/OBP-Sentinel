@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from .config import Config
+from .context import service_context
 from .logs import about, for_instance
 from .store import Store, now
 from .summary import watched_seconds
@@ -47,7 +48,7 @@ def unavailable_reason(config: Config, scheduled: bool = True) -> str | None:
     if not AGENT_FILE.exists():
         return f"{AGENT_FILE} not found: start Senti from the OBP-Sentinel directory"
     if not config.obp_api_source or not Path(config.obp_api_source).is_dir():
-        return f"OBP_API_SOURCE is not set to the {'app' if config.is_app else 'OBP-API'} checkout"
+        return f"No source checkout is set for {config.service}"
     return None
 
 
@@ -135,12 +136,10 @@ def command(config: Config) -> list[str]:
     source = str(Path(config.obp_api_source).resolve())
     tools = ["Read", "Grep", "Glob", "Edit(work/**)", "Bash(uv run senti *)"]
     tools += [f"Bash(git -C {source} {c} *)" for c in GIT_READ_COMMANDS]
-    what = (f"the app `{config.name}` ({config.obp_base_url}{config.monitoring_path}), which is not OBP-API but calls it"
-            if config.is_app else f"the OBP-API instance `{config.name}` ({config.obp_base_url})")
     prompt = (
-        f"Run the Senti analysis of {what}; every "
-        f"`uv run senti` command already reads that instance's data. Its source is at {source}; use that path literally "
-        f"(e.g. git -C {source} log ...). At least {config.analyse_min_watch_hours:g}h of coverage is enough to go ahead."
+        f"Run the Senti analysis of the instance `{config.name}`; every `uv run senti` command already reads its data. "
+        f"Its source is at {source}; use that path literally (e.g. git -C {source} log ...). At least "
+        f"{config.analyse_min_watch_hours:g}h of coverage is enough to go ahead.\n\n{service_context(config)}"
     )
     return [
         config.claude_command, "-p", prompt, "--agent", AGENT,

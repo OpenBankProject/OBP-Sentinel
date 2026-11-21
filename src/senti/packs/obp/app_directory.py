@@ -24,21 +24,22 @@ class App(NamedTuple):
     github_repo: str
     service: str  # its service's name in senti.toml
     kind: str
+    folder: str = ""  # where its code is in its checkout, if not at the top
 
 
 APPS = {
     "explorer": App("public_obp_api_explorer_url", "/api/monitoring", "EXPLORER_SOURCE", "OpenBankProject/API-Explorer-II",
                     "api-explorer", "vue-express"),
     "manager": App("public_obp_api_manager_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
-                   "api-manager", "sveltekit"),
+                   "api-manager", "sveltekit", "apps/api-manager"),
     "portal": App("public_obp_portal_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
-                  "portal", "sveltekit"),
+                  "portal", "sveltekit", "apps/portal"),
     "cohort": App("public_obp_cohort_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
-                  "cohort", "sveltekit"),
+                  "cohort", "sveltekit", "apps/cohort"),
     "oidc": App("public_obp_oidc_url", "/monitoring", "OIDC_SOURCE", "OpenBankProject/OBP-OIDC",
                 "obp-oidc", "scala-http4s"),
     "populator": App("public_obp_sandbox_populator_url", "/monitoring", "FRONTEND_SOURCE",
-                     "OpenBankProject/OBP-Frontend", "sandbox-populator", "sveltekit"),
+                     "OpenBankProject/OBP-Frontend", "sandbox-populator", "sveltekit", "apps/sandbox-populator"),
 }
 
 

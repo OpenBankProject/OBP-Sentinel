@@ -1,0 +1,2 @@
+- The code is in `src/main/scala`; routes are http4s `HttpRoutes`, effects are cats-effect `IO`. Built with sbt.
+- An exception is logged with its class name, followed by `\tat ...` stack lines.

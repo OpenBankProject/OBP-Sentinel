@@ -1,0 +1,2 @@
+- Server code is in `src/routes` (`+page.server.ts`, `+layout.server.ts`, `+server.ts`), `src/hooks.server.ts` and `src/lib/server`; other code may also run in the browser. In a monorepo each app is under `apps/<app>/`, with shared code under `packages/`.
+- An error is logged as `TypeError: message` (or another `...Error`) followed by `at ...` stack lines.
