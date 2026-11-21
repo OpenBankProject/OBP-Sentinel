@@ -4,7 +4,7 @@ from dataclasses import replace
 import httpx
 import pytest
 
-from senti.obp_client import OBPClient, OBPError, required_scopes
+from senti.packs.obp.api_source import ObpSource, OBPError, required_scopes
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def make_client(config, handler):
         calls.append(request)
         return handler(request)
 
-    return OBPClient(config, httpx.Client(transport=httpx.MockTransport(record))), calls
+    return ObpSource(config, httpx.Client(transport=httpx.MockTransport(record))), calls
 
 
 def oidc(request):
@@ -109,7 +109,7 @@ def test_errors_name_the_full_url(config):
     def refuse(request):
         raise httpx.ConnectError("Connection refused", request=request)
 
-    client = OBPClient(config, httpx.Client(transport=httpx.MockTransport(refuse)))
+    client = ObpSource(config, httpx.Client(transport=httpx.MockTransport(refuse)))
     with pytest.raises(OBPError, match=r"GET http://\S+/obp/v5\.1\.0/root failed: Connection refused"):
         client.root()
 

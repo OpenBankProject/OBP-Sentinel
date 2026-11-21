@@ -55,7 +55,7 @@ perfectly good result.
    commit: if so, read the code as deployed with `git -C "$OBP_API_SOURCE" show <git_commit>:<path>`
    and say which commit your findings refer to, as "Whilst reading the source code at <commit> I noticed ...",
    the commit short (its first 9 characters, e.g. b6a258c16).
-   For an endpoint, also read it as it was in Lift (`lift-reference.md` lists the commit per API version, and
+   For an endpoint, also read it as it was in Lift (`src/senti/packs/obp/lift-reference.md` lists the commit per API version, and
    the checks Lift did by itself) and say in the evidence whether the problem was already there in Lift.
 5. Write what you can support with evidence to `work/findings-<timestamp>.json`: a JSON list of
 

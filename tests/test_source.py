@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from senti.cli import seen_line
-from senti.source import (BIG_FILE_LINES, REACH_FORMAT, Reviews, fetch_reach, function_code, handler_files, mark_of,
+from senti.source import (BIG_FILE_LINES, REACH_FORMAT, Reviews, function_code, handler_files, mark_of,
                                  next_endpoints, tier_of)
 from senti.store import Store
 
@@ -114,8 +114,10 @@ def test_queue_order_and_skipping_what_was_reviewed(instance, repo):
     assert reviewed == 0 and picked[0]["changed"] == [UTIL]
 
 
-def test_reach_lists_active_static_endpoints_and_survives_an_instance_without_reachable_roles():
-    class Client:
+def test_reach_lists_active_static_endpoints_and_survives_an_instance_without_reachable_roles(config):
+    from senti.packs.obp.api_source import ObpSource
+
+    class Client(ObpSource):
         def api_versions(self):
             return [{"fully_qualified_version": "OBPv6.0.0", "api_short_version": "v6.0.0", "is_active": True},
                     {"fully_qualified_version": "OBPv5.0.0", "api_short_version": "v5.0.0", "is_active": False},
@@ -132,7 +134,7 @@ def test_reach_lists_active_static_endpoints_and_survives_an_instance_without_re
         def reachable_roles(self):
             raise RuntimeError("404")
 
-    reach = fetch_reach(Client(), "abc")
+    reach = Client(config).reach("abc")
     assert reach["endpoints"] == {"OBPv6.0.0-getBank": {"roles": ["CanA", "CanB"], "login": True},
                                   "OBPv6.0.0-getBanks": {"roles": [], "login": False},
                                   "OBPv7.0.0-getCurrentConsumerScopes": {"roles": [], "login": True}}

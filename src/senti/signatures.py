@@ -1,12 +1,7 @@
 """Turning raw log lines into signatures: one stable id per distinct problem.
 
-OBP-API writes log cache entries as `[timestamp] [thread] [logger] message`, where the message
-may be followed by a line holding the exception (`Throwable.toString`). Two lines that differ only
-in ids, numbers, amounts or quoted values belong to the same signature.
-
-The apps are JavaScript: the API Manager, Portal, Cohort and the Sandbox Populator write `[timestamp] [LEVEL] [context] message`, API Explorer II
-plain messages, and an error is `TypeError: message` followed by `    at ...` stack lines. OBP-OIDC (Scala) writes
-`logger - message` or plain messages, an exception followed by its `\tat ...` stack lines.
+Two lines that differ only in ids, numbers, amounts or quoted values belong to the same signature. How a line is laid
+out, how an exception is named and what a request path looks like come from the service's kind (kinds/).
 """
 
 import hashlib
@@ -14,11 +9,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-LINE_RE = re.compile(r"^\[(?P<ts>[^\]]+)\]\s+\[(?P<thread>[^\]]*)\]\s+\[(?P<logger>[^\]]*)\]\s?(?P<body>.*)$", re.S)
-EXCEPTION_RE = re.compile(r"\b((?:[a-zA-Z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error|Throwable|Failure)[\w$]*)")
-# A JavaScript error as Node prints it: `TypeError: ...`, `Error: ...`, `OBPAPIError: ...`
-JS_ERROR_RE = re.compile(r"\b([A-Z][\w$]*Error|Error)(?=: )")
-OBP_PATH_RE = re.compile(r"/obp/v\d+\.\d+\.\d+(?:/[^\s\"'?,;)\]]*)?")
+from .kinds import Kind
+
 LITERAL_SEGMENT_RE = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
 
 TEMPLATE_MAX = 300
@@ -56,8 +48,8 @@ class ParsedLine:
     detail: str
 
 
-def parse_line(raw: str) -> ParsedLine:
-    match = LINE_RE.match(raw)
+def parse_line(raw: str, kind: Kind) -> ParsedLine:
+    match = kind.log_format.line.match(raw)
     if not match:
         first, _, rest = raw.partition("\n")
         return ParsedLine(None, "", "", first, rest)
@@ -66,7 +58,7 @@ def parse_line(raw: str) -> ParsedLine:
 
 
 def _parse_ts(value: str) -> datetime | None:
-    # OBP-API uses SimpleDateFormat("yyyy-MM-dd HH:mm:ssX"), e.g. 2026-10-04 09:12:01+02 or ...Z
+    # ISO 8601, or OBP-API's SimpleDateFormat("yyyy-MM-dd HH:mm:ssX"), e.g. 2026-10-04 09:12:01+02 or ...Z
     value = value.strip()
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
@@ -78,22 +70,23 @@ def _parse_ts(value: str) -> datetime | None:
         return None
 
 
-def normalise_path(path: str) -> str:
+def normalise_path(path: str, kind: Kind) -> str:
     segments = path.split("/")
-    # ['', 'obp', 'v5.1.0', ...]: keep the version, generalise anything that does not look like a literal
-    kept = segments[:3] + ["{id}" if s and not LITERAL_SEGMENT_RE.match(s) else s for s in segments[3:]]
+    # ['', 'obp', 'v5.1.0', ...]: keep the start (OBP: the version), generalise anything that does not look like a literal
+    keep = kind.log_format.path_kept
+    kept = segments[:keep] + ["{id}" if s and not LITERAL_SEGMENT_RE.match(s) else s for s in segments[keep:]]
     return "/".join(kept)
 
 
-def normalise_text(text: str) -> str:
-    text = OBP_PATH_RE.sub(lambda m: normalise_path(m.group(0)), text)
+def normalise_text(text: str, kind: Kind) -> str:
+    text = kind.log_format.path.sub(lambda m: normalise_path(m.group(0), kind), text)
     for pattern, replacement in NORMALISERS:
         text = pattern.sub(replacement, text)
     return re.sub(r"\s+", " ", text).strip()[:TEMPLATE_MAX]
 
 
-def find_exception(parsed: ParsedLine) -> str:
-    for pattern in (EXCEPTION_RE, JS_ERROR_RE):
+def find_exception(parsed: ParsedLine, kind: Kind) -> str:
+    for pattern in kind.log_format.exceptions:
         for text in (parsed.detail, parsed.message):
             match = pattern.search(text)
             if match:
@@ -101,20 +94,21 @@ def find_exception(parsed: ParsedLine) -> str:
     return ""
 
 
-def find_endpoint(parsed: ParsedLine) -> str:
-    match = OBP_PATH_RE.search(parsed.message) or OBP_PATH_RE.search(parsed.detail)
-    return normalise_path(match.group(0)) if match else ""
+def find_endpoint(parsed: ParsedLine, kind: Kind) -> str:
+    path = kind.log_format.path
+    match = path.search(parsed.message) or path.search(parsed.detail)
+    return normalise_path(match.group(0), kind) if match else ""
 
 
-def signature_of(level: str, parsed: ParsedLine) -> Signature:
-    exception = find_exception(parsed)
-    template = normalise_text(parsed.message)
+def signature_of(level: str, parsed: ParsedLine, kind: Kind) -> Signature:
+    exception = find_exception(parsed, kind)
+    template = normalise_text(parsed.message, kind)
     key = "|".join([level.lower(), parsed.logger, exception, template])
     return Signature(
         id=hashlib.sha1(key.encode()).hexdigest()[:12],
         level=level.lower(),
         logger=parsed.logger,
         exception=exception,
-        endpoint=find_endpoint(parsed),
+        endpoint=find_endpoint(parsed, kind),
         template=template,
     )

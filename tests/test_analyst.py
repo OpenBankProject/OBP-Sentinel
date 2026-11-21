@@ -10,9 +10,12 @@ import pytest
 
 from senti.analyst import (AGENT_FILE, CHECK_PROMPT, Analyst, check_claude, claim_run, command, decide,
                                    describe, unavailable_reason)
+from senti.kinds import kind_of
 from senti.signatures import parse_line, signature_of
 from senti.store import Store, now
 from senti.web import analysis, make_server
+
+OBP = kind_of("obp-api")
 
 EVENTS = [
     {"type": "system", "subtype": "init"},
@@ -48,7 +51,7 @@ def watch(store: Store, hours: float, poll_seconds=120) -> None:
 
 
 def add_signature(store: Store, line: str, ts: int, times=1) -> str:
-    sig = signature_of("error", parse_line(line))
+    sig = signature_of("error", parse_line(line, OBP), OBP)
     for _ in range(times):
         store.record_occurrence(sig, ts, ts - ts % 900, line)
     store.commit()

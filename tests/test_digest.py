@@ -2,9 +2,12 @@ import pytest
 
 from senti import digest as digest_module
 from senti.digest import NotReady, write_digest
+from senti.kinds import kind_of
 from senti.signatures import parse_line, signature_of
 from senti.store import Store, priority_of
 from senti.summary import counter_delta
+
+OBP = kind_of("obp-api")
 
 BASE = 1_790_000_000
 
@@ -81,7 +84,7 @@ def test_weekly_limit(store, config, tmp_path, at):
 
 
 def test_one_off_signature_is_not_suggested(store, config, tmp_path, at):
-    sig = signature_of("error", parse_line("[2026-10-04 09:00:00Z] [t] [code.X] Boom"))
+    sig = signature_of("error", parse_line("[2026-10-04 09:00:00Z] [t] [code.X] Boom", OBP), OBP)
     store.record_occurrence(sig, BASE, BASE, "raw")
     store.upsert_finding(finding("once", signature_ids=[sig.id]))
     watch(store, 5)
@@ -96,7 +99,7 @@ def test_one_off_signature_is_not_suggested(store, config, tmp_path, at):
 
 
 def test_dismissed_hides_finding_and_signatures(store, config):
-    sig = signature_of("error", parse_line("[2026-10-04 09:00:00Z] [t] [code.X] Boom"))
+    sig = signature_of("error", parse_line("[2026-10-04 09:00:00Z] [t] [code.X] Boom", OBP), OBP)
     store.record_occurrence(sig, BASE, BASE, "raw")
     fid = store.upsert_finding(finding("x", signature_ids=[sig.id]))
     store.add_feedback(fid, "dismissed", "expected", config.snooze_days)

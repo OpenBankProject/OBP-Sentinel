@@ -24,7 +24,6 @@ from functools import lru_cache
 from pathlib import Path
 
 from .config import Config
-from .obp_client import OBPClient
 from .store import Store, now
 
 logger = logging.getLogger(__name__)
@@ -33,9 +32,7 @@ SOURCE_DIR = "obp-api/src/main/scala"
 REACH_EVERY_SECONDS = 86400  # resource docs are large: read them once a day, or when the commit changes
 ENDPOINT_VAL = re.compile(r"\s*(lazy\s+)?val\s+\w+\s*:\s*(HttpRoutes|OBPEndpoint)\b")
 TIERS = ("no login needed", "login but no Role needed", "Role held", "Roles unknown", "Role nobody holds")
-# In a ResourceDoc's errors, these mean the caller must be logged in or an identified application
-CREDENTIALS_ERRORS = ("OBP-20001", "OBP-20200")
-REACH_FORMAT = 3  # bump when what fetch_reach stores changes, so it is fetched again
+REACH_FORMAT = 3  # bump when what a source's reach() stores changes, so it is fetched again (packs/obp/api_source.py)
 BIG_FILE_LINES = 500  # bigger files are recorded per function read, not as a whole
 DEFINITION = re.compile(r"\s*((override|private|protected|final|implicit|lazy)(\[\w.]+\])?\s+)*(def|val)\s+(?P<name>[\w$]+)")
 
@@ -57,25 +54,6 @@ CREATE TABLE IF NOT EXISTS reviewed_endpoints (
 
 
 # --- collecting: what each instance exposes --------------------------------------------
-
-def fetch_reach(client: OBPClient, git_commit: str | None) -> dict:
-    """Every endpoint the instance serves with the Roles it needs and whether it needs a login, and the Roles
-    anyone holds (None if unknown)."""
-    endpoints: dict[str, dict] = {}
-    versions = [v["fully_qualified_version"] for v in client.api_versions()
-                if v.get("is_active") and not v["api_short_version"].startswith("dynamic")]
-    for version in versions:
-        for doc in client.resource_docs(version):
-            errors = " ".join(str(e) for e in doc.get("error_response_bodies") or [])
-            endpoints[doc["operation_id"]] = {"roles": sorted({r["role"] for r in doc.get("roles") or []}),
-                                              "login": any(code in errors for code in CREDENTIALS_ERRORS)}
-    try:
-        roles = client.reachable_roles()
-    except Exception:
-        roles = None  # an instance without the endpoint, or without the Scope
-    return {"format": REACH_FORMAT, "ts": now(), "git_commit": git_commit, "versions": versions,
-            "endpoints": endpoints, "roles": roles}
-
 
 def reach_is_due(store: Store, git_commit: str | None) -> bool:
     reach = store.get_state("reach")

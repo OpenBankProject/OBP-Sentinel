@@ -1,9 +1,8 @@
-"""The few OBP-API calls Senti makes, as a Platform App: the log cache, Telemetry, aggregate metrics and its
-Scope declaration. Plus the public root endpoint, for the git commit the instance runs. An app (API Explorer II,
-the API Manager, the Portal, Cohort, OBP-OIDC, the Sandbox Populator) serves its own log cache and Telemetry at its monitoring path, checking the same token
-and Roles with OBP-API.
+"""The `obp` source: the few OBP-API calls Senti makes, as a Platform App: the log cache, Telemetry, aggregate
+metrics, the resource docs and reachable Roles, and its Scope declaration. Plus the public root endpoint, for the git
+commit the instance runs. An OBP app is read through the `obp-app` source (app_source.py), which uses the same token.
 
-Senti calls OBP as its own application (OAuth2 client credentials from OBP-OIDC), not as a User.
+Senti calls OBP as its own application (OAuth2 client credentials from the OIDC provider), not as a User.
 """
 
 import logging
@@ -12,9 +11,17 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from urllib.parse import quote
 
+from typing import TYPE_CHECKING
+
 import httpx
 
-from .config import Config
+from ...source import REACH_FORMAT
+from ...sources import COMMIT, LOGS, METRICS, REACH, TELEMETRY, Source
+from ...store import now
+
+if TYPE_CHECKING:
+    from ...config import Config
+    from ...store import Store
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +30,18 @@ PLATFORM_APP_API_VERSION = "v7.0.0"
 UNKNOWN_ROLE_DECLARED = "OBP-35048"
 # Renew the token this many seconds before it expires
 TOKEN_MARGIN_SECONDS = 30
+# Once OBP has accepted the Platform App declaration with every Scope held, declare again this often (an admin may
+# have re-marked it)
+REDECLARE_EVERY_SECONDS = 3600
+# In a ResourceDoc's errors, these mean the caller must be logged in or an identified application
+CREDENTIALS_ERRORS = ("OBP-20001", "OBP-20200")
 
 
 class OBPError(Exception):
     pass
 
 
-def required_scopes(config: Config) -> list[dict]:
+def required_scopes(config: "Config") -> list[dict]:
     """The Scopes Senti needs, in the form PUT /consumers/current/platform-app takes."""
     scopes = [
         {
@@ -62,7 +74,7 @@ def required_scopes(config: Config) -> list[dict]:
     return scopes
 
 
-def _sentinel_version() -> str | None:
+def _senti_version() -> str | None:
     try:
         return version("senti")
     except PackageNotFoundError:
@@ -73,12 +85,17 @@ def _obp_date(ts: int) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
-class OBPClient:
+class ObpSource(Source):
     """Every error names the full URL it was calling: Senti may watch several instances."""
 
-    def __init__(self, config: Config, http: httpx.Client | None = None):
-        self.config = config
+    name = "obp"
+    offers = frozenset({LOGS, TELEMETRY, METRICS, COMMIT, REACH})
+
+    def __init__(self, config: "Config", http: httpx.Client | None = None):
+        super().__init__(config)
         self.http = http or httpx.Client(timeout=30)
+        self.declared_at = 0.0
+        self.consumer_id: str | None = None
         self._token: str | None = None
         self._token_expires_at = 0.0
         self._token_endpoint: str | None = None
@@ -154,17 +171,11 @@ class OBPClient:
         return response.json()
 
     def log_cache(self, level: str, limit: int) -> list[str]:
-        """Raw log messages of one level, newest first. An app serves them in the same shape."""
-        if self.config.is_app:
-            url = f"{self.config.obp_base_url}{self.config.monitoring_path}/log-cache/{level}"
-            body = self._request_url("GET", url, {"limit": limit})
-        else:
-            body = self._request("GET", self.config.log_cache_api_version, f"system/log-cache/{level}", {"limit": limit})
+        """Raw log messages of one level, newest first."""
+        body = self._request("GET", self.config.log_cache_api_version, f"system/log-cache/{level}", {"limit": limit})
         return [entry["message"] for entry in body.get("entries", [])]
 
     def telemetry(self) -> dict:
-        if self.config.is_app:
-            return self._request_url("GET", f"{self.config.obp_base_url}{self.config.monitoring_path}/telemetry")
         return self._request("GET", self.config.telemetry_api_version, "management/telemetry")
 
     def aggregate_metrics(self, from_ts: int, to_ts: int) -> dict:
@@ -205,12 +216,87 @@ class OBPClient:
         scopes = required_scopes(self.config)
         try:
             return self._request("PUT", PLATFORM_APP_API_VERSION, "consumers/current/platform-app",
-                                 json={"version": _sentinel_version(), "required_scopes": scopes})
+                                 json={"version": _senti_version(), "required_scopes": scopes})
         except OBPError as e:
             if UNKNOWN_ROLE_DECLARED not in str(e):
                 raise
         # An older OBP-API that does not know an optional Role refuses the whole declaration: declare without them
         logger.info("OBP-API refused an optional Scope; declaring the required ones only")
         return self._request("PUT", PLATFORM_APP_API_VERSION, "consumers/current/platform-app",
-                             json={"version": _sentinel_version(),
+                             json={"version": _senti_version(),
                                    "required_scopes": [s for s in scopes if not s["optional"]]})
+
+    # --- what every source offers (sources/__init__.py) ---------------------------------------
+
+    def logs(self, level: str, limit: int) -> list[str]:
+        return self.log_cache(level, limit)
+
+    def metrics(self, from_ts: int, to_ts: int) -> dict:
+        return self.aggregate_metrics(from_ts, to_ts)
+
+    def running_commit(self) -> str | None:
+        return self.root().get("git_commit")
+
+    def reach(self, git_commit: str | None) -> dict:
+        """Every endpoint the instance serves with the Roles it needs and whether it needs a login, and the Roles
+        anyone holds (None if unknown)."""
+        endpoints: dict[str, dict] = {}
+        versions = [v["fully_qualified_version"] for v in self.api_versions()
+                    if v.get("is_active") and not v["api_short_version"].startswith("dynamic")]
+        for version in versions:
+            for doc in self.resource_docs(version):
+                errors = " ".join(str(e) for e in doc.get("error_response_bodies") or [])
+                endpoints[doc["operation_id"]] = {"roles": sorted({r["role"] for r in doc.get("roles") or []}),
+                                                  "login": any(code in errors for code in CREDENTIALS_ERRORS)}
+        try:
+            roles = self.reachable_roles()
+        except Exception:
+            roles = None  # an instance without the endpoint, or without the Scope
+        return {"format": REACH_FORMAT, "ts": now(), "git_commit": git_commit, "versions": versions,
+                "endpoints": endpoints, "roles": roles}
+
+    def secured_paths(self) -> list[str]:
+        """OBP-API's log cache, Telemetry and aggregate metrics."""
+        c = self.config
+        return ([f"/obp/{c.log_cache_api_version}/system/log-cache/{level}" for level in [*c.log_levels, "all"]]
+                + [f"/obp/{c.telemetry_api_version}/management/telemetry",
+                   f"/obp/{c.aggregate_metrics_api_version}/management/aggregate-metrics"])
+
+    def before_poll(self, store: "Store") -> None:
+        """Tell OBP-API which Scopes Senti needs, and say which are missing.
+
+        Refused until an administrator marks Senti's Consumer as a Platform App, so this is retried on every poll until
+        accepted: marking takes effect without a restart. Polling goes ahead either way.
+        """
+        if self.declared_at and time.monotonic() - self.declared_at < REDECLARE_EVERY_SECONDS:
+            return
+        try:
+            app = self.declare_platform_app()
+        except Exception as e:
+            logger.warning("Could not declare Senti's Scopes (is its Consumer marked as a Platform App?): %s", e)
+            state = {"ts": now(), "ok": False, "error": str(e)[:500]}
+            # So the operator is told which Consumer to mark by its consumer_id, not by the client id (its key)
+            if consumer_id := self.known_consumer_id():
+                state["consumer_id"] = consumer_id
+            store.set_state("platform_app", state)
+            return
+        missing = [s["role_name"] for s in app.get("required_scopes", []) if not s.get("held") and not s.get("optional")]
+        # While a Scope is missing, ask again on every poll, so a grant shows within a poll, as the health page says
+        self.declared_at = 0.0 if missing else time.monotonic()
+        store.set_state("platform_app", {"ts": now(), "ok": True, "consumer_id": app.get("consumer_id"),
+                                         "label": app.get("label"), "missing": missing})
+        if missing:
+            logger.warning("Consumer %s lacks the Scopes %s; ask an administrator to grant them",
+                           app.get("consumer_id"), ", ".join(missing))
+        else:
+            logger.info("Declared as Platform App %r; all Scopes held", app.get("label"))
+
+    def known_consumer_id(self) -> str | None:
+        """Senti's consumer_id, asked once; None while OBP-API cannot say (unreachable, token rejected, older version)."""
+        if not self.consumer_id:
+            try:
+                self.consumer_id = self.current_consumer_id()
+            except Exception as e:
+                logger.info("Could not look up Senti's consumer_id: %s", e)
+                return None
+        return self.consumer_id

@@ -18,19 +18,15 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .kinds import KINDS
+
 SETUP_FILE = "senti.toml"
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 ENV_PREFIX = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
-# The kinds Senti knows. Only obp-api can be listed as an instance for now: the OBP apps are found in their
-# OBP-API instance's app directory (discover = true), and use its OIDC client.
+# Only obp-api can be listed as an instance for now: the OBP apps are found in their OBP-API instance's app directory
+# (discover = true), and use its OIDC client.
 OBP_API = "obp-api"
-KINDS = {
-    OBP_API: "OBP-API: Scala, http4s with Lift history, resource docs, Roles and connectors, built with Maven",
-    "sveltekit": "A SvelteKit app on Node: server routes, sessions, calls to an API",
-    "vue-express": "A Vue single-page app with an Express server",
-    "scala-http4s": "A Scala service on http4s and cats-effect, built with sbt",
-}
 
 
 class SetupError(Exception):

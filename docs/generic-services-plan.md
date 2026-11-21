@@ -144,14 +144,19 @@ The generic agents (`senti-analyst`, `senti-source-reviewer`) know nothing about
 - Add `config import-env`, which writes `senti.toml` from today's `.env` once. Each instance keeps its name as its id, so its database and digests stay where they are; its environment can be renamed in the file. With `senti.toml` present, the instances, URLs, OIDC clients and checkouts are read from it; the tuning settings (`SENTINEL_*`) still come from `.env`. Done, except the rename.
 - Keep learning per kind: each instance's kind comes from its service, and learning pools only the instances of one kind, so existing ratings count for the kind they were made on. Done.
 
-### 2. The OBP kind and data sources
+### 2. The OBP pack, sources and kinds
 
-- Move `obp_client.py`, the OBP parts of `collector.py`, `health.py` and `config.py` (the `APPS` list, app directory discovery) into `sources/obp.py` and `sources/obp_app.py`.
-- Move the OBP parts of `signatures.py`, `summary.py`, `source.py` and `fixer.py` into `kinds/obp_api.py`; the JavaScript and Scala line formats into `kinds/sveltekit.py`, `kinds/vue_express.py` and `kinds/scala_http4s.py`.
-- The collector calls the sources and records what comes back; it no longer knows OBP endpoints.
+Done:
+
+- `sources/` holds the general data sources, and `kinds/` the general kinds (`sveltekit`, `vue-express`, `scala-http4s`). Each source offers what it can (`logs`, `telemetry`, `metrics`, `commit`, `reach`), and the collector polls whatever the instance's source offers and records what comes back; it no longer knows OBP endpoints.
+- `packs/obp/` holds everything OBP, and registers its sources and kind: `api_source.py` (the `obp` source: OBP-API, formerly `obp_client.py`, with the Platform App declaration and the endpoint list for the source review), `app_source.py` (the `obp-app` source: an app's `/monitoring` endpoints, with the check of Roles an app refuses), `app_directory.py` (the OBP apps), `kind.py` (the `obp-api` kind and the OBP log format) and `lift-reference.md`. TESOBE Senti is everything outside `packs/`; OBP Senti is TESOBE Senti with `packs/obp`.
+- Each kind has its log format: how a line is laid out, how an exception is named and what a request path looks like. The general kinds use the OBP log format for now, so the OBP apps' signature ids are unchanged (checked against every stored sample).
+
+Moved to phase 3, because they belong with the prompts and the fix toolchain: the OBP parts of `summary.py` (the OBP meters and aggregate metrics), `source.py` (Scala endpoints, Roles, OBP error codes), `fixer.py` (Maven, parity scripts) and `history.py` (Lift).
 
 ### 3. Generic prompts and fixes
 
+- Give each kind its summary sections, source review (how endpoints are found in its code) and fix toolchain, moving the OBP parts of `summary.py`, `source.py`, `fixer.py` and `history.py` into `packs/obp/`.
 - Split the two agent files into generic agents and notes per kind (`kinds/notes/obp-api.md`, `sveltekit.md` and so on). Lift history moves into the `obp-api` notes.
 - `fixer.py` takes its build and test commands, allowed folders and extra steps from the kind, overridable per service.
 - `analyst.py`, `replies.py`, `classes.py` and `history.py` say "the service" and use its name and repository.

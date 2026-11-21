@@ -1,5 +1,6 @@
 from senti import collector as collector_module
 from senti.collector import Collector, bucket_of, new_entries
+from senti.packs.obp.api_source import ObpSource
 from senti.store import Store
 
 
@@ -33,13 +34,16 @@ def test_bucket_of():
     assert bucket_of(3600 + 17 * 60, 15) == 3600 + 15 * 60
 
 
-class FakeClient:
-    def __init__(self, logs, telemetry):
-        self.logs = logs
+class FakeClient(ObpSource):
+    """The obp source, answering from memory instead of OBP-API."""
+
+    def __init__(self, config, logs, telemetry):
+        super().__init__(config)
+        self.lines = logs
         self.telemetry_body = telemetry
 
     def log_cache(self, level, limit):
-        return self.logs.get(level, [])[:limit]
+        return self.lines.get(level, [])[:limit]
 
     def telemetry(self):
         return self.telemetry_body
@@ -66,7 +70,7 @@ def test_poll_counts_new_signatures_and_ignores_own_calls(config, tmp_path):
          "measurements": {"count": 3.0, "total_time": 0.3}},
         {"name": "jvm.threads.live", "type": "gauge", "tags": {}, "measurements": {"value": 5.0}},
     ]}
-    client = FakeClient(logs, telemetry)
+    client = FakeClient(config, logs, telemetry)
     collector = Collector(config, store, client)
     collector.poll_once()
 
@@ -75,14 +79,14 @@ def test_poll_counts_new_signatures_and_ignores_own_calls(config, tmp_path):
     assert store.db.execute("SELECT COUNT(*) FROM telemetry_values").fetchone()[0] == 2  # jvm.threads not kept
 
     # Next poll: one new entry on top
-    client.logs["error"] = ["[2026-10-04 09:05:00Z] [t] [code.X] Failed for 'b3'"] + logs["error"]
+    client.lines["error"] = ["[2026-10-04 09:05:00Z] [t] [code.X] Failed for 'b3'"] + logs["error"]
     collector.poll_once()
     assert store.db.execute("SELECT total_count FROM signatures").fetchone()[0] == 3
 
 
 class DeclaringClient(FakeClient):
-    def __init__(self):
-        super().__init__({}, {"meters": []})
+    def __init__(self, config):
+        super().__init__(config, {}, {"meters": []})
         self.marked = False
         self.declarations = 0
 
@@ -97,7 +101,7 @@ class DeclaringClient(FakeClient):
 
 
 def test_declaration_is_retried_until_marked_then_not_every_poll(config, tmp_path):
-    client = DeclaringClient()
+    client = DeclaringClient(config)
     collector = Collector(config, Store(str(tmp_path / "s.db")), client)
     collector.poll_once()
     collector.poll_once()
@@ -112,8 +116,8 @@ def test_declaration_is_retried_until_marked_then_not_every_poll(config, tmp_pat
 
 
 class MetricsClient(FakeClient):
-    def __init__(self):
-        super().__init__({}, {"meters": []})
+    def __init__(self, config):
+        super().__init__(config, {}, {"meters": []})
         self.windows = []
 
     def aggregate_metrics(self, from_ts, to_ts):
@@ -124,7 +128,7 @@ class MetricsClient(FakeClient):
 def test_metrics_fetched_once_per_ended_bucket(config, tmp_path, monkeypatch):
     clock = [1791104400 + 20 * 60]  # 09:20: the 09:00 bucket ended 5 minutes ago
     monkeypatch.setattr(collector_module, "now", lambda: clock[0])
-    client = MetricsClient()
+    client = MetricsClient(config)
     store = Store(str(tmp_path / "s.db"))
     collector = Collector(config, store, client)
 
@@ -144,13 +148,13 @@ def test_root_endpoint_records_which_commit_runs(config, tmp_path):
     from senti.summary import coverage
 
     store = Store(str(tmp_path / "s.db"))
-    client = FakeClient({}, {"meters": []})
+    client = FakeClient(config, {}, {"meters": []})
     c = Collector(config, store, client)
     client.root = lambda: {"git_commit": "aaa1111"}
-    c.poll_root()
-    c.poll_root()
+    c.poll_commit()
+    c.poll_commit()
     client.root = lambda: {"git_commit": "bbb2222"}
-    c.poll_root()
+    c.poll_commit()
     deployments = coverage(store, config, 0, 2**40)["deployments"]
     assert [d["git_commit"] for d in deployments] == ["aaa1111", "bbb2222"]
     store.close()
@@ -158,7 +162,7 @@ def test_root_endpoint_records_which_commit_runs(config, tmp_path):
 
 def test_declaration_and_root_outcomes_are_kept_for_the_page(config, tmp_path):
     store = Store(str(tmp_path / "s.db"))
-    client = DeclaringClient()
+    client = DeclaringClient(config)
     client.root = lambda: {"git_commit": "aaa111"}
     collector = Collector(config, store, client)
     collector.poll_once()

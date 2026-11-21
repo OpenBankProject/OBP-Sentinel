@@ -11,10 +11,10 @@ import logging
 import re
 import subprocess
 import threading
-from pathlib import Path
 
 from .analyst import GIT_READ_COMMANDS, run_claude, unavailable_reason
 from .config import Config
+from .packs.obp import LIFT_REFERENCE  # where each API version's Lift code was last live
 from .store import Store, introduced_parts
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,6 @@ BUDGET_USD = 2
 TIMEOUT_MINUTES = 10
 AUTO_EVERY_SECONDS = 600  # Trace history runs by itself this often, for a few findings never traced
 AUTO_PER_CHECK = 3  # one at a time, up to BUDGET_USD each: a backlog of findings is traced over some hours
-LIFT_REFERENCE = Path("lift-reference.md").resolve()  # where each API version's Lift code was last live
 _running: set[tuple[str, int]] = set()  # (instance, finding id) whose judgement is being made
 _lock = threading.Lock()
 

@@ -17,7 +17,7 @@ from .config import Config, ConfigError, instance_names, setup_from_env
 from .model import setup_path, to_toml
 from .digest import NotReady, write_digest
 from .logs import for_instance, setup as setup_logging
-from .obp_client import OBPClient
+from .sources import source_for
 from .source import TIERS, Reviews, export_reviews, mark_of, next_endpoints, open_reviews
 from .store import VERDICTS, Store, now
 from .summary import build_summary, coverage, to_markdown
@@ -46,7 +46,7 @@ def collect(config: Config) -> None:
     try:
         while True:
             try:
-                Collector(config, store, OBPClient(config)).run_forever()
+                Collector(config, store, source_for(config)).run_forever()
             except Exception:
                 logger.exception("Collector failed; starting again in %ss", config.poll_seconds)
                 time.sleep(config.poll_seconds)
@@ -69,7 +69,7 @@ def cmd_collect(args, configs: list[Config]) -> None:
             for_instance(threading.current_thread(), config.obp_base_url)
             store = Store(config.db_path)
             try:
-                Collector(config, store, OBPClient(config)).poll_once()
+                Collector(config, store, source_for(config)).poll_once()
             finally:
                 store.close()
         return

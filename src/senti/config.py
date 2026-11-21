@@ -27,10 +27,10 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from dotenv import find_dotenv, load_dotenv
 
+from .packs.obp.app_directory import APPS, kept_directory, read_app_directory
 from .model import OBP_API, Environment, Instance, Service, Setup, SetupError, load as load_setup, setup_path
 
 
@@ -45,32 +45,8 @@ OWN_PER_INSTANCE = {"SENTINEL_DB", "SENTINEL_DIGEST_DIR"}
 OBP_API_ONLY = {"SENTINEL_TELEMETRY_PREFIXES", "SENTINEL_IGNORE_REGEX"}
 
 
-class App(NamedTuple):
-    directory_name: str  # its entry in OBP-API's app directory
-    monitoring_path: str  # where the app serves its log-cache and telemetry endpoints
-    source_setting: str  # the setting naming its checkout
-    github_repo: str
-    service: str  # its service's name in senti.toml
-    kind: str
-
-
-APPS = {
-    "explorer": App("public_obp_api_explorer_url", "/api/monitoring", "EXPLORER_SOURCE", "OpenBankProject/API-Explorer-II",
-                    "api-explorer", "vue-express"),
-    "manager": App("public_obp_api_manager_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
-                   "api-manager", "sveltekit"),
-    "portal": App("public_obp_portal_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
-                  "portal", "sveltekit"),
-    "cohort": App("public_obp_cohort_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
-                  "cohort", "sveltekit"),
-    "oidc": App("public_obp_oidc_url", "/monitoring", "OIDC_SOURCE", "OpenBankProject/OBP-OIDC",
-                "obp-oidc", "scala-http4s"),
-    "populator": App("public_obp_sandbox_populator_url", "/monitoring", "FRONTEND_SOURCE",
-                     "OpenBankProject/OBP-Frontend", "sandbox-populator", "sveltekit"),
-}
 OBP_API_SERVICE = "obp-api"
 OBP_API_REPO = "OpenBankProject/OBP-API"
-APP_DIRECTORY_STATE = "app_directory"
 logger = logging.getLogger(__name__)
 _directories: dict[str, dict[str, str]] = {}  # by OBP-API instance: its apps' URLs, by app
 
@@ -117,40 +93,9 @@ def _obp_instance_names() -> list[str]:
     return names or [DEFAULT_INSTANCE]
 
 
-def _kept_directory(config: "Config", urls: dict[str, str] | None = None) -> dict[str, str]:
-    """Keep an instance's apps in its database (if `urls`), or read them from it. Nothing if it cannot be opened."""
-    from .store import Store
-
-    try:
-        store = Store(config.db_path)
-    except Exception as e:
-        logger.warning("Cannot open %s to keep the apps of %s: %s", config.db_path, config.name, e)
-        return urls or {}
-    try:
-        if urls is None:
-            return store.get_state(APP_DIRECTORY_STATE, {})
-        store.set_state(APP_DIRECTORY_STATE, urls)
-        store.commit()
-        return urls
-    finally:
-        store.close()
-
-
 def discover_apps(config: "Config") -> dict[str, str]:
-    """The URLs of an OBP-API instance's apps, by app, from its public app directory. Kept in its database, which
-    answers when OBP-API cannot be reached."""
-    import httpx
-
-    try:
-        response = httpx.get(f"{config.obp_base_url}/obp/v6.0.0/app-directory", timeout=10)
-        response.raise_for_status()
-        listed = {entry["name"]: entry["value"] for entry in response.json().get("app_directory", [])}
-        urls = _kept_directory(config, {app: listed[a.directory_name].rstrip("/")
-                                        for app, a in APPS.items() if listed.get(a.directory_name)})
-    except Exception as e:
-        urls = _kept_directory(config)
-        logger.warning("Could not read the app directory of %s (%s); using the apps found before: %s",
-                       config.name, e, ", ".join(urls) or "none")
+    """The URLs of an OBP-API instance's apps, by app, from its app directory (or as kept when it cannot be read)."""
+    urls = read_app_directory(config)
     _directories[config.name] = urls
     return urls
 
@@ -163,7 +108,7 @@ def api_manager_url(config: "Config") -> str | None:
 def _app_urls(parent: str) -> dict[str, str]:
     """An OBP-API instance's apps as last discovered (in this process, else as kept in its database)."""
     if parent not in _directories:
-        _directories[parent] = _kept_directory(Config.from_env(parent))
+        _directories[parent] = kept_directory(Config.from_env(parent))
     return _directories[parent]
 
 
@@ -252,6 +197,11 @@ class Config:
     def is_app(self) -> bool:
         """An app with its own /monitoring endpoints rather than OBP-API: no metrics, root, Scopes or source review."""
         return bool(self.monitoring_path)
+
+    @property
+    def source(self) -> str:
+        """The data source it is read from (sources/): for now an OBP app's or OBP-API's, until senti.toml names it."""
+        return "obp-app" if self.is_app else "obp"
 
     @property
     def env_prefix(self) -> str:

@@ -10,7 +10,8 @@ import re
 from urllib.parse import urlencode
 
 from .analyst import unavailable_reason
-from .config import APPS, Config, api_manager_url
+from .config import Config, api_manager_url
+from .packs.obp.app_directory import APPS
 from .store import Store, now
 
 SOURCE_NAMES = {"log:error": "Error log", "log:warning": "Warning log", "log:info": "Info log",
@@ -138,7 +139,7 @@ def health(store: Store, config: Config) -> dict:
         if (s := store.get_state(key)) is not None:
             latest.append({"source": source, **s})
     app = store.get_state("platform_app") or {}
-    # An app's: what OBP-API says about the Roles the app refused (collector.check_app_access)
+    # An app's: what OBP-API says about the Roles the app refused (packs/obp/app_source.py)
     access = (store.get_state("app_access") or {}) if config.is_app else {}
     consumer_id = app.get("consumer_id") or access.get("consumer_id")
     who = _who(config, consumer_id)
