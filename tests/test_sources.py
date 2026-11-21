@@ -51,7 +51,9 @@ def test_obp_api_and_its_apps_have_their_own_sources(config):
 
 
 def test_every_obp_kind_reads_lines_the_same_way_so_signature_ids_stay_comparable():
-    assert {k.log_format for k in KINDS.values()} == {kind_of("obp-api").log_format}
+    obp_kinds = ("obp-api", "sveltekit", "vue-express", "scala-http4s")  # the kinds of OBP-API and its apps
+    assert {kind_of(k).log_format for k in obp_kinds} == {kind_of("obp-api").log_format}
+    assert kind_of("spring-boot").log_format != kind_of("obp-api").log_format and set(obp_kinds) < set(KINDS)
 
 
 def test_an_unknown_kind_is_explained():

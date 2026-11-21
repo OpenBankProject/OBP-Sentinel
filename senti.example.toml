@@ -47,3 +47,22 @@ environment = "production"
 url = "https://api.example.com"
 credentials = "PRODUCTION_OIDC"
 discover = true
+
+# Any other service, read through Prometheus and Loki. Its kind says how its log lines read.
+# [prometheus]
+# url = "http://prometheus:9090"
+#
+# [loki]
+# url = "http://loki:3100"
+#
+# [[service]]
+# name = "shop"
+# kind = "sveltekit"
+# sources = ["prometheus", "loki"]
+#
+# [[instance]]
+# service = "shop"
+# environment = "production"
+# url = "https://shop.example.com"
+# prometheus = 'job="shop"'
+# loki = '{app="shop",env="production"}'

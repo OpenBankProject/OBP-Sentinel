@@ -22,6 +22,7 @@ from pathlib import Path
 
 from .config import Config
 from .context import service_context
+from .home import home
 from .logs import about, for_instance
 from .store import Store, now
 from .summary import watched_seconds
@@ -45,8 +46,8 @@ def unavailable_reason(config: Config, scheduled: bool = True) -> str | None:
         return "Turned off (SENTINEL_ANALYSE_MINUTES=0)"
     if not shutil.which(config.claude_command):
         return f"Claude Code ({config.claude_command}) is not installed or not on PATH"
-    if not AGENT_FILE.exists():
-        return f"{AGENT_FILE} not found: start Senti from the OBP-Sentinel directory"
+    if not (home() / AGENT_FILE).exists():
+        return f"{home() / AGENT_FILE} not found: Senti's agent files are missing from its folder"
     if not config.obp_api_source or not Path(config.obp_api_source).is_dir():
         return f"No source checkout is set for {config.service}"
     return None
@@ -138,7 +139,8 @@ def command(config: Config) -> list[str]:
     tools += [f"Bash(git -C {source} {c} *)" for c in GIT_READ_COMMANDS]
     prompt = (
         f"Run the Senti analysis of the instance `{config.name}`; every `uv run senti` command already reads its data. "
-        f"Its source is at {source}; use that path literally (e.g. git -C {source} log ...). At least "
+        f"Its source is at {source}; use that path literally (e.g. git -C {source} log ...), and never cd: read files "
+        "by their full path with Read, Grep and Glob, so every command runs in Senti's folder. At least "
         f"{config.analyse_min_watch_hours:g}h of coverage is enough to go ahead.\n\n{service_context(config)}"
     )
     return [
@@ -201,6 +203,7 @@ def run_claude(cmd: list[str], env: dict, timeout_minutes: int, on_step, stopped
             process = subprocess.Popen(
                 cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
                 text=True, start_new_session=True, env={**os.environ, **env},
+                cwd=home(),  # so `work/` and `uv run senti` are Senti's own, whatever the caller's folder
             )
             set_process(process)
             timer = threading.Timer(timeout_minutes * 60, lambda: (timed_out.set(), process.kill()))

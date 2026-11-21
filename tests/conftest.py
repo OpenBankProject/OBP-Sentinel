@@ -9,6 +9,13 @@ from senti.config import Config
 
 
 @pytest.fixture(autouse=True)
+def senti_home(tmp_path, monkeypatch):
+    """Each test has its own Senti folder, as `senti` sets SENTI_HOME for itself and what it starts."""
+    monkeypatch.setenv("SENTI_HOME", str(tmp_path))
+    return tmp_path
+
+
+@pytest.fixture(autouse=True)
 def app_directories(monkeypatch):
     """No test reaches a real OBP-API: an instance's app directory lists what a test puts here, by its URL."""
     listed: dict[str, dict[str, str]] = {}

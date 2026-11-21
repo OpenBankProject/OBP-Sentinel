@@ -174,9 +174,16 @@ Done:
 
 ### 5. Prometheus and Loki
 
-- A `prometheus` source: request rates, error rates and latency percentiles per route from the standard HTTP server metrics, plus memory, CPU and connection pools, compared hour with hour as today.
-- A `loki` source for logs, so services without OBP's log cache can be watched. It also avoids missing lines under load, which polling the last 1,000 lines of a log cache can.
-- Try both on OBP-API first, next to the `obp` source, and compare what each finds.
+Done, tested against answers shaped as Prometheus and Loki give them; not yet tried against a running Prometheus or Loki:
+
+- `sources/prometheus.py`: an instance's series (its selector, label matchers such as `job="obp-api",instance="localhost:9464"`) turned into meters in the shape OBP-API serves them, Micrometer's names restored (`obp_api_endpoint_requests_seconds_count` and `_sum` make the timer `obp.api.endpoint.requests`); calls, mean and longest response time per bucket from the HTTP server timer (`http_server_requests_seconds`); the running commit from an info series' `git_commit`, `vcs_ref_head_revision` or `service_version` label.
+- `sources/loki.py`: each level's newest lines from the instance's stream selector (`{app="obp-api",env="local"}`), in the last hour.
+- A service names its `sources` in `senti.toml`, first first: each kind of data comes from the first that offers it (`["obp", "prometheus"]` keeps OBP-API's own Telemetry and adds only what obp lacks). `[prometheus] url` and `[loki] url` name the servers; `PROMETHEUS_TOKEN` and `LOKI_TOKEN`, if set, are sent as bearer tokens.
+- A service read only through Prometheus and Loki can now be listed as an instance, of any kind; OBP-API's default Telemetry prefixes and ignore pattern apply to OBP-API only.
+
+Next: try it on OBP-API locally (turn on `telemetry.port.enabled`, scrape port 9464 at `/telemetry` with a local Prometheus, ship its log to a local Loki) and compare what each source finds.
+
+Also done: the `spring-boot` kind (`kinds/spring_boot.py`), the first general one with its own log format (Spring Boot's default Logback layout, in its 2.x, 3.0 and 3.2+ forms), notes for the analyst, and a Maven toolchain for Fix this (the project's `./mvnw` when it has one).
 
 ### 6. Backstage
 

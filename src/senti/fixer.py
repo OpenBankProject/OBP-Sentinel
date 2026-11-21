@@ -28,6 +28,7 @@ from pathlib import Path
 from . import build, classes
 from .analyst import run_claude
 from .config import Config
+from .home import in_home
 from .kinds import Toolchain, kind_of
 from .store import Store, now
 
@@ -309,8 +310,8 @@ def resume(config: Config) -> None:
     """When Senti starts: a fix it was in the middle of goes back in the queue, and the queue is worked through."""
     if unavailable_reason(config):
         return
-    Path(LOCK_FILE).parent.mkdir(exist_ok=True)
-    with open(LOCK_FILE, "w") as lock:
+    Path(in_home(LOCK_FILE)).parent.mkdir(exist_ok=True)
+    with open(in_home(LOCK_FILE), "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -397,8 +398,8 @@ def _work(config: Config) -> None:
             if waiting(config):
                 time.sleep(WAIT_SECONDS)
                 continue
-            Path(LOCK_FILE).parent.mkdir(exist_ok=True)
-            with open(LOCK_FILE, "w") as lock:
+            Path(in_home(LOCK_FILE)).parent.mkdir(exist_ok=True)
+            with open(in_home(LOCK_FILE), "w") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)  # waits while another instance or process is fixing
                 try:
                     status = fix(config, finding_id)

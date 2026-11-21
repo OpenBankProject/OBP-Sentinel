@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .analyst import GIT_READ_COMMANDS, run_claude, unavailable_reason
 from .config import Config
+from .home import home
 from .source import Reviews, open_reviews
 from .store import now
 
@@ -88,8 +89,8 @@ class Scanner:
         reason = unavailable_reason(self.config, scheduled=False)
         if reason:
             return reason
-        if not AGENT_FILE.exists():
-            return f"{AGENT_FILE} not found: start Senti from the OBP-Sentinel directory"
+        if not (home() / AGENT_FILE).exists():
+            return f"{home() / AGENT_FILE} not found: Senti's agent files are missing from its folder"
         return None
 
     def status(self) -> dict:

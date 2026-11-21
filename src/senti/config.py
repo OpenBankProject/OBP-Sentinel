@@ -28,10 +28,11 @@ import os
 import re
 from dataclasses import dataclass
 
-from dotenv import find_dotenv, load_dotenv
+from dotenv import load_dotenv
 
 from .packs.obp import APP_NOTES
 from .packs.obp.app_directory import APPS, kept_directory, read_app_directory
+from .home import home, in_home
 from .model import OBP_API, Environment, Instance, Service, Setup, SetupError, load as load_setup, setup_path
 
 
@@ -65,7 +66,7 @@ _setups: dict[tuple, Setup | None] = {}
 
 def current_setup() -> Setup | None:
     """The setup in senti.toml, read again when the file changes; None without the file."""
-    load_dotenv(find_dotenv(usecwd=True))  # the working directory's .env, not one near the code
+    load_dotenv(home() / ".env")  # Senti's own .env (home.py), wherever it is run from
     path = setup_path()
     try:
         key = (str(path.resolve()), path.stat().st_mtime_ns)
@@ -80,7 +81,7 @@ def current_setup() -> Setup | None:
 
 
 def _obp_instance_names() -> list[str]:
-    load_dotenv(find_dotenv(usecwd=True))  # the working directory's .env, not one near the code
+    load_dotenv(home() / ".env")  # Senti's own .env (home.py), wherever it is run from
     if setup := current_setup():
         if not setup.instances:
             raise ConfigError(f"{setup.path} lists no instances")
@@ -118,12 +119,21 @@ def _app_urls(parent: str) -> dict[str, str]:
     return _directories[parent]
 
 
+def _discovers(setup: Setup | None, name: str) -> bool:
+    """Whether to read this listed instance's app directory: OBP-API read through the obp source, unless told not to."""
+    if not setup:
+        return True
+    instance = setup.instance(name)
+    service = setup.service(instance.service)
+    return instance.discover and service.kind == OBP_API and (not service.sources or "obp" in service.sources)
+
+
 def _app_instances(obp_names: list[str]) -> dict[str, tuple[str, str]]:
     """The apps in each OBP-API instance's app directory, by instance name: (their OBP-API instance, which app)."""
     apps = {}
     setup = current_setup()
     for parent in obp_names:
-        if setup and not setup.instance(parent).discover:
+        if not _discovers(setup, parent):
             continue
         for app in _app_urls(parent):
             if app in APPS:
@@ -148,6 +158,11 @@ class Config:
     kind: str  # what the service's code is (model.KINDS); what Senti learns is kept per kind
     environment: str  # local, test, staging, production... (deployment.environment.name)
     service_notes: str  # what every AI run is told about this service, after its kind's notes (context.py)
+    sources: tuple[str, ...]  # where its data is read from (sources/), first first: ("obp",), ("obp", "prometheus")
+    prometheus_url: str  # the Prometheus server, if a source is prometheus
+    prometheus_selector: str  # this instance's series there: job="obp-api",instance="localhost:9464"
+    loki_url: str  # the Loki server, if a source is loki
+    loki_selector: str  # this instance's log streams there: {app="obp-api",env="local"}
     obp_base_url: str  # for an app, the app's own URL
     monitoring_path: str  # "" for OBP-API; for an app, where its log-cache and telemetry endpoints are
     parent: str  # for an app, its OBP-API instance; "" for OBP-API
@@ -205,10 +220,11 @@ class Config:
         """An app with its own /monitoring endpoints rather than OBP-API: no metrics, root, Scopes or source review."""
         return bool(self.monitoring_path)
 
+
     @property
-    def source(self) -> str:
-        """The data source it is read from (sources/): for now an OBP app's or OBP-API's, until senti.toml names it."""
-        return "obp-app" if self.is_app else "obp"
+    def read_from(self) -> tuple[str, ...]:
+        """The sources it is read from: an OBP app always through obp-app, anything else through its sources."""
+        return ("obp-app",) if self.is_app else self.sources
 
     @property
     def env_prefix(self) -> str:
@@ -220,7 +236,7 @@ class Config:
         """Every instance: each OBP-API instance, its app directory read again, followed by its apps."""
         setup = current_setup()
         for name in _obp_instance_names():
-            if not setup or setup.instance(name).discover:
+            if _discovers(setup, name):
                 discover_apps(cls.from_env(name))
         return [cls.from_env(name) for name in instance_names()]
 
@@ -278,6 +294,11 @@ class Config:
             service=service,
             kind=kind,
             environment=listed.environment if listed else (parent or name),
+            sources=(("obp-app",) if is_app else (obp_service.sources if listed and obp_service.sources else ("obp",))),
+            prometheus_url=setup.prometheus_url if setup else os.environ.get("PROMETHEUS_URL", "").rstrip("/"),
+            prometheus_selector=listed.prometheus if listed and not is_app else "",
+            loki_url=setup.loki_url if setup else os.environ.get("LOKI_URL", "").rstrip("/"),
+            loki_selector=listed.loki if listed and not is_app else "",
             service_notes=((app_service and app_service.notes)
                            or APP_NOTES + (f" Its code is in `{APPS[app].folder}/` of its checkout." if APPS[app].folder else "")
                            if is_app else obp_service.notes if listed else ""),
@@ -298,10 +319,10 @@ class Config:
             root_api_version=env("OBP_ROOT_API_VERSION", "v5.1.0"),
             obp_api_source=source,
             obp_api_github_repo=github_repo,
-            db_path=env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db"),
-            source_db_path=env("SENTINEL_SOURCE_DB", "sentinel-source.db"),
-            review_dir=env("SENTINEL_REVIEW_DIR", "source-review"),
-            digest_dir=env("SENTINEL_DIGEST_DIR", f"digests/{name}" if named else "digests"),
+            db_path=in_home(env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db")),
+            source_db_path=in_home(env("SENTINEL_SOURCE_DB", "sentinel-source.db")),
+            review_dir=in_home(env("SENTINEL_REVIEW_DIR", "source-review")),
+            digest_dir=in_home(env("SENTINEL_DIGEST_DIR", f"digests/{name}" if named else "digests")),
             poll_seconds=int(env("SENTINEL_POLL_SECONDS", "120")),
             log_levels=_list(env("SENTINEL_LOG_LEVELS", "error,warning")),
             fetch_limit=int(env("SENTINEL_FETCH_LIMIT", "1000")),
@@ -309,10 +330,10 @@ class Config:
             # An app's Telemetry is small: keep all of it unless told otherwise
             telemetry_prefixes=_list(
                 env("SENTINEL_TELEMETRY_PREFIXES",
-                    "" if monitoring_path else "obp.api.,hikaricp.connections,jvm.memory.used,jvm.gc.pause")
+                    "" if monitoring_path or kind != OBP_API else "obp.api.,hikaricp.connections,jvm.memory.used,jvm.gc.pause")
             ),
             ignore_regex=env("SENTINEL_IGNORE_REGEX",
-                             "monitoring/" if monitoring_path else
+                             "monitoring/" if monitoring_path else "" if kind != OBP_API else
                              "system/log-cache|management/telemetry|management/aggregate-metrics|consumers/current/platform-app"),
             retention_days=int(env("SENTINEL_RETENTION_DAYS", "14")),
             min_watch_hours=float(env("SENTINEL_MIN_WATCH_HOURS", "4")),

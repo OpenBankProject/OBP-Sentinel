@@ -4,6 +4,7 @@ import pytest
 
 from senti.config import Config, ConfigError, setup_from_env
 from senti.model import SetupError, load, parse, to_toml
+from senti.home import in_home
 
 SETUP = """
 [system]
@@ -64,8 +65,8 @@ def test_written_setup_reads_back_the_same():
     (lambda t: t.replace('credentials = "LOCAL_OIDC"', 'credentials = "local"'), "must be the prefix"),
     (lambda t: t.replace('id = "local"', 'id = "obp-api-production"'), "same name: obp-api-production"),
     (lambda t: t.replace('service = "obp-api"\nenvironment = "local"', 'service = "portal"\nenvironment = "local"'),
-     "only obp-api services can be listed"),
-    (lambda t: t + "\n[prometheus]\nurl = 'x'\n", "Unknown section prometheus"),
+     "a sveltekit service is read from Prometheus or Loki"),
+    (lambda t: t + "\n[grafana]\nurl = 'x'\n", "Unknown section grafana"),
 ])
 def test_mistakes_in_the_setup_are_explained(change, error):
     with pytest.raises(SetupError, match=error):
@@ -94,7 +95,7 @@ def test_instances_come_from_senti_toml_when_it_is_there(config, monkeypatch, tm
         "obp-api-production-portal", "portal", "sveltekit", "production")
     assert (portal.obp_base_url, portal.obp_api_source, portal.obp_api_url) == (
         "https://portal.example.com", "/src/OBP-Frontend", "https://api.example.com")
-    assert (local.name, local.environment, local.db_path) == ("local", "local", "sentinel-local.db")
+    assert (local.name, local.environment, local.db_path) == ("local", "local", in_home("sentinel-local.db"))
 
 
 def test_without_senti_toml_each_instance_is_its_own_environment(config, monkeypatch, app_directories):

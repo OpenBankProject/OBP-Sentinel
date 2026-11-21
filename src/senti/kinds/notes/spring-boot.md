@@ -1,0 +1,4 @@
+- The code is in `src/main/java` or `src/main/kotlin` (tests in `src/test`); configuration in `src/main/resources/application.properties` or `application.yml`, with a file per profile (`application-prod.yml`). Endpoints are `@RestController` or `@Controller` methods (`@GetMapping`, `@PostMapping`...); who may call them is usually set in a Spring Security configuration (`SecurityFilterChain`) or with `@PreAuthorize`.
+- A log line reads `<time> <LEVEL> <pid> --- [<app>] [<thread>] <logger> : <message>`, an exception followed by its `\tat ...` stack lines. The logger is the class, its package shortened (`c.e.shop.CartController`).
+- The Telemetry is Micrometer's, through Actuator: `http.server.requests` per `uri`, `status` and `outcome`, `jvm.*`, `hikaricp.connections.*`, `tomcat.*`. A 5xx is in `status`; `outcome` is SUCCESS, CLIENT_ERROR or SERVER_ERROR.
+- Built with Maven (`./mvnw` when the project has the wrapper).

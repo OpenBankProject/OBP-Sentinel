@@ -14,6 +14,7 @@ from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
 from .scanner import Scanner
 from .config import Config, ConfigError, instance_names, setup_from_env
+from .home import remember as remember_home
 from .model import setup_path, to_toml
 from .digest import NotReady, write_digest
 from .logs import for_instance, setup as setup_logging
@@ -307,6 +308,8 @@ def add_analyst_argument(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    if why := remember_home():  # every path in Senti's folder, and every process it starts knows where that is
+        sys.exit(why)
     parser = argparse.ArgumentParser(prog="senti", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--instance", help="the OBP-API instance to work on, from SENTINEL_INSTANCES "

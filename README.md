@@ -154,13 +154,19 @@ root endpoint on every poll, and the analyst reads the source at that commit.
 instance: `senti --instance staging status`, or set `SENTINEL_INSTANCE`; with a single instance there
 is nothing to choose.
 
+### Senti's folder
+
+Senti keeps everything in its own folder: `.env`, `senti.toml`, the databases, digests, the source review record and `work/`. Relative paths are resolved against that folder, wherever `senti` is run from. It is `SENTI_HOME` if set, else the nearest folder upwards that holds `senti.toml` or Senti's agent files. `senti` sets `SENTI_HOME` when it starts, so the analyst, the source review and Fix this, and the `senti` commands they run, all use the same folder. Run outside it without `SENTI_HOME`, `senti` refuses to start rather than make new, empty databases there.
+
 ### Services, environments and instances: senti.toml
 
 Instead of `SENTINEL_INSTANCES` and prefixed settings, Senti can read what it watches from `senti.toml` in its working directory (or the file named by `SENTI_SETUP`): the services, each with its kind, repository and checkout; the environments (local, test, staging, production, or your own names); and the OBP-API instances, each with its URL and the prefix of its OIDC client settings in `.env` (`credentials = "LOCAL_OIDC"` reads `LOCAL_OIDC_CLIENT_ID`, `LOCAL_OIDC_CLIENT_SECRET` and `LOCAL_OIDC_ISSUER`). Secrets never go in the file. The tuning settings (`SENTINEL_*`) still come from `.env`. `docs/generic-services-plan.md` explains where this is going.
 
 `senti.example.toml` shows the shape, and `senti.toml` is not committed, like `.env`. `senti config import-env` prints today's setup from `.env` as `senti.toml`; `--write` saves it. Each instance keeps its name as its id, so its database and digests stay where they are. Rename an environment in the file if you like: the id stays. Senti reads the file from its next start.
 
-A service's kind says what its code is: `obp-api`, `sveltekit` (API Manager, Portal, Cohort, Sandbox Populator), `vue-express` (API Explorer II) or `scala-http4s` (OBP-OIDC). What Senti learns from your responses is kept per kind: dismissing a kind of finding on the Portal does not push it down on OBP-API.
+A service can also be read through Prometheus and Loki. Name the servers in `[prometheus] url` and `[loki] url`, the service's `sources` (for example `["prometheus", "loki"]`, or `["obp", "prometheus"]` for OBP-API, where each kind of data comes from the first source that offers it), and on each instance which of the data is its own: `prometheus = 'job="shop",instance="shop-1:9464"'` (label matchers) and `loki = '{app="shop",env="production"}'` (a stream selector). `PROMETHEUS_TOKEN` and `LOKI_TOKEN` in `.env`, if set, are sent as bearer tokens. A service read only this way needs no OIDC client.
+
+A service's kind says what its code is: `obp-api`, `sveltekit` (API Manager, Portal, Cohort, Sandbox Populator), `vue-express` (API Explorer II), `scala-http4s` (OBP-OIDC) or `spring-boot` (Java or Kotlin on Spring Boot, built with Maven: Fix this works for it too). What Senti learns from your responses is kept per kind: dismissing a kind of finding on the Portal does not push it down on OBP-API.
 
 ### Apps: API Explorer II, the API Manager, the Portal, Cohort, OBP-OIDC, the Sandbox Populator
 

@@ -13,6 +13,7 @@ from senti.packs.obp.app_source import ObpAppSource
 from senti.kinds import kind_of
 from senti.signatures import parse_line, signature_of
 from senti.store import Store
+from senti.home import in_home
 
 OBP = kind_of("obp-api")
 
@@ -42,7 +43,7 @@ def test_each_instance_has_the_apps_its_app_directory_lists_using_its_settings(c
     assert (explorer.parent, explorer.obp_base_url, explorer.monitoring_path) == ("local", "http://localhost:5173", "/api/monitoring")
     assert portal.monitoring_path == "/monitoring" and portal.obp_api_source == "/src/frontend"
     assert explorer.obp_api_source == "/src/explorer" and explorer.oidc_client_id == "local-client"
-    assert ogcr_explorer.oidc_client_id == "ogcr-client" and ogcr_explorer.db_path == "sentinel-ogcr-explorer.db"
+    assert ogcr_explorer.oidc_client_id == "ogcr-client" and ogcr_explorer.db_path == in_home("sentinel-ogcr-explorer.db")
     assert explorer.telemetry_prefixes == [] and ogcr_explorer.ignore_regex == "monitoring/"
     oidc = configs["local-oidc"]
     assert (oidc.obp_base_url, oidc.monitoring_path, oidc.obp_api_source) == ("http://localhost:9000", "/monitoring", "/src/oidc")

@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 
 from .config import Config
-from .sources import METRICS, sources
+from .sources import METRICS, offers_of
 from .store import Store, now
 
 COUNTER_STATS = ("count", "total_time", "total")
@@ -183,7 +183,7 @@ def build_summary(store: Store, config: Config, hours: float, limit: int = 30, l
     end = now()
     start = end - int(hours * 3600)
     prev_start = start - int(hours * 3600)
-    has_metrics = METRICS in sources()[config.source].offers
+    has_metrics = METRICS in offers_of(config)
     return {
         "instance": config.name,
         "service": config.service,
