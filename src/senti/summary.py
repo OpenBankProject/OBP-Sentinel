@@ -12,7 +12,7 @@ WATCHED_GAUGES = re.compile(r"pending|queue|failures|dropped|active")
 
 
 def watched_seconds(store: Store, start: int, end: int, poll_seconds: int) -> int:
-    """Seconds between start and end during which Sentinel was polling successfully."""
+    """Seconds between start and end during which Senti was polling successfully."""
     times = [r[0] for r in store.db.execute(
         "SELECT DISTINCT ts FROM polls WHERE ok = 1 AND ts > ? AND ts <= ? ORDER BY ts", (start, end)
     )]
@@ -206,7 +206,7 @@ def build_summary(store: Store, config: Config, hours: float, limit: int = 30, l
 def to_markdown(summary: dict) -> str:
     c = summary["coverage"]
     out = [
-        f"# OBP-Sentinel summary of `{summary['instance']}` ({summary['obp_base_url']}): last {summary['window_hours']}h "
+        f"# Senti summary of `{summary['instance']}` ({summary['obp_base_url']}): last {summary['window_hours']}h "
         f"(compared with the {summary['window_hours']}h before)",
         "",
         *([f"This is an app with its own log cache and Telemetry, not OBP-API: its source is the app's, and it has "

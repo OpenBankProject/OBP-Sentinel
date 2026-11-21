@@ -135,7 +135,7 @@ class Reviews:
 # --- as text files, for a private git repo ----------------------------------------------------
 # endpoints.jsonl and units.jsonl in SENTINEL_REVIEW_DIR: one line per endpoint and per unit, sorted, so a
 # review changes or adds one line. Written after each review; read back when the database has fewer reviews
-# (a new machine, a lost database). Sentinel never commits them.
+# (a new machine, a lost database). Senti never commits them.
 
 def _iso(ts: int) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

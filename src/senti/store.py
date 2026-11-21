@@ -1,4 +1,4 @@
-"""Sentinel's memory: a SQLite database. All times are Unix epoch seconds (UTC)."""
+"""Senti's memory: a SQLite database. All times are Unix epoch seconds (UTC)."""
 
 import json
 import re
@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     comment    TEXT,
     previous_status        TEXT,           -- the finding's status before, for Undo
     previous_snoozed_until INTEGER,
-    from_sentinel INTEGER NOT NULL DEFAULT 0  -- 1 when Sentinel recorded it (Look again), not a person
+    from_sentinel INTEGER NOT NULL DEFAULT 0  -- 1 when Senti recorded it (Look again), not a person
 );
 
 -- Each time the analyst ran (headless Claude Code), and the steps it took: tool calls and notes, never tool results.
@@ -177,7 +177,7 @@ CREATE TABLE IF NOT EXISTS analysis_runs (
     ended_at   INTEGER,
     trigger    TEXT NOT NULL,              -- why it ran
     status     TEXT NOT NULL,              -- running | done | failed
-    pid        INTEGER,                    -- the Sentinel process running it, to tell a stale 'running' row
+    pid        INTEGER,                    -- the Senti process running it, to tell a stale 'running' row
     cost_usd   REAL,
     result     TEXT,                       -- the analyst's closing reply
     error      TEXT
@@ -409,7 +409,7 @@ class Store:
 
     def add_feedback(self, finding_id: int, verdict: str, comment: str | None, snooze_days: int,
                      from_sentinel: bool = False) -> None:
-        """`from_sentinel` marks a response Sentinel gives itself, which it does not learn from."""
+        """`from_sentinel` marks a response Senti gives itself, which it does not learn from."""
         finding = self.db.execute("SELECT * FROM findings WHERE id = ?", (finding_id,)).fetchone()
         if not finding:
             raise ValueError(f"No finding with id {finding_id}")
@@ -432,7 +432,7 @@ class Store:
     def undo_feedback(self, finding_id: int, within_seconds: int = UNDO_SECONDS) -> str:
         """Take back the latest feedback on a finding, given in the last `within_seconds`, and put the finding's
         status back as it was. Returns the verdict taken back. Not a dismissal (its signatures were dismissed too),
-        nor what Sentinel recorded itself, nor what was recorded before Undo was possible."""
+        nor what Senti recorded itself, nor what was recorded before Undo was possible."""
         row = self.db.execute("SELECT * FROM feedback WHERE finding_id = ? ORDER BY id DESC LIMIT 1",
                               (finding_id,)).fetchone()
         if not row or row["ts"] < now() - within_seconds:

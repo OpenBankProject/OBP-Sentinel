@@ -1,12 +1,12 @@
-"""The endpoints Sentinel reads must refuse a call with no token: checked hourly, shown on the page."""
+"""The endpoints Senti reads must refuse a call with no token: checked hourly, shown on the page."""
 
 from dataclasses import replace
 
 import httpx
 
-from obp_sentinel.collector import SECURED, Collector
-from obp_sentinel.obp_client import OBPClient
-from obp_sentinel.store import Store
+from senti.collector import SECURED, Collector
+from senti.obp_client import OBPClient
+from senti.store import Store
 
 
 def check(config, answer):

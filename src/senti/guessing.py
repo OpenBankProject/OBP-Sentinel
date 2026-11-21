@@ -64,7 +64,7 @@ def judge(config: Config, finding_id: int) -> bool | None:
 
 
 def judge_all(configs: list[Config]) -> None:
-    """A few findings not judged yet, per instance, one at a time (from Sentinel's loop by itself)."""
+    """A few findings not judged yet, per instance, one at a time (from Senti's loop by itself)."""
     for config in configs:
         if unavailable_reason(config, scheduled=False):
             continue

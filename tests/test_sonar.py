@@ -1,7 +1,7 @@
 from dataclasses import replace
 
-from obp_sentinel import sonar
-from obp_sentinel.store import Store
+from senti import sonar
+from senti.store import Store
 
 PROJECT = "Ada_OBP-API"
 

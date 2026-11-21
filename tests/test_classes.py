@@ -1,5 +1,5 @@
-from obp_sentinel import classes
-from obp_sentinel.store import Store
+from senti import classes
+from senti.store import Store
 
 
 def finding(store, key):

@@ -4,13 +4,13 @@ from dataclasses import replace
 
 import httpx
 
-from obp_sentinel.collector import Collector
-from obp_sentinel import config as config_module
-from obp_sentinel.config import Config
-from obp_sentinel.health import health
-from obp_sentinel.obp_client import OBPClient
-from obp_sentinel.signatures import parse_line, signature_of
-from obp_sentinel.store import Store
+from senti.collector import Collector
+from senti import config as config_module
+from senti.config import Config
+from senti.health import health
+from senti.obp_client import OBPClient
+from senti.signatures import parse_line, signature_of
+from senti.store import Store
 
 
 def test_each_instance_has_the_apps_its_app_directory_lists_using_its_settings(config, monkeypatch, app_directories):
@@ -28,7 +28,7 @@ def test_each_instance_has_the_apps_its_app_directory_lists_using_its_settings(c
         "public_obp_api_explorer_url": "http://localhost:5173/", "public_obp_portal_url": "http://localhost:5174",
         "public_obp_oidc_url": "http://localhost:9000",
         "public_obp_sandbox_populator_url": "http://localhost:5178/",
-        "public_obp_hola_url": "http://localhost:8087"}  # not an app Sentinel watches
+        "public_obp_hola_url": "http://localhost:8087"}  # not an app Senti watches
     app_directories["https://obp.ogcr"] = {"public_obp_api_explorer_url": "https://explorer.ogcr"}
     configs = {c.name: c for c in Config.all_from_env()}
     assert list(configs) == ["local", "local-explorer", "local-portal", "local-oidc", "local-populator", "ogcr",

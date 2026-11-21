@@ -1,7 +1,7 @@
 import json
 
-from obp_sentinel import fixer, recheck, replies
-from obp_sentinel.store import Store
+from senti import fixer, recheck, replies
+from senti.store import Store
 from test_fixer import FIXED, claude_that, new_finding, row, cfg, trees  # noqa: F401 (fixtures)
 
 

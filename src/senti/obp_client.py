@@ -1,9 +1,9 @@
-"""The few OBP-API calls Sentinel makes, as a Platform App: the log cache, Telemetry, aggregate metrics and its
+"""The few OBP-API calls Senti makes, as a Platform App: the log cache, Telemetry, aggregate metrics and its
 Scope declaration. Plus the public root endpoint, for the git commit the instance runs. An app (API Explorer II,
 the API Manager, the Portal, Cohort, OBP-OIDC, the Sandbox Populator) serves its own log cache and Telemetry at its monitoring path, checking the same token
 and Roles with OBP-API.
 
-Sentinel calls OBP as its own application (OAuth2 client credentials from OBP-OIDC), not as a User.
+Senti calls OBP as its own application (OAuth2 client credentials from OBP-OIDC), not as a User.
 """
 
 import logging
@@ -30,7 +30,7 @@ class OBPError(Exception):
 
 
 def required_scopes(config: Config) -> list[dict]:
-    """The Scopes Sentinel needs, in the form PUT /consumers/current/platform-app takes."""
+    """The Scopes Senti needs, in the form PUT /consumers/current/platform-app takes."""
     scopes = [
         {
             "role_name": f"CanGetSystemLogCache{level.capitalize()}",
@@ -64,7 +64,7 @@ def required_scopes(config: Config) -> list[dict]:
 
 def _sentinel_version() -> str | None:
     try:
-        return version("obp-sentinel")
+        return version("senti")
     except PackageNotFoundError:
         return None
 
@@ -74,7 +74,7 @@ def _obp_date(ts: int) -> str:
 
 
 class OBPClient:
-    """Every error names the full URL it was calling: Sentinel may watch several instances."""
+    """Every error names the full URL it was calling: Senti may watch several instances."""
 
     def __init__(self, config: Config, http: httpx.Client | None = None):
         self.config = config
@@ -189,7 +189,7 @@ class OBPClient:
         return self._request("GET", PLATFORM_APP_API_VERSION, "reachable-roles")["role_names"]
 
     def current_consumer_id(self) -> str:
-        """Sentinel's own consumer_id. Needs no Role or Scope, so OBP-API answers it before the Consumer is a Platform App.
+        """Senti's own consumer_id. Needs no Role or Scope, so OBP-API answers it before the Consumer is a Platform App.
         For an app, its OBP-API instance answers: the app only passes the token on."""
         url = f"{self.config.obp_api_url}/obp/{PLATFORM_APP_API_VERSION}/consumers/current/identity"
         return self._request_url("GET", url)["consumer_id"]
@@ -201,7 +201,7 @@ class OBPClient:
         return self._request_url("GET", url)
 
     def declare_platform_app(self) -> dict:
-        """Tell OBP-API which Scopes Sentinel needs. Returns the app as OBP sees it, each Scope held or not."""
+        """Tell OBP-API which Scopes Senti needs. Returns the app as OBP sees it, each Scope held or not."""
         scopes = required_scopes(self.config)
         try:
             return self._request("PUT", PLATFORM_APP_API_VERSION, "consumers/current/platform-app",

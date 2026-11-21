@@ -4,8 +4,8 @@ import httpx
 
 import pytest
 
-from obp_sentinel import config as config_module
-from obp_sentinel.config import Config
+from senti import config as config_module
+from senti.config import Config
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,7 @@ def app_directories(monkeypatch):
 @pytest.fixture(autouse=True)
 def claude_code_available(monkeypatch):
     """Whether this machine has Claude Code does not change a test's problems: tests that need it missing say so."""
-    monkeypatch.setattr("obp_sentinel.health.unavailable_reason", lambda config, scheduled=True: None)
+    monkeypatch.setattr("senti.health.unavailable_reason", lambda config, scheduled=True: None)
 
 
 @pytest.fixture
@@ -54,4 +54,4 @@ def config(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def no_real_replies(monkeypatch):
     """Saving a comment starts Senti's answer: no test runs the real Claude Code for it."""
-    monkeypatch.setattr("obp_sentinel.replies.run_claude", lambda *a, **k: ("not in tests", 0.0, None, None))
+    monkeypatch.setattr("senti.replies.run_claude", lambda *a, **k: ("not in tests", 0.0, None, None))

@@ -4,10 +4,10 @@ from dataclasses import replace
 
 import pytest
 
-from obp_sentinel.cli import seen_line
-from obp_sentinel.source import (BIG_FILE_LINES, REACH_FORMAT, Reviews, fetch_reach, function_code, handler_files, mark_of,
+from senti.cli import seen_line
+from senti.source import (BIG_FILE_LINES, REACH_FORMAT, Reviews, fetch_reach, function_code, handler_files, mark_of,
                                  next_endpoints, tier_of)
-from obp_sentinel.store import Store
+from senti.store import Store
 
 V6 = "obp-api/src/main/scala/code/api/v6_0_0/Http4s600.scala"
 V5 = "obp-api/src/main/scala/code/api/v5_1_0/Http4s510.scala"
@@ -194,7 +194,7 @@ def test_a_big_file_is_recorded_per_function(repo, instance, capsys):
 
 
 def test_reviews_are_written_as_text_and_read_back_into_an_empty_database(tmp_path):
-    from obp_sentinel.source import export_reviews, import_reviews
+    from senti.source import export_reviews, import_reviews
 
     reviews = Reviews(str(tmp_path / "a.db"))
     reviews.record("OBPv6.0.0-getBanks", "c1", {"x/Big.scala#getBank": "code:aa", "x/Small.scala": "b1"})

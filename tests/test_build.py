@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from obp_sentinel import build
+from senti import build
 
 URL = "https://github.com/ada/OBP-API/actions"
 API = "https://api.github.com/repos/ada/OBP-API/actions"

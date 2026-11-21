@@ -1,4 +1,4 @@
-"""`sentinel ui`: a small local web page to read findings and respond to them, one tab per OBP-API instance.
+"""`senti ui`: a small local web page to read findings and respond to them, one tab per OBP-API instance.
 Standard library only.
 
 It reads and writes `sentinel.db`, and reads commit dates and authors from the OBP-API checkout with git; no calls
@@ -87,7 +87,7 @@ def running_commit(store: Store, config: Config) -> dict | None:
 
 
 def instance_status(store: Store, config: Config) -> dict:
-    """For the instance tabs: which commit each runs, how old it is, whether Sentinel is connected, and how many
+    """For the instance tabs: which commit each runs, how old it is, whether Senti is connected, and how many
     problems stop it."""
     h = health(store, config)
     return {"name": config.name, "parent": config.parent, "obp_base_url": config.obp_base_url + config.monitoring_path,
@@ -103,7 +103,7 @@ def github_commit_info(repo: str, sha: str) -> dict | None:
         return None
     if (repo, sha) not in _github:
         request = urllib.request.Request(f"https://api.github.com/repos/{repo}/commits/{sha}",
-                                         headers={"Accept": "application/vnd.github+json", "User-Agent": "OBP-Sentinel"})
+                                         headers={"Accept": "application/vnd.github+json", "User-Agent": "Senti"})
         try:
             with urllib.request.urlopen(request, timeout=5) as response:
                 author = json.load(response)["commit"]["author"]
@@ -263,14 +263,14 @@ def findings(store: Store, config: Config) -> list[dict]:
         item["signature_ids"] = json.loads(item["signature_ids"])
         item["history"] = json.loads(item["history"]) if item.get("history") else None
         if item.get("trace_status") == "running" and not history.is_running(config.name, f["id"]):
-            item["trace_status"] = "failed"  # Sentinel stopped while judging
+            item["trace_status"] = "failed"  # Senti stopped while judging
         if item.get("recheck_status") == "running" and not recheck.is_running(config.name, f["id"]):
-            item["recheck_status"] = "failed"  # Sentinel stopped while looking
+            item["recheck_status"] = "failed"  # Senti stopped while looking
         elif item.get("recheck_status") == "running":
             item["recheck_progress"] = recheck.progress(config.name, f["id"])
         if item.get("reply_status") == "running":
             if (shown := replies.progress(config.name, f["id"])) is None:
-                item["reply_status"] = "failed"  # Sentinel stopped while answering
+                item["reply_status"] = "failed"  # Senti stopped while answering
             item["reply_progress"] = shown
         if item.get("fix_status") == "running":
             item["fix_progress"] = fixer.progress(config.name, f["id"])
@@ -299,11 +299,11 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
     """One page for all instances; each API call names its instance with `?instance=` (default: the first).
 
     `analysts` (by instance name) run analyses asked for on the page; pass the scheduled ones so stopping
-    Sentinel stops them too.
+    Senti stops them too.
     """
     # The pages are read on each request, so a change to one shows on a reload, without a restart
     def page(name: str) -> bytes:
-        return files("obp_sentinel").joinpath(name).read_bytes()
+        return files("senti").joinpath(name).read_bytes()
 
     by_name = {c.name: c for c in configs}
     analysts = {c.name: (analysts or {}).get(c.name) or Analyst(c) for c in configs}
@@ -311,7 +311,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
     claude_checking = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "OBP-Sentinel"
+        server_version = "Senti"
 
         def log_message(self, fmt, *args):
             logger.debug("%s %s", self.address_string(), fmt % args)
@@ -369,8 +369,11 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
                 return self._json(HTTPStatus.OK, help_text(configs))
             if path == "/api/instances":
                 return self._json(HTTPStatus.OK, [self._with_store(c, lambda s, c=c: instance_status(s, c)) for c in configs])
-            if path == "/api/preferences":  # learned from the responses on every instance
-                return self._json(HTTPStatus.OK, {**preferences.learn(configs), "high_impact": preferences.HIGH_IMPACT})
+            if path == "/api/preferences":  # learned from the responses on every instance of this one's kind
+                if config := self._instance():
+                    self._json(HTTPStatus.OK, {**preferences.learn(configs, config.kind),
+                                               "high_impact": preferences.HIGH_IMPACT})
+                return
             if path == "/api/source":  # the source review is shared by all instances
                 reviews = Reviews(configs[0].source_db_path)
                 try:
@@ -395,7 +398,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             if config := self._instance():
                 result = self._with_store(config, lambda s: views[path](s, config))
                 if path == "/api/findings":  # the order to show them in: what the person acts on first
-                    learned = preferences.learn(configs)
+                    learned = preferences.learn(configs, config.kind)
                     result = [{**f, "rank": preferences.rank(f, learned)} for f in result]
                 self._json(HTTPStatus.OK, result)
 
@@ -411,8 +414,11 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             if path == CLAUDE_CHECK_PATH:
                 return self._check_claude()
             if path == "/api/preferences/forget":
-                preferences.forget(configs)
-                return self._json(HTTPStatus.OK, {**preferences.learn(configs), "high_impact": preferences.HIGH_IMPACT})
+                if config := self._instance():
+                    preferences.forget(configs, config.kind)
+                    self._json(HTTPStatus.OK, {**preferences.learn(configs, config.kind),
+                                               "high_impact": preferences.HIGH_IMPACT})
+                return
             if trace := TRACE_PATH.match(path):
                 if config := self._instance():
                     try:
@@ -596,7 +602,7 @@ def make_handler(configs: list[Config], allowed_hosts: set[str], analysts: dict[
             self._json(HTTPStatus.OK, result)
 
         def _run_analysis(self, config: Config):
-            """Start an analysis now, whatever the schedule would decide (like `sentinel analyse --force`)."""
+            """Start an analysis now, whatever the schedule would decide (like `senti analyse --force`)."""
             reason = unavailable_reason(config, scheduled=False)
             if reason:
                 return self._json(HTTPStatus.CONFLICT, {"error": reason})
@@ -615,11 +621,11 @@ def make_server(configs: list[Config], host: str, port: int, extra_hosts: tuple[
     allowed_hosts: set[str] = set()
     server = ThreadingHTTPServer((host, port), make_handler(configs, allowed_hosts, analysts, scanner))
     for c in configs:
-        fixer.resume(c)  # findings queued for Fix this before Sentinel stopped
+        fixer.resume(c)  # findings queued for Fix this before Senti stopped
     port = server.server_address[1]
     names = {host, *extra_hosts} | ({"localhost", "127.0.0.1"} if host in ("127.0.0.1", "localhost") else set())
     allowed_hosts.update(f"{name}:{port}" for name in names)
-    logger.info("Sentinel UI on http://%s:%s", host, port)
+    logger.info("Senti UI on http://%s:%s", host, port)
     return server
 
 

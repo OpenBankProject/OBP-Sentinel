@@ -1,16 +1,18 @@
-"""What Sentinel learns from the responses a person gives: which kinds of finding they act on and which they dismiss.
+"""What Senti learns from the responses a person gives: which kinds of finding they act on and which they dismiss.
 
-Only deliberate responses count: the buttons on the page, `sentinel feedback` and committing a fix, with their
-comments. Look again marking a finding fixed does not count, because Sentinel decided that, not the person; nor does
+Only deliberate responses count: the buttons on the page, `senti feedback` and committing a fix, with their
+comments. Look again marking a finding fixed does not count, because Senti decided that, not the person; nor does
 anything about what a person opens or reads.
-Responses are pooled across all instances, because the same person answers them all.
+Responses are pooled across the instances of services of one kind (config.kind: obp-api, sveltekit...), because what
+the person thinks of findings in one kind of code says little about another. Instances of one kind are pooled, because
+the same person answers them all.
 
 The learning changes only the order in which findings are shown, never their priority or whether they are kept:
 - Each category gets a weight between 0.5 and 1.5, from the share of its findings the person acted on, an Important
   counting twice and an Urgent three times. A category with fewer than `MIN_RESPONSES` responses keeps a weight of 1.
-- A finding with impact of `HIGH_IMPACT` or more is never ranked lower, so Sentinel cannot learn to stay quiet
+- A finding with impact of `HIGH_IMPACT` or more is never ranked lower, so Senti cannot learn to stay quiet
   about something serious.
-- Forget (on the page) ignores the responses given before it, on every instance.
+- Forget (on the page) ignores the responses given before it, on every instance of that kind.
 """
 
 import os
@@ -72,10 +74,16 @@ def weight_of(acted: int, dismissed: int, points: int | None = None) -> float:
     return round(0.5 + (points + 1) / (points + dismissed + 2), 2)
 
 
-def learn(configs: list[Config]) -> dict:
-    """Per category: how many findings the person acted on and dismissed, and the weight that gives; and the latest
-    dismissal comments, newest first. Cached for a minute; `forget` and new responses clear the cache."""
-    key = tuple(c.db_path for c in configs)
+def of_kind(configs: list[Config], kind: str) -> list[Config]:
+    return [c for c in configs if c.kind == kind]
+
+
+def learn(configs: list[Config], kind: str) -> dict:
+    """For the instances of kind `kind`, per category: how many findings the person acted on and dismissed, and the
+    weight that gives; and the latest dismissal comments, newest first. Cached for a minute; `forget` and new
+    responses clear the cache."""
+    configs = of_kind(configs, kind)
+    key = (kind, *(c.db_path for c in configs))
     with _lock:
         hit = _cache.get(key)
         if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
@@ -92,7 +100,7 @@ def learn(configs: list[Config]) -> dict:
     dismissals = sorted((r for r in responses if r["verdict"] in DISMISSED and r["comment"]),
                         key=lambda r: r["ts"], reverse=True)[:MAX_COMMENTS]
     comments = [{k: r[k] for k in ("instance", "category", "title", "comment")} for r in dismissals]
-    result = {"categories": categories, "dismissal_comments": comments, "responses": len(responses)}
+    result = {"kind": kind, "categories": categories, "dismissal_comments": comments, "responses": len(responses)}
     with _lock:
         _cache[key] = (time.monotonic(), result)
     return result
@@ -106,10 +114,10 @@ def rank(finding, learned: dict) -> float:
     return round(finding["priority"] * weight, 3)
 
 
-def forget(configs: list[Config]) -> None:
-    """Ignore every response given until now, on every instance."""
+def forget(configs: list[Config], kind: str) -> None:
+    """Ignore every response given until now, on every instance of kind `kind`."""
     ts = now()
-    for c in configs:
+    for c in of_kind(configs, kind):
         store = Store(c.db_path)
         try:
             store.set_state(LEARN_SINCE, ts)

@@ -1,6 +1,6 @@
 import pytest
 
-from obp_sentinel.config import Config, ConfigError
+from senti.config import Config, ConfigError
 
 
 def test_one_default_instance_without_a_list(config, monkeypatch):

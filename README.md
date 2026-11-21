@@ -19,44 +19,44 @@ checks, even where the logs show nothing wrong.
                                           └──────────────────────────── digest: top 1–3
 ```
 
-- **Collector** (`sentinel run` or `sentinel collect`): polls `GET /obp/v5.1.0/system/log-cache/{level}`,
+- **Collector** (`senti run` or `senti collect`): polls `GET /obp/v5.1.0/system/log-cache/{level}`,
   `GET /obp/v7.0.0/management/telemetry` and `GET /obp/v6.0.0/management/aggregate-metrics`. Log lines are normalised into **signatures**: ids, numbers,
   quoted values, UUIDs, emails and IPs are stripped, so one problem is one signature. Each signature is
   counted per 15-minute bucket. Telemetry counters are stored as snapshots so rates and latencies can be
   compared between windows. Aggregate metrics (call count, response times, distinct users, consumers
   and consents) are fetched once per bucket after it ends.
-- **Analyst** (the Claude Code subagent in `.claude/agents/obp-sentinel-analyst.md`): reads
-  `sentinel summary` (aggregates over the last hours compared with the hours before), investigates the
+- **Analyst** (the Claude Code subagent in `.claude/agents/senti-analyst.md`): reads
+  `senti summary` (aggregates over the last hours compared with the hours before), investigates the
   OBP-API source, and records findings scored by impact, confidence, effort and trend.
-- **Source review**: besides what the logs point at, Sentinel reads the code of the endpoints that can be
+- **Source review**: besides what the logs point at, Senti reads the code of the endpoints that can be
   reached, looking for SQL injection, missing authorisation checks and similar problems. It is on from the
   start, and turned off and on again with Stop and Go on the page; while it is off, the page says so at the top. While on, the source scanner reviews `SENTINEL_SCAN_ENDPOINTS` (2)
   endpoints every `SENTINEL_SCAN_MINUTES` (10), each scan capped at `SENTINEL_SCAN_BUDGET_USD` (3),
-  with the agent in `.claude/agents/obp-sentinel-source-reviewer.md`. Whether it is on survives restarts. Once a day (and when the commit changes) the collector lists the endpoints each
+  with the agent in `.claude/agents/senti-source-reviewer.md`. Whether it is on survives restarts. Once a day (and when the commit changes) the collector lists the endpoints each
   instance serves (`GET /obp/v6.0.0/api/versions` and the resource docs of each active version) and the Roles
-  anyone holds there (`GET /obp/v7.0.0/reachable-roles`: Role names only). `sentinel source next` puts first
+  anyone holds there (`GET /obp/v7.0.0/reachable-roles`: Role names only). `senti source next` puts first
   the endpoints that need no login, then those that need a login but no Role, then those whose Role someone holds, across all instances (how often an
   endpoint is called does not matter for security); endpoints whose Role nobody holds come last. The code read is the OBP-API
-  checkout's HEAD, assumed to be the latest develop (read with `git show`: Sentinel never touches the
+  checkout's HEAD, assumed to be the latest develop (read with `git show`: Senti never touches the
   working tree or fetches). What was read is kept in `sentinel-source.db` (`SENTINEL_SOURCE_DB`), shared by
   all instances, by content: whole files, and for files of more than 500 lines each function read
   (`path#name`). An endpoint comes back only when its own code, or a file or function it was read with,
   changes. The same record is written as text to `SENTINEL_REVIEW_DIR` (`source-review/`, kept out of
   this repo's git): `endpoints.jsonl` and `units.jsonl`, one sorted line per endpoint and per file or
-  function, so it can be kept in a private git repo. Sentinel never commits it, and reads it back when its
+  function, so it can be kept in a private git repo. Senti never commits it, and reads it back when its
   database lacks reviews (a new machine).
-- **SonarCloud** (`SONARCLOUD_PROJECT`, e.g. `OpenBankProject_OBP-API`): every hour Sentinel reads SonarCloud's
+- **SonarCloud** (`SONARCLOUD_PROJECT`, e.g. `OpenBankProject_OBP-API`): every hour Senti reads SonarCloud's
   analysis of OBP-API, which needs no login for a public project. SonarCloud lists thousands of issues, nearly all
-  about style, so Sentinel keeps only security issues of medium severity or above, security hotspots still to
+  about style, so Senti keeps only security issues of medium severity or above, security hotspots still to
   review, reliability issues of high severity or above, and every issue of medium severity or above that is new on
   the pull request for the branch your checkout is on. It leaves out test code. The issues of one rule in one file
   make one finding, with a link to each issue on SonarCloud. A finding SonarCloud no longer reports is marked fixed,
-  unless you acted on it or dismissed it. `sentinel sonar` reads it now. Sentinel never changes anything on SonarCloud.
-- **Digest** (`sentinel digest`): the only thing people see. It is written only after enough hours of
+  unless you acted on it or dismissed it. `senti sonar` reads it now. Senti never changes anything on SonarCloud.
+- **Digest** (`senti digest`): the only thing people see. It is written only after enough hours of
   watching, holds at most 3 suggestions (and 10 a week), skips anything below the priority threshold or
   seen in only one bucket, and never repeats what was suggested, acted on, dismissed or fixed. When nothing
   qualifies it says so.
-- **Feedback** (`sentinel feedback`): relevant / important / urgent / acted / dismissed / later / fixed.
+- **Feedback** (`senti feedback`): relevant / important / urgent / acted / dismissed / later / fixed.
   Relevant, Important and Urgent say how much a finding matters to you and leave it where it is; on the page,
   Urgent also puts it at the head of the Fix this queue. The Your ratings tabs (Urgent, Important, Relevant,
   Skipped, Dismissed) list every finding you gave that rating, whatever stage it is at; on the Urgent, Important and
@@ -65,10 +65,10 @@ checks, even where the logs show nothing wrong.
   to act on the suggestion; the analyst then checks whether the problem went away. Dismissing a finding also
   hides its signatures from future summaries.
 - **Answering comments** (`replies.py`): when you save a comment on the page, Claude answers it in the background,
-  reading the finding, what was done about it and the code. If the comment asks for something Sentinel can do (rate,
-  skip, dismiss, mark fixed, Rescan, fix again), Sentinel does that one thing; Claude itself only reads. Only the
+  reading the finding, what was done about it and the code. If the comment asks for something Senti can do (rate,
+  skip, dismiss, mark fixed, Rescan, fix again), Senti does that one thing; Claude itself only reads. Only the
   latest comment and its answer are kept on the finding.
-- **Learning from your responses**: across all instances, Sentinel counts per category how many findings you acted
+- **Learning from your responses**: across all instances, Senti counts per category how many findings you acted
   on (relevant, acted, fixed, or committed a fix; important counts twice, urgent three times) and how many you
   dismissed. Once a category has 3 responses, its
   findings are shown and put in the digest earlier or later (priority × a weight from 0.5 to 1.5); a finding of
@@ -76,9 +76,9 @@ checks, even where the logs show nothing wrong.
   raise that kind of problem again. Only what you choose to do counts, not what you open or read; Rescan marking
   a finding fixed does not count either. The page says what it has learned above the tabs, with Forget to start again.
 
-Towards a running OBP-API instance Sentinel is read-only: it does not change log levels or any other setting.
+Towards a running OBP-API instance Senti is read-only: it does not change log levels or any other setting.
 It changes OBP-API's source only when you ask it to. When you press Fix this (or Fix all), Claude edits your
-OBP-API checkout and stages the change for you to check. Sentinel commits only when you press Commit, and it
+OBP-API checkout and stages the change for you to check. Senti commits only when you press Commit, and it
 never branches, pushes or opens pull requests.
 
 ## Setup
@@ -90,14 +90,14 @@ never branches, pushes or opens pull requests.
    redis_logging_min_level = INFO
    ```
 
-2. Sentinel calls OBP-API as a **Platform App**, with its own application token (OAuth2 client
+2. Senti calls OBP-API as a **Platform App**, with its own application token (OAuth2 client
    credentials from OBP-OIDC), so it needs no OBP user or password.
    - OBP-OIDC creates the client `obp-sentinel` at startup. Copy its client id and secret into `.env`.
    - The first call with that token creates its Consumer in OBP-API. An administrator marks that
      Consumer as a Platform App (`POST /obp/v7.0.0/management/platform-apps`).
-   - While the collector runs, Sentinel declares the Scopes it needs
+   - While the collector runs, Senti declares the Scopes it needs
      (`PUT /obp/v7.0.0/consumers/current/platform-app`), the way the Portal and API Manager do from
-     their `/status` check. OBP refuses this until the Consumer is marked, so Sentinel retries on every
+     their `/status` check. OBP refuses this until the Consumer is marked, so Senti retries on every
      poll until accepted (no restart needed), then re-declares hourly. It declares
      `CanGetSystemLogCache<Level>` for each level in `SENTINEL_LOG_LEVELS`, `CanGetTelemetry` and `CanReadAggregateMetrics`,
      and, optional, `CanGetReachableRoles` for the source review (an OBP-API too old to know it gets the
@@ -110,17 +110,17 @@ never branches, pushes or opens pull requests.
    ```bash
    cp .env.example .env    # then edit
    uv sync
-   uv run sentinel collect --once   # check that it can reach OBP-API
-   uv run sentinel status
+   uv run senti collect --once   # check that it can reach OBP-API
+   uv run senti status
    ```
 
-4. Give Sentinel Claude Code, for the analyst, the source review and Fix this. Sentinel never calls the
+4. Give Senti Claude Code, for the analyst, the source review and Fix this. Senti never calls the
    Anthropic API itself: it starts `claude -p ...` (`SENTINEL_CLAUDE_COMMAND`), which signs in the way
-   Claude Code does for the user running Sentinel, and spends from that account.
+   Claude Code does for the user running Senti, and spends from that account.
    - Install Claude Code for that user and log in once (`claude`, then exit). Or, instead of a login, set
-     `ANTHROPIC_API_KEY` in `.env` or in the environment of the shell that starts Sentinel: the runs
+     `ANTHROPIC_API_KEY` in `.env` or in the environment of the shell that starts Senti: the runs
      inherit it.
-   - If `claude` is not on the PATH of the shell that starts Sentinel (a terminal opened with `bash -c`
+   - If `claude` is not on the PATH of the shell that starts Senti (a terminal opened with `bash -c`
      may not read your login shell's PATH), set `SENTINEL_CLAUDE_COMMAND` to its full path, e.g.
      `/home/you/.local/bin/claude`.
    - Set `OBP_API_SOURCE` to the OBP-API checkout: the runs read its source.
@@ -128,22 +128,22 @@ never branches, pushes or opens pull requests.
      per source scan, `SENTINEL_FIX_BUDGET_USD` (15) per fix. The caps are in dollars at API prices, as Claude Code
      counts them. On a Claude subscription such as Max nothing is charged: they only stop a run that goes on and on.
 
-   While any of this is missing, the page lists "Sentinel cannot run Claude Code" under the things to fix,
-   with what to do. Sentinel still collects; it just analyses nothing.
+   While any of this is missing, the page lists "Senti cannot run Claude Code" under the things to fix,
+   with what to do. Senti still collects; it just analyses nothing.
 
-   **Running Sentinel as another user.** The Claude Code runs have the file access of the user running
-   Sentinel. To keep them out of your home directory, run Sentinel as a separate user with its own Claude
+   **Running Senti as another user.** The Claude Code runs have the file access of the user running
+   Senti. To keep them out of your home directory, run Senti as a separate user with its own Claude
    Code and login. That user needs:
    - its own environment, as `.venv` may point at a Python in your home:
-     `UV_PROJECT_ENVIRONMENT=.venv-agent uv sync`, then `UV_PROJECT_ENVIRONMENT=.venv-agent uv run sentinel run`;
-   - write access to Sentinel's databases (`sentinel*.db`, `-shm`, `-wal`), e.g. through a shared group and
+     `UV_PROJECT_ENVIRONMENT=.venv-agent uv sync`, then `UV_PROJECT_ENVIRONMENT=.venv-agent uv run senti run`;
+   - write access to Senti's databases (`sentinel*.db`, `-shm`, `-wal`), e.g. through a shared group and
      `chmod g+rw`;
    - git's trust in the OBP-API checkout, which another user owns:
      `git config --global --add safe.directory <OBP_API_SOURCE>`.
 
 ### Several OBP-API instances
 
-Sentinel can watch several instances at once, each probably running different code. Name them in
+Senti can watch several instances at once, each probably running different code. Name them in
 `SENTINEL_INSTANCES=local,staging` and give each its own settings by prefixing them with its name
 (`STAGING_OBP_BASE_URL`, `STAGING_OIDC_CLIENT_SECRET`, `STAGING_OBP_API_SOURCE`, ...); unprefixed
 settings are shared (see `.env.example`). Each instance has its own database (`sentinel-<name>.db`),
@@ -151,17 +151,25 @@ digests (`digests/<name>/`), collector and analyst. The commit an instance runs 
 root endpoint on every poll, and the analyst reads the source at that commit.
 
 `run`, `collect` and `ui` cover all instances (or one with `--instance`). The other commands work on one
-instance: `sentinel --instance staging status`, or set `SENTINEL_INSTANCE`; with a single instance there
+instance: `senti --instance staging status`, or set `SENTINEL_INSTANCE`; with a single instance there
 is nothing to choose.
+
+### Services, environments and instances: senti.toml
+
+Instead of `SENTINEL_INSTANCES` and prefixed settings, Senti can read what it watches from `senti.toml` in its working directory (or the file named by `SENTI_SETUP`): the services, each with its kind, repository and checkout; the environments (local, test, staging, production, or your own names); and the OBP-API instances, each with its URL and the prefix of its OIDC client settings in `.env` (`credentials = "LOCAL_OIDC"` reads `LOCAL_OIDC_CLIENT_ID`, `LOCAL_OIDC_CLIENT_SECRET` and `LOCAL_OIDC_ISSUER`). Secrets never go in the file. The tuning settings (`SENTINEL_*`) still come from `.env`. `docs/generic-services-plan.md` explains where this is going.
+
+`senti.example.toml` shows the shape, and `senti.toml` is not committed, like `.env`. `senti config import-env` prints today's setup from `.env` as `senti.toml`; `--write` saves it. Each instance keeps its name as its id, so its database and digests stay where they are. Rename an environment in the file if you like: the id stays. Senti reads the file from its next start.
+
+A service's kind says what its code is: `obp-api`, `sveltekit` (API Manager, Portal, Cohort, Sandbox Populator), `vue-express` (API Explorer II) or `scala-http4s` (OBP-OIDC). What Senti learns from your responses is kept per kind: dismissing a kind of finding on the Portal does not push it down on OBP-API.
 
 ### Apps: API Explorer II, the API Manager, the Portal, Cohort, OBP-OIDC, the Sandbox Populator
 
 These apps serve their own log cache and Telemetry, in OBP-API's shape, at `/api/monitoring/...` (API Explorer
 II) and `/monitoring/...` (API Manager, Portal, Cohort, OBP-OIDC, Sandbox Populator). Each is listed on the app's `/status` page. They check
-Sentinel's token with OBP-API (`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`), so they need the same Roles as
+Senti's token with OBP-API (`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`), so they need the same Roles as
 OBP-API's own endpoints: `CanGetSystemLogCache<Level>` (or `CanGetSystemLogCacheAll`) and `CanGetTelemetry`.
 
-Sentinel finds each OBP-API instance's apps in its public app directory (`GET /obp/v6.0.0/app-directory`:
+Senti finds each OBP-API instance's apps in its public app directory (`GET /obp/v6.0.0/app-directory`:
 `public_obp_api_explorer_url`, `public_obp_api_manager_url`, `public_obp_portal_url`, `public_obp_cohort_url`,
 `public_obp_oidc_url`, `public_obp_sandbox_populator_url`), read at startup and kept in
 the instance's database for when OBP-API cannot be reached. Each app becomes an instance of its own, named
@@ -182,15 +190,15 @@ and an app takes them only prefixed with its own name (`LOCAL_PORTAL_SENTINEL_IG
 database (`sentinel-local-portal.db`) and digests (`digests/local-portal/`). An app added to the directory is
 watched from the next start. The analyst is told the instance is an app and reads the app's source.
 
-When an app refuses Sentinel (403), Sentinel asks OBP-API the app's own question with the same token
+When an app refuses Senti (403), Senti asks OBP-API the app's own question with the same token
 (`GET /obp/v7.0.0/banks/SYS/my/roles/ROLE`, and `consumers/current/identity` for its consumer_id). The page then
 says either which Consumer, by consumer_id and the setting that holds its client (usually the OBP-API instance's
-`<INSTANCE>_OIDC_CLIENT_ID`), lacks which Scopes, or that OBP-API says Sentinel holds the Roles and the app refuses
+`<INSTANCE>_OIDC_CLIENT_ID`), lacks which Scopes, or that OBP-API says Senti holds the Roles and the app refuses
 them anyway: the app and OBP-API disagree, for instance on an auth mode's name, and granting Scopes will not help.
 
 ## Running
 
-Sentinel has three parts:
+Senti has three parts:
 
 | Part | What it does | Needs |
 |---|---|---|
@@ -201,18 +209,18 @@ Sentinel has three parts:
 Start them together, in one process, and leave it running (Ctrl-C stops all three):
 
 ```bash
-uv run sentinel run
+uv run senti run
 ```
 
 To run them separately instead, e.g. to restart one without the other:
 
 ```bash
-uv run sentinel collect                 # only the collector
-uv run sentinel ui                      # only the web page
+uv run senti collect                 # only the collector
+uv run senti ui                      # only the web page
 ```
 
 `run`, `collect` and `ui` also schedule the analyst (`--no-analyst` to leave it out). It runs headless
-(`claude -p --agent obp-sentinel-analyst`) once at startup, then every `SENTINEL_ANALYSE_MINUTES` (60),
+(`claude -p --agent senti-analyst`) once at startup, then every `SENTINEL_ANALYSE_MINUTES` (60),
 but only when it is worth the tokens:
 
 - at least `SENTINEL_ANALYSE_MIN_WATCH_HOURS` (2) watched in the last 6h; until then it checks every minute;
@@ -221,49 +229,49 @@ but only when it is worth the tokens:
 
 Each run is capped at `SENTINEL_ANALYSE_BUDGET_USD` (10) and `SENTINEL_ANALYSE_TIMEOUT_MINUTES` (30), and
 only one runs at a time, even with `collect` and `ui` in separate processes. It may only run
-`uv run sentinel ...`, read-only git in `OBP_API_SOURCE`, read files and write under `work/`; your MCP
+`uv run senti ...`, read-only git in `OBP_API_SOURCE`, read files and write under `work/`; your MCP
 servers are not loaded. The web page shows its steps as it works: tool calls and its notes, never what
 the tools returned.
 
 If OBP-API is not up yet, the collector keeps trying and records the failed polls, so start OBP-API
 and OBP-OIDC first if you want clean coverage figures.
 
-To run it now: the page's "Run analysis now" button, `uv run sentinel analyse` (`--force` even if nothing
+To run it now: the page's "Run analysis now" button, `uv run senti analyse` (`--force` even if nothing
 is new), or open Claude Code in
 this directory and ask:
 
-> Use the obp-sentinel-analyst agent to produce a digest.
+> Use the senti-analyst agent to produce a digest.
 
 Then open http://127.0.0.1:8765, or read `digests/<timestamp>.md` and respond on the command line:
 
 ```bash
-uv run sentinel feedback 3 important --comment "Will fix in the consent refactor"
-uv run sentinel feedback 4 dismissed --comment "Expected when clients send bad IBANs"
+uv run senti feedback 3 important --comment "Will fix in the consent refactor"
+uv run senti feedback 4 dismissed --comment "Expected when clients send bad IBANs"
 ```
 
-A quiet localhost gives Sentinel nothing to find: run OBP-load-tester, OBP-End-To-End-Testing or
+A quiet localhost gives Senti nothing to find: run OBP-load-tester, OBP-End-To-End-Testing or
 the Sandbox Populator (in OBP-Frontend) against it.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `sentinel run [--port 8765] [--no-analyst]` | Start the collector, the web page and the analyst's schedule together |
-| `sentinel collect [--once] [--no-analyst]` | Only the collector: poll the log cache, Telemetry and aggregate metrics |
-| `sentinel analyse [--force]` | Run the analyst now, if there is something new |
-| `sentinel status` | How well Sentinel has watched over the last 24h |
-| `sentinel summary [--hours 6] [--json]` | Aggregates for the analyst |
-| `sentinel show <signature>` | A signature and its raw samples |
-| `sentinel findings list [--all]` / `import <file>` | The analyst's findings |
-| `sentinel digest [--force]` | Write the next digest |
-| `sentinel feedback <id> relevant\|important\|urgent\|acted\|dismissed\|later\|fixed` | Respond to a suggestion |
-| `sentinel ui [--port 8765] [--no-analyst]` | Only the web page to read findings and respond to them |
-| `sentinel sonar` | Read SonarCloud's security and reliability issues into findings now |
-| `sentinel ignore <signature>` | Never show a signature again |
-| `sentinel source next [--n 3]` | The next endpoints to review, most reachable first, across all instances |
-| `sentinel source done <operation_id> <units> --commit <c>` | Record an endpoint as reviewed, with the files (or `path#function` in big files) read |
-| `sentinel source seen <units> --commit <c>` | Whether files or functions were already reviewed, unchanged |
-| `sentinel source export` | Write the review record to `SENTINEL_REVIEW_DIR` (also done after each review) |
+| `senti run [--port 8765] [--no-analyst]` | Start the collector, the web page and the analyst's schedule together |
+| `senti collect [--once] [--no-analyst]` | Only the collector: poll the log cache, Telemetry and aggregate metrics |
+| `senti analyse [--force]` | Run the analyst now, if there is something new |
+| `senti status` | How well Senti has watched over the last 24h |
+| `senti summary [--hours 6] [--json]` | Aggregates for the analyst |
+| `senti show <signature>` | A signature and its raw samples |
+| `senti findings list [--all]` / `import <file>` | The analyst's findings |
+| `senti digest [--force]` | Write the next digest |
+| `senti feedback <id> relevant\|important\|urgent\|acted\|dismissed\|later\|fixed` | Respond to a suggestion |
+| `senti ui [--port 8765] [--no-analyst]` | Only the web page to read findings and respond to them |
+| `senti sonar` | Read SonarCloud's security and reliability issues into findings now |
+| `senti ignore <signature>` | Never show a signature again |
+| `senti source next [--n 3]` | The next endpoints to review, most reachable first, across all instances |
+| `senti source done <operation_id> <units> --commit <c>` | Record an endpoint as reviewed, with the files (or `path#function` in big files) read |
+| `senti source seen <units> --commit <c>` | Whether files or functions were already reviewed, unchanged |
+| `senti source export` | Write the review record to `SENTINEL_REVIEW_DIR` (also done after each review) |
 
 ## Notes
 
@@ -271,19 +279,19 @@ the Sandbox Populator (in OBP-Frontend) against it.
   newest few messages it saw and counts only what is above them next time. If they were trimmed away
   before the next poll (a burst of more than 1000 entries), the poll is flagged as possibly missing
   entries; poll more often if that happens.
-- Sentinel's own calls are ignored via `SENTINEL_IGNORE_REGEX`. They are still counted in the aggregate
+- Senti's own calls are ignored via `SENTINEL_IGNORE_REGEX`. They are still counted in the aggregate
   metrics (the v6.0.0 endpoint has no exclude filters), a handful of calls per poll.
 - OBP-API masks sensitive values before writing to the log cache (`SecureLogging.maskSensitive`), and
   Telemetry tags never identify people. Still, treat `sentinel.db` as containing log data.
 
 ## Web page
 
-`sentinel run` (or `sentinel ui` on its own) serves a page on http://127.0.0.1:8765 (`SENTINEL_UI_HOST`, `SENTINEL_UI_PORT`) listing
+`senti run` (or `senti ui` on its own) serves a page on http://127.0.0.1:8765 (`SENTINEL_UI_HOST`, `SENTINEL_UI_PORT`) listing
 the findings by status, each with its evidence, the files in OBP-API and the suggested change. Relevant, Important,
-Urgent, Skip for now, Dismiss and Should be fixed now record the same feedback as `sentinel feedback`.
+Urgent, Skip for now, Dismiss and Should be fixed now record the same feedback as `senti feedback`.
 A fix Fix this has staged in your checkout shows Stage (git add its files again, with your changes), Commit (with
 Claude's message: one short line in plain English; only the fix's files) and Discard, and the same git commands to
-run yourself. Sentinel commits only when you press Commit. If Sentinel runs as another user than you, set
+run yourself. Senti commits only when you press Commit. If Senti runs as another user than you, set
 `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` in `.env`, so git knows who
 to commit as. With several
 instances it has a tab for each, showing how old the commit it runs (from its root endpoint) is.
@@ -292,9 +300,9 @@ Trace history on a finding lists the commits that changed the lines it names (`g
 evidence names, oldest first), and starts a short Claude run (git read commands only) that reads their
 diffs and says which commit introduced the problem. Both are kept with the finding.
 
-When something stops Sentinel from watching an instance (missing OIDC settings, a token OBP-API rejects, missing
+When something stops Senti from watching an instance (missing OIDC settings, a token OBP-API rejects, missing
 Scopes, an OBP-API too old for an endpoint), the page lists what to fix, most blocking first, with what OBP-API
-answered. It reads and writes only Sentinel's databases (and reads commit dates and authors from the OBP-API
+answered. It reads and writes only Senti's databases (and reads commit dates and authors from the OBP-API
 checkouts, or for a running commit missing there, from GitHub: `OBP_API_GITHUB_REPO`, empty for none). It has no login: keep it on 127.0.0.1, or put it behind a proxy that authenticates and pass
 that proxy's host name with `--allow-host`. Requests with any other Host or Origin are refused.
 

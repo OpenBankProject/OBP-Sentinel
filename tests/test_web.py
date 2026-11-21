@@ -8,9 +8,9 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from obp_sentinel.store import Store
-from obp_sentinel import web
-from obp_sentinel.web import findings, make_handler
+from senti.store import Store
+from senti import web
+from senti.web import findings, make_handler
 
 
 def finding(key, priority_inputs=(4, 0.8, 1, "rising")):
@@ -50,7 +50,7 @@ def request(port, method, path, body=None, headers=None):
 
 def test_page_and_findings(server):
     status, page = request(server, "GET", "/")
-    assert status == 200 and b"<title>Sentinel</title>" in page
+    assert status == 200 and b"<title>Senti</title>" in page
     status, data = request(server, "GET", "/api/findings")
     items = json.loads(data)
     assert status == 200 and items[0]["key"] == "one" and items[0]["files"] == ["a.scala:1"]
@@ -64,12 +64,12 @@ def test_page_and_findings(server):
 
 def test_the_fixed_page_is_served(server):
     status, page = request(server, "GET", "/fixed")
-    assert status == 200 and b"<title>Sentinel Fixed</title>" in page
+    assert status == 200 and b"<title>Senti Fixed</title>" in page
 
 
 def test_help_reads_the_glossary_item_from_obp_api(server, config, monkeypatch):
     status, page = request(server, "GET", "/help")
-    assert status == 200 and b"<title>Sentinel Help</title>" in page
+    assert status == 200 and b"<title>Senti Help</title>" in page
     asked = []
 
     class Answer:
@@ -151,7 +151,7 @@ def test_evidence_commits_get_date_and_author(config, tmp_path):
 
 
 def test_some_action_taken_is_recorded_and_not_suggested_again(server, config):
-    from obp_sentinel.digest import eligible_findings
+    from senti.digest import eligible_findings
 
     status, _ = request(server, "POST", "/api/findings/1/feedback", {"verdict": "acted", "comment": "added a cap"},
                         {"Content-Type": "application/json"})
@@ -190,7 +190,7 @@ def test_each_instance_has_its_own_findings(config, tmp_path):
 
 
 def test_instances_show_running_commit_age_and_problems(server, config, monkeypatch):
-    from obp_sentinel import web
+    from senti import web
 
     monkeypatch.setattr(web, "github_commit_info", lambda repo, sha: {"ts": 1791000000, "author": "A"} if sha == "abc1234" else None)
     store = Store(config.db_path)
@@ -206,7 +206,7 @@ def test_instances_show_running_commit_age_and_problems(server, config, monkeypa
 
 
 def test_feedback_given_on_the_page_can_be_undone(config):
-    from obp_sentinel.store import Store
+    from senti.store import Store
     store = Store(config.db_path)
     fid = store.upsert_finding({"key": "k", "title": "t", "category": "bug", "signature_ids": [], "evidence": "e",
                                 "hypothesis": "h", "files": [], "suggested_fix": "f", "impact": 1, "confidence": 0.5,
@@ -216,7 +216,7 @@ def test_feedback_given_on_the_page_can_be_undone(config):
     assert store.undo_feedback(fid) == "fixed"
     assert store.db.execute("SELECT status FROM findings WHERE id = ?", (fid,)).fetchone()[0] == "open"
     assert store.db.execute("SELECT COUNT(*) FROM feedback WHERE finding_id = ?", (fid,)).fetchone()[0] == 0
-    store.add_feedback(fid, "fixed", "Fix this: committed abc on develop: x", 7)  # recorded by Sentinel: not undone
+    store.add_feedback(fid, "fixed", "Fix this: committed abc on develop: x", 7)  # recorded by Senti: not undone
     import pytest
     with pytest.raises(ValueError):
         store.undo_feedback(fid)
@@ -224,7 +224,7 @@ def test_feedback_given_on_the_page_can_be_undone(config):
 
 
 def test_responses_change_the_order_until_forgotten(server, config):
-    from obp_sentinel import preferences
+    from senti import preferences
     preferences.clear()
     json_headers = {"Content-Type": "application/json"}
     store = Store(config.db_path)
@@ -244,7 +244,7 @@ def test_responses_change_the_order_until_forgotten(server, config):
 
 
 def test_urgent_puts_the_finding_at_the_head_of_the_fix_queue(server, config, monkeypatch):
-    from obp_sentinel import fixer
+    from senti import fixer
     monkeypatch.setattr(fixer, "unavailable_reason", lambda config: None)
     monkeypatch.setattr(web, "unavailable_reason", lambda config, scheduled=True: None)
     monkeypatch.setattr(fixer, "start", lambda config: None)
@@ -258,7 +258,7 @@ def test_urgent_puts_the_finding_at_the_head_of_the_fix_queue(server, config, mo
 
 
 def test_urgent_says_why_it_was_not_queued(server, config, monkeypatch):
-    from obp_sentinel import fixer
+    from senti import fixer
     monkeypatch.setattr(fixer, "unavailable_reason", lambda config: "No OBP-API checkout")
     status, data = request(server, "POST", "/api/findings/1/feedback", {"verdict": "urgent"},
                            {"Content-Type": "application/json"})
@@ -277,7 +277,7 @@ def test_findings_carry_the_latest_rating_for_the_pressed_button(server, config)
 
 
 def test_fix_the_rated_findings_from_the_page(server, config, monkeypatch):
-    from obp_sentinel import fixer
+    from senti import fixer
     json_headers = {"Content-Type": "application/json"}
     request(server, "POST", "/api/findings/1/feedback", {"verdict": "relevant"}, json_headers)
     assert json.loads(request(server, "GET", "/api/findings")[1])[0]["to_fix"] is True

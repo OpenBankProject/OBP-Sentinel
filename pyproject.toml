@@ -1,7 +1,7 @@
 [project]
-name = "obp-sentinel"
+name = "senti"
 version = "0.1.0"
-description = "A long-running companion that watches OBP-API and recommends the few improvements that matter most"
+description = "Senti: a long-running companion that watches your services and recommends the few improvements that matter most"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-sentinel = "obp_sentinel.cli:main"
+senti = "senti.cli:main"
 
 [dependency-groups]
 dev = [
@@ -23,7 +23,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/obp_sentinel"]
+packages = ["src/senti"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

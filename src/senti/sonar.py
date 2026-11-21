@@ -1,7 +1,7 @@
 """SonarCloud as another source of findings (SONARCLOUD_PROJECT, e.g. OpenBankProject_OBP-API).
 
 SonarCloud's analysis of a public project can be read without a login. SonarCloud lists thousands of issues for
-OBP-API, nearly all of them about style. Sentinel keeps only a few kinds:
+OBP-API, nearly all of them about style. Senti keeps only a few kinds:
 - security issues of medium severity or above, and security hotspots still to review of medium probability or above;
 - reliability issues of high severity or above;
 - every issue of medium severity or above that is new on the pull request for the branch the OBP-API checkout is on,
@@ -94,7 +94,7 @@ def _worst(impacts: list[dict]) -> dict:
 
 
 def fetch(project: str, source: str = "") -> tuple[list[dict], dict | None]:
-    """The issues and hotspots Sentinel keeps, as {path, line, rule, message, quality, severity, url, where},
+    """The issues and hotspots Senti keeps, as {path, line, rule, message, quality, severity, url, where},
     and the pull request read, if any."""
     def item(path, line, rule, message, quality, severity, url, where):
         return {"path": path, "line": line, "rule": rule, "message": message, "quality": quality,
@@ -201,7 +201,7 @@ def instances(configs: list[Config]) -> list[Config]:
 
 
 def check_forever(configs: list[Config], stopped: threading.Event) -> None:
-    delay = 30  # the first check soon after Sentinel starts
+    delay = 30  # the first check soon after Senti starts
     while not stopped.wait(delay):
         delay = CHECK_SECONDS
         for config in instances(configs):
@@ -215,7 +215,7 @@ def check_forever(configs: list[Config], stopped: threading.Event) -> None:
 # --- Suggested SonarCloud settings, for the panel on the page ------------------------------------------------------
 #
 # SonarCloud analyses a project in one of two ways. Automatic analysis (no scanner in CI) reads .sonarcloud.properties;
-# a scanner run in CI reads sonar-project.properties. Settings in the other file are not used. Sentinel suggests the
+# a scanner run in CI reads sonar-project.properties. Settings in the other file are not used. Senti suggests the
 # file SonarCloud reads, so that test code counts as tests and developer scripts are left out, and says how many
 # issues each line moves. It never writes the file: the person copies it, and commits it if they agree.
 
@@ -258,7 +258,7 @@ def _properties(text: str | None) -> dict[str, str]:
 
 
 def _kept_lines(text: str | None) -> str:
-    """A properties file without the settings Sentinel sets, its comments kept with the lines they describe."""
+    """A properties file without the settings Senti sets, its comments kept with the lines they describe."""
     kept, comment = [], []
     for line in (text or "").splitlines():
         stripped = line.strip()
@@ -274,7 +274,7 @@ def _kept_lines(text: str | None) -> str:
 
 
 def suggest(project: str, source: str) -> dict:
-    """The file SonarCloud reads for this project, as it is and as Sentinel suggests it, with what each change does."""
+    """The file SonarCloud reads for this project, as it is and as Senti suggests it, with what each change does."""
     ci = _scanner_in_ci(source)
     reads, other = ("sonar-project.properties", ".sonarcloud.properties") if ci else (".sonarcloud.properties",
                                                                                          "sonar-project.properties")

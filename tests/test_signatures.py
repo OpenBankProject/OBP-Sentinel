@@ -1,4 +1,4 @@
-from obp_sentinel.signatures import normalise_path, parse_line, signature_of
+from senti.signatures import normalise_path, parse_line, signature_of
 
 
 def line(msg: str, ts="2026-10-04 09:12:01+02", logger="code.api.util.APIUtil") -> str:

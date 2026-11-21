@@ -8,18 +8,18 @@ from http.client import HTTPConnection
 
 import pytest
 
-from obp_sentinel.analyst import (AGENT_FILE, CHECK_PROMPT, Analyst, check_claude, claim_run, command, decide,
+from senti.analyst import (AGENT_FILE, CHECK_PROMPT, Analyst, check_claude, claim_run, command, decide,
                                    describe, unavailable_reason)
-from obp_sentinel.signatures import parse_line, signature_of
-from obp_sentinel.store import Store, now
-from obp_sentinel.web import analysis, make_server
+from senti.signatures import parse_line, signature_of
+from senti.store import Store, now
+from senti.web import analysis, make_server
 
 EVENTS = [
     {"type": "system", "subtype": "init"},
     {"type": "system", "subtype": "thinking_tokens"},
     {"type": "system", "subtype": "thinking_tokens"},
     {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash",
-                                                   "input": {"command": "uv run sentinel status"}}]}},
+                                                   "input": {"command": "uv run senti status"}}]}},
     {"type": "user", "message": {"content": [{"type": "tool_result", "content": "SECRET LOG TEXT"}]}},
     {"type": "assistant", "message": {"content": [{"type": "text", "text": "Nothing worth suggesting."}]}},
     {"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.42, "result": "No findings."},
@@ -80,7 +80,7 @@ def test_skips_when_nothing_new(analyst_config):
 
 def test_describe_keeps_tool_calls_and_notes_never_results():
     steps = [step for e in EVENTS for step in describe(e)]
-    assert ("tool", "Bash: uv run sentinel status") in steps
+    assert ("tool", "Bash: uv run senti status") in steps
     assert ("note", "Nothing worth suggesting.") in steps
     assert not any("SECRET" in text for _, text in steps)
 
@@ -88,7 +88,7 @@ def test_describe_keeps_tool_calls_and_notes_never_results():
 def test_command_limits_tools(analyst_config):
     args = command(analyst_config)
     tools = args[args.index("--allowedTools") + 1 : args.index("--add-dir")]
-    assert "Edit(work/**)" in tools and "Bash(uv run sentinel *)" in tools
+    assert "Edit(work/**)" in tools and "Bash(uv run senti *)" in tools
     assert not any(t in ("Bash", "Edit", "Write") for t in tools)
     assert all(" push" not in t and " commit" not in t for t in tools)
     assert args[args.index("--max-budget-usd") + 1] == "2"

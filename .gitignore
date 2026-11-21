@@ -1,4 +1,6 @@
 .env
+.env.bak.*
+senti.toml
 *.db
 *.db-shm
 *.db-wal

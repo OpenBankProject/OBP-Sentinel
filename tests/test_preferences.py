@@ -2,11 +2,11 @@ from dataclasses import replace
 
 import pytest
 
-from obp_sentinel import preferences
-from obp_sentinel.digest import write_digest
-from obp_sentinel.preferences import forget, learn, rank, weight_of
-from obp_sentinel.store import Store
-from obp_sentinel.summary import build_summary, to_markdown
+from senti import preferences
+from senti.digest import write_digest
+from senti.preferences import forget, learn, rank, weight_of
+from senti.store import Store
+from senti.summary import build_summary, to_markdown
 
 
 def finding(key, category="bug", impact=3, confidence=0.8, effort=1):
@@ -59,7 +59,7 @@ def test_learns_across_instances_from_the_latest_response_on_each_finding(two):
     store.add_feedback(store.upsert_finding(finding("r2", "readability")), "relevant", None, 7)  # changed their mind
     store.commit()
     store.close()
-    learned = learn(two)
+    learned = learn(two, "obp-api")
     assert learned["categories"] == {
         "security": {"acted": 3, "urgent": 0, "dismissed": 0, "weight": 1.3},
         "readability": {"acted": 1, "urgent": 0, "dismissed": 1, "weight": 1.0},
@@ -74,7 +74,18 @@ def test_look_again_marking_fixed_does_not_count(config):
     store.add_feedback(finding_id, "fixed", "Look again: Fixed at abc", 7, from_sentinel=True)
     store.commit()
     store.close()
-    assert learn([config])["categories"] == {}
+    assert learn([config], "obp-api")["categories"] == {}
+
+
+def test_learning_is_kept_per_kind(two, tmp_path):
+    app = replace(two[0], name="local-portal", kind="sveltekit", db_path=str(tmp_path / "portal.db"))
+    respond(two[0], [(f"s{i}", "security", "relevant", None) for i in range(3)])
+    respond(app, [(f"r{i}", "security", "dismissed", "Not for this app") for i in range(3)])
+    assert learn([*two, app], "obp-api")["categories"]["security"] == {"acted": 3, "urgent": 0, "dismissed": 0,
+                                                                         "weight": 1.3}
+    assert learn([*two, app], "sveltekit")["categories"]["security"]["dismissed"] == 3
+    forget([*two, app], "sveltekit")
+    assert learn([*two, app], "obp-api")["responses"] == 3
 
 
 def test_high_impact_is_never_ranked_lower():
@@ -89,10 +100,10 @@ def test_high_impact_is_never_ranked_lower():
 def test_forget_ignores_the_responses_so_far_on_every_instance(two, monkeypatch):
     respond(two[0], [(f"s{i}", "security", "relevant", None) for i in range(3)])
     respond(two[1], [(f"r{i}", "readability", "dismissed", "No") for i in range(3)])
-    assert learn(two)["responses"] == 6
+    assert learn(two, "obp-api")["responses"] == 6
     monkeypatch.setattr(preferences, "now", lambda: 4_000_000_000)
-    forget(two)
-    assert learn(two) == {"categories": {}, "dismissal_comments": [], "responses": 0}
+    forget(two, "obp-api")
+    assert learn(two, "obp-api") == {"kind": "obp-api", "categories": {}, "dismissal_comments": [], "responses": 0}
 
 
 def test_the_digest_puts_what_the_person_acts_on_first(config, tmp_path):
@@ -109,7 +120,7 @@ def test_the_digest_puts_what_the_person_acts_on_first(config, tmp_path):
 def test_the_summary_tells_the_analyst_what_the_person_acts_on(config):
     respond(config, [("r1", "readability", "dismissed", "Expected when clients send bad IBANs")])
     store = Store(config.db_path)
-    text = to_markdown(build_summary(store, config, 6, learned=learn([config])))
+    text = to_markdown(build_summary(store, config, 6, learned=learn([config], "obp-api")))
     store.close()
     assert "- readability: acted on 0, dismissed 1" in text
     assert "Problem r1: Expected when clients send bad IBANs" in text
@@ -117,11 +128,11 @@ def test_the_summary_tells_the_analyst_what_the_person_acts_on(config):
 
 def test_important_counts_twice_and_urgent_three_times(config):
     respond(config, [("a", "bug", "relevant", None), ("b", "bug", "dismissed", None), ("c", "bug", "dismissed", None)])
-    assert learn([config])["categories"]["bug"]["weight"] == 0.9  # one Relevant, two Dismiss
+    assert learn([config], "obp-api")["categories"]["bug"]["weight"] == 0.9  # one Relevant, two Dismiss
     preferences.clear()
     respond(config, [("d", "performance", "urgent", None), ("e", "performance", "dismissed", None),
                      ("f", "performance", "dismissed", None)])
-    assert learn([config])["categories"]["performance"] == {"acted": 1, "urgent": 1, "dismissed": 2,
+    assert learn([config], "obp-api")["categories"]["performance"] == {"acted": 1, "urgent": 1, "dismissed": 2,
                                                              "weight": weight_of(1, 2, 3)}
     assert weight_of(1, 2, 3) == 1.07  # one Urgent outweighs two Dismiss
 

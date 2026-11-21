@@ -1,10 +1,10 @@
 import pytest
 
-from obp_sentinel import digest as digest_module
-from obp_sentinel.digest import NotReady, write_digest
-from obp_sentinel.signatures import parse_line, signature_of
-from obp_sentinel.store import Store, priority_of
-from obp_sentinel.summary import counter_delta
+from senti import digest as digest_module
+from senti.digest import NotReady, write_digest
+from senti.signatures import parse_line, signature_of
+from senti.store import Store, priority_of
+from senti.summary import counter_delta
 
 BASE = 1_790_000_000
 

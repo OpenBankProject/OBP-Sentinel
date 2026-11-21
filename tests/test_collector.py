@@ -1,6 +1,6 @@
-from obp_sentinel import collector as collector_module
-from obp_sentinel.collector import Collector, bucket_of, new_entries
-from obp_sentinel.store import Store
+from senti import collector as collector_module
+from senti.collector import Collector, bucket_of, new_entries
+from senti.store import Store
 
 
 def test_first_poll_takes_everything():
@@ -93,7 +93,7 @@ class DeclaringClient(FakeClient):
         self.declarations += 1
         if not self.marked:
             raise Exception("OBP-35046: not a Platform App")
-        return {"consumer_id": "c1", "label": "Sentinel", "required_scopes": []}
+        return {"consumer_id": "c1", "label": "Senti", "required_scopes": []}
 
 
 def test_declaration_is_retried_until_marked_then_not_every_poll(config, tmp_path):
@@ -141,7 +141,7 @@ def test_metrics_fetched_once_per_ended_bucket(config, tmp_path, monkeypatch):
 
 
 def test_root_endpoint_records_which_commit_runs(config, tmp_path):
-    from obp_sentinel.summary import coverage
+    from senti.summary import coverage
 
     store = Store(str(tmp_path / "s.db"))
     client = FakeClient({}, {"meters": []})

@@ -1,5 +1,5 @@
-from obp_sentinel import fixer, guessing
-from obp_sentinel.store import NEEDS_ID_WEIGHT, Store
+from senti import fixer, guessing
+from senti.store import NEEDS_ID_WEIGHT, Store
 
 
 def finding(store, key, impact=5):

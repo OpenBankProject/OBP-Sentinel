@@ -7,8 +7,8 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from obp_sentinel.scanner import AGENT_FILE, Scanner
-from obp_sentinel.web import make_handler
+from senti.scanner import AGENT_FILE, Scanner
+from senti.web import make_handler
 
 
 @pytest.fixture
@@ -17,10 +17,10 @@ def scan_config(config, tmp_path):
     (tmp_path / "OBP-API").mkdir()
     AGENT_FILE.parent.mkdir(parents=True, exist_ok=True)
     AGENT_FILE.write_text("agent")
-    (tmp_path / ".claude/agents/obp-sentinel-analyst.md").write_text("agent")
+    (tmp_path / ".claude/agents/senti-analyst.md").write_text("agent")
     fake = tmp_path / "fake-claude"
     events = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash",
-                                                             "input": {"command": "uv run sentinel source next --n 2"}}]}},
+                                                             "input": {"command": "uv run senti source next --n 2"}}]}},
               {"type": "result", "subtype": "success", "total_cost_usd": 0.12, "result": "Reviewed 2 endpoints, found nothing."}]
     fake.write_text("#!/bin/sh\n" + "".join(f"echo '{json.dumps(e)}'\n" for e in events))
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
@@ -34,14 +34,14 @@ def test_go_and_stop_are_kept_and_a_scan_is_recorded(scan_config):
     assert scanner.status()["on"] is True  # on from the start
 
     scanner.turn(False)
-    assert Scanner([scan_config]).status()["on"] is False  # Stop is kept: a restarted Sentinel stays stopped
+    assert Scanner([scan_config]).status()["on"] is False  # Stop is kept: a restarted Senti stays stopped
     scanner.turn(True)
     assert Scanner([scan_config]).status()["on"] is True  # and so is Go
     scanner.scan()
     s = scanner.status()
     scan = s["scans"][0]
     assert (scan["status"], scan["cost_usd"], scan["result"]) == ("done", 0.12, "Reviewed 2 endpoints, found nothing.")
-    assert scan["last_step"] == "Bash: uv run sentinel source next --n 2"
+    assert scan["last_step"] == "Bash: uv run senti source next --n 2"
     assert s["next_at"] == scan["started_at"] + 10 * 60  # the next one 10 minutes after this one started
 
     scanner.turn(False)

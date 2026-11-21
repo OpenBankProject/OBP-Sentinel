@@ -1,7 +1,7 @@
 from dataclasses import replace
 
-from obp_sentinel import recheck
-from obp_sentinel.store import Store, now
+from senti import recheck
+from senti.store import Store, now
 from test_history import git, make_repo
 
 

@@ -1,4 +1,4 @@
-"""The `sentinel` command."""
+"""The `senti` command."""
 
 import argparse
 import json
@@ -13,7 +13,8 @@ from . import history, preferences, sonar
 from .analyst import Analyst, decide, start_scheduler, unavailable_reason
 from .collector import Collector
 from .scanner import Scanner
-from .config import Config, ConfigError, instance_names
+from .config import Config, ConfigError, instance_names, setup_from_env
+from .model import setup_path, to_toml
 from .digest import NotReady, write_digest
 from .logs import for_instance, setup as setup_logging
 from .obp_client import OBPClient
@@ -109,13 +110,14 @@ def cmd_status(args, config: Config, store: Store) -> None:
     print(f"Last successful poll: {counts['last_poll']} (now {now()})")
 
 
-def learned() -> dict:
-    """What Sentinel has learned from the person's responses, on every instance (without reading app directories)."""
-    return preferences.learn([Config.from_env(name) for name in instance_names()])
+def learned(config: Config) -> dict:
+    """What Senti has learned from the person's responses on the instances of this one's kind (without reading
+    app directories)."""
+    return preferences.learn([Config.from_env(name) for name in instance_names()], config.kind)
 
 
 def cmd_summary(args, config: Config, store: Store) -> None:
-    summary = build_summary(store, config, args.hours, args.limit, learned())
+    summary = build_summary(store, config, args.hours, args.limit, learned(config))
     print(json.dumps(summary, indent=2) if args.json else to_markdown(summary))
 
 
@@ -150,7 +152,7 @@ def cmd_findings(args, config: Config, store: Store) -> None:
 
 def cmd_digest(args, config: Config, store: Store) -> None:
     try:
-        print(write_digest(store, config, args.out or config.digest_dir, args.force, learned()))
+        print(write_digest(store, config, args.out or config.digest_dir, args.force, learned(config)))
     except NotReady as e:
         sys.exit(str(e))
 
@@ -257,6 +259,26 @@ def seen_line(source: str, commit: str, reviews: Reviews, unit: str) -> str:
                           else f"changed since its review for {last['operation_id']}" if last else "not reviewed")
 
 
+def cmd_config(args) -> None:
+    """Print today's setup from the environment as senti.toml, or write it there (--write)."""
+    try:
+        setup, missing = setup_from_env()
+    except ConfigError as e:
+        sys.exit(str(e))
+    text = to_toml(setup)
+    path = setup_path()
+    if args.write:
+        if path.exists():
+            sys.exit(f"{path} exists already")
+        path.write_text(text)
+        print(f"Wrote {path}. Senti reads its services and instances from there from its next start.")
+    else:
+        print(text)
+        print(f"# Nothing written: run with --write to save this to {path}.", file=sys.stderr)
+    if missing:
+        print("Add these to .env before restarting Senti: " + ", ".join(missing), file=sys.stderr)
+
+
 def pick_instance(configs: list[Config], name: str | None) -> Config:
     """The instance a one-instance command works on: --instance, else SENTINEL_INSTANCE, else the only one."""
     name = name or os.environ.get("SENTINEL_INSTANCE")
@@ -285,13 +307,13 @@ def add_analyst_argument(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="sentinel", description=__doc__)
+    parser = argparse.ArgumentParser(prog="senti", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--instance", help="the OBP-API instance to work on, from SENTINEL_INSTANCES "
                                            "(default SENTINEL_INSTANCE; run, collect and ui default to all)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("run", help="start Sentinel: the collector, the web page and the analyst's schedule, in one process")
+    p = sub.add_parser("run", help="start Senti: the collector, the web page and the analyst's schedule, in one process")
     add_ui_arguments(p)
     p.set_defaults(func=cmd_run, all_instances=True)
 
@@ -304,7 +326,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--force", action="store_true", help="run even if nothing is new")
     p.set_defaults(func=cmd_analyse)
 
-    sub.add_parser("status", help="how well Sentinel has been watching").set_defaults(func=cmd_status)
+    sub.add_parser("status", help="how well Senti has been watching").set_defaults(func=cmd_status)
 
     p = sub.add_parser("summary", help="aggregates for the analyst")
     p.add_argument("--hours", type=float, default=6)
@@ -349,6 +371,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--n", type=int, default=3, help="how many endpoints to list (for next)")
     p.set_defaults(func=cmd_source, all_instances=True)
 
+    p = sub.add_parser("config", help="the setup: services, environments and instances (senti.toml)")
+    p.add_argument("action", choices=("import-env",),
+                   help="import-env: today's settings from the environment, as senti.toml")
+    p.add_argument("--write", action="store_true", help="write senti.toml (default: print it)")
+
     p = sub.add_parser("ui", help="only the web page to read findings and respond to them")
     add_ui_arguments(p)
     p.set_defaults(func=cmd_ui, all_instances=True)
@@ -364,6 +391,8 @@ def main(argv: list[str] | None = None) -> None:
         if not args.paths:
             parser.error(f"source {args.action} needs the files' paths")
     setup_logging(args.verbose)
+    if args.command == "config":  # needs no instance, and reads no app directory
+        return cmd_config(args)
     try:
         configs = Config.all_from_env()
     except ConfigError as e:

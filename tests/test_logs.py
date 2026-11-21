@@ -1,7 +1,7 @@
 import logging
 import threading
 
-from obp_sentinel.logs import FORMAT, InstanceFilter, about, for_instance
+from senti.logs import FORMAT, InstanceFilter, about, for_instance
 
 
 def test_lines_name_the_instance_url_of_their_thread():

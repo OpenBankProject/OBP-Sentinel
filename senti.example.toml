@@ -1,0 +1,49 @@
+# What Senti watches: copy to senti.toml and change it. Secrets stay in .env: each instance names the prefix of its
+# OIDC client settings (credentials = "LOCAL_OIDC" reads LOCAL_OIDC_CLIENT_ID, LOCAL_OIDC_CLIENT_SECRET and
+# LOCAL_OIDC_ISSUER). `senti config import-env --write` makes senti.toml from the settings in .env instead.
+
+[system]
+name = "obp"
+
+[[service]]
+name = "obp-api"
+kind = "obp-api"
+repository = "https://github.com/OpenBankProject/OBP-API"
+source = "/path/to/OBP-API"
+sonarcloud = "OpenBankProject_OBP-API"
+
+[[service]]
+name = "api-explorer"
+kind = "vue-express"
+repository = "https://github.com/OpenBankProject/API-Explorer-II"
+source = "/path/to/API-Explorer-II"
+
+[[service]]
+name = "portal"
+kind = "sveltekit"
+repository = "https://github.com/OpenBankProject/OBP-Frontend"
+source = "/path/to/OBP-Frontend"
+
+# In order, from a developer's machine to production. Use your own names: test, staging, pre-production...
+[[environment]]
+name = "local"
+
+[[environment]]
+name = "production"
+
+# Only obp-api services are listed for now; their apps are found in the app directory (discover = true).
+# The id names the instance's database and digests; without one it is <service>-<environment>.
+[[instance]]
+id = "local"
+service = "obp-api"
+environment = "local"
+url = "http://localhost:8080"
+credentials = "LOCAL_OIDC"
+discover = true
+
+[[instance]]
+service = "obp-api"
+environment = "production"
+url = "https://api.example.com"
+credentials = "PRODUCTION_OIDC"
+discover = true

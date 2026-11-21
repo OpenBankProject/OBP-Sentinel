@@ -3,15 +3,15 @@ from dataclasses import replace
 
 import pytest
 
-from obp_sentinel import fixer
-from obp_sentinel.store import Store
+from senti import fixer
+from senti.store import Store
 from test_history import git
 from test_recheck import finding
 
 
 @pytest.fixture
 def trees(tmp_path):
-    """A person's OBP-API checkout, and Sentinel's own worktree of it."""
+    """A person's OBP-API checkout, and Senti's own worktree of it."""
     source = tmp_path / "OBP-API"
     (source / "obp-api/src").mkdir(parents=True)
     git(source, "init", "-q")
@@ -68,7 +68,7 @@ def test_a_fix_is_staged_in_the_persons_working_tree_for_them_to_commit(cfg, tre
     assert fixer.fix(cfg, fid) == "staged"
     assert (source / "obp-api/src/A.scala").read_text() == "fixed\n"
     assert fixer.git(str(source), "diff", "--cached", "--name-only") == "obp-api/src/A.scala"  # staged: seen in the IDE
-    assert fixer.git(str(worktree), "status", "--porcelain") == ""  # Sentinel's worktree is clean again
+    assert fixer.git(str(worktree), "status", "--porcelain") == ""  # Senti's worktree is clean again
     f = row(cfg, fid)
     assert f["fix_message"] == "Fix: Update Customer Address checks the bank" and f["fix_files"] == '["obp-api/src/A.scala"]'
     store = Store(cfg.db_path)
@@ -285,7 +285,7 @@ def test_a_commit_message_is_one_short_line_without_a_number():
 
 
 def test_the_full_log_has_tool_results_and_edits_but_the_analysts_steps_do_not():
-    from obp_sentinel.analyst import describe
+    from senti.analyst import describe
     edit = {"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Edit", "input": {"file_path": "A.scala", "old_string": "a", "new_string": "b"}}]}}
     result = {"type": "user", "message": {"content": [
@@ -331,7 +331,7 @@ def test_claude_follows_the_comments_people_saved_on_the_finding(cfg, trees, mon
     fid = new_finding(cfg)
     store = Store(cfg.db_path)
     store.add_feedback(fid, "comment", "Use 404, not 400", 7)
-    store.add_feedback(fid, "fixed", "Fix this: committed abc on develop: x", 7)  # Sentinel's own note: not passed on
+    store.add_feedback(fid, "fixed", "Fix this: committed abc on develop: x", 7)  # Senti's own note: not passed on
     store.db.execute("UPDATE findings SET status = 'open' WHERE id = ?", (fid,))
     store.commit()
     assert row(cfg, fid)["status"] == "open"

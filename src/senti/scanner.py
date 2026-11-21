@@ -2,7 +2,7 @@
 
 It is turned on and off with Go and Stop on the web page. Whether it is on is kept in the source review's
 database, so it carries on after a restart. Each scan is headless Claude Code running the agent
-`.claude/agents/obp-sentinel-source-reviewer.md`: it takes the next endpoints from `sentinel source next`,
+`.claude/agents/senti-source-reviewer.md`: it takes the next endpoints from `senti source next`,
 reads their code, imports what it finds as findings and records what it read. Only one scan runs at a time.
 One scanner serves all instances, like the source review itself.
 """
@@ -20,7 +20,7 @@ from .store import now
 
 logger = logging.getLogger(__name__)
 
-AGENT = "obp-sentinel-source-reviewer"
+AGENT = "senti-source-reviewer"
 AGENT_FILE = Path(".claude/agents") / f"{AGENT}.md"
 TICK_SECONDS = 5
 
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS scans (
 
 def command(config: Config) -> list[str]:
     source = str(Path(config.obp_api_source).resolve())
-    tools = ["Read", "Grep", "Glob", "Edit(work/**)", "Bash(uv run sentinel *)"]
+    tools = ["Read", "Grep", "Glob", "Edit(work/**)", "Bash(uv run senti *)"]
     tools += [f"Bash(git -C {source} {c} *)" for c in GIT_READ_COMMANDS]
     prompt = (f"Review the next {config.scan_endpoints} endpoints of the OBP-API source review. The OBP-API "
               f"source is at {source}; use that path literally (e.g. git -C {source} show ...).")
@@ -64,14 +64,14 @@ class Scanner:
     def __init__(self, configs: list[Config]):
         self.config = configs[0]  # the scanner's settings, like the page's, are not per instance
         self.process = None
-        self._stop = threading.Event()  # Sentinel stopping
+        self._stop = threading.Event()  # Senti stopping
         self._cancel = threading.Event()  # Stop pressed during a scan
         self._lock = threading.Lock()
         open_reviews(self.config).close()  # read back reviews kept in SENTINEL_REVIEW_DIR, if the database lacks them
         reviews = self._reviews()
         try:
-            # A scan left running by a Sentinel that stopped
-            reviews.db.execute("UPDATE scans SET status = 'failed', ended_at = ?, error = 'Interrupted: Sentinel stopped' "
+            # A scan left running by a Senti that stopped
+            reviews.db.execute("UPDATE scans SET status = 'failed', ended_at = ?, error = 'Interrupted: Senti stopped' "
                                "WHERE status = 'running'", (now(),))
             reviews.db.commit()
         finally:
@@ -89,7 +89,7 @@ class Scanner:
         if reason:
             return reason
         if not AGENT_FILE.exists():
-            return f"{AGENT_FILE} not found: start Sentinel from the OBP-Sentinel directory"
+            return f"{AGENT_FILE} not found: start Senti from the OBP-Sentinel directory"
         return None
 
     def status(self) -> dict:

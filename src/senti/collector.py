@@ -26,10 +26,10 @@ REDECLARE_EVERY_SECONDS = 3600
 METRICS_LAG_SECONDS = 120
 # After a pause, catch up at most this many buckets per poll
 METRICS_MAX_BUCKETS_PER_POLL = 8
-# How often to check that the endpoints Sentinel reads refuse a call with no token
+# How often to check that the endpoints Senti reads refuse a call with no token
 SECURED_CHECK_SECONDS = 3600
 SECURED = "endpoints_secured"
-# What OBP-API says about the Roles an app refused Sentinel, and Sentinel's consumer_id (health.py reads it)
+# What OBP-API says about the Roles an app refused Senti, and Senti's consumer_id (health.py reads it)
 APP_ACCESS = "app_access"
 # An app's 403: GET <app>/monitoring/... failed (403): {"error":"Requires one of the Roles: A, B"}
 APP_REFUSED = re.compile(r"failed \(403\): .*Requires one of the Roles: (?P<roles>[\w, ]+)")
@@ -65,9 +65,9 @@ class Collector:
         self.declared_at = 0.0
 
     def declare_platform_app(self) -> None:
-        """Tell OBP-API which Scopes Sentinel needs, and say which are missing.
+        """Tell OBP-API which Scopes Senti needs, and say which are missing.
 
-        Refused until an administrator marks Sentinel's Consumer as a Platform App, so this is retried
+        Refused until an administrator marks Senti's Consumer as a Platform App, so this is retried
         on every poll until accepted: marking takes effect without a restart. Polling goes ahead either way.
         """
         if self.declared_at and time.monotonic() - self.declared_at < REDECLARE_EVERY_SECONDS:
@@ -75,7 +75,7 @@ class Collector:
         try:
             app = self.client.declare_platform_app()
         except Exception as e:
-            logger.warning("Could not declare Sentinel's Scopes (is its Consumer marked as a Platform App?): %s", e)
+            logger.warning("Could not declare Senti's Scopes (is its Consumer marked as a Platform App?): %s", e)
             state = {"ts": now(), "ok": False, "error": str(e)[:500]}
             # So the operator is told which Consumer to mark by its consumer_id, not by the client id (its key)
             if consumer_id := self._consumer_id():
@@ -94,19 +94,19 @@ class Collector:
             logger.info("Declared as Platform App %r; all Scopes held", app.get("label"))
 
     def _consumer_id(self) -> str | None:
-        """Sentinel's consumer_id, asked once; None while OBP-API cannot say (unreachable, token rejected, older version)."""
+        """Senti's consumer_id, asked once; None while OBP-API cannot say (unreachable, token rejected, older version)."""
         if not getattr(self, "consumer_id", None):
             try:
                 self.consumer_id = self.client.current_consumer_id()
             except Exception as e:
-                logger.info("Could not look up Sentinel's consumer_id: %s", e)
+                logger.info("Could not look up Senti's consumer_id: %s", e)
                 return None
         return self.consumer_id
 
     def check_app_access(self) -> str:
-        """When the app refuses Sentinel's token (403), ask OBP-API what the app asks it: which Consumer the token is,
+        """When the app refuses Senti's token (403), ask OBP-API what the app asks it: which Consumer the token is,
         and whether it may use each Role. So the health page can say which Consumer lacks which Scope, or that the
-        app refuses Roles OBP-API says Sentinel holds (the app and OBP-API disagree)."""
+        app refuses Roles OBP-API says Senti holds (the app and OBP-API disagree)."""
         errors = [r[0] for r in self.store.db.execute(
             """SELECT p.error FROM polls p JOIN (SELECT source, MAX(id) AS id FROM polls GROUP BY source) l ON l.id = p.id
                WHERE NOT p.ok AND p.error IS NOT NULL""")]
@@ -233,7 +233,7 @@ class Collector:
         return f"reach {len(reach['endpoints'])} endpoints" + ("" if reach["roles"] is not None else ", Roles held unknown")
 
     def secured_paths(self) -> list[str]:
-        """The endpoints Sentinel reads with its token: an app's /monitoring ones, or OBP-API's log cache,
+        """The endpoints Senti reads with its token: an app's /monitoring ones, or OBP-API's log cache,
         Telemetry and aggregate metrics."""
         c = self.config
         levels = [*c.log_levels, "all"]
@@ -244,7 +244,7 @@ class Collector:
                    f"/obp/{c.aggregate_metrics_api_version}/management/aggregate-metrics"])
 
     def check_secured(self) -> str:
-        """Whether the endpoints Sentinel reads refuse a call with no token, as they must. Hourly, or every poll
+        """Whether the endpoints Senti reads refuse a call with no token, as they must. Hourly, or every poll
         while it cannot tell. Secured if each refuses (401, 403); open if any answers 200; otherwise it cannot tell
         (no answer, 404 ...)."""
         last = self.store.get_state(SECURED, {})

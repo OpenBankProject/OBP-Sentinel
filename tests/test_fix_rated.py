@@ -1,7 +1,7 @@
 import pytest
 
-from obp_sentinel import fixer
-from obp_sentinel.store import Store
+from senti import fixer
+from senti.store import Store
 
 
 def finding(key, impact=3):

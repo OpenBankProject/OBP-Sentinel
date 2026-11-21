@@ -1,12 +1,12 @@
-"""Runs the analyst (`.claude/agents/obp-sentinel-analyst.md`) headless with Claude Code, on a schedule.
+"""Runs the analyst (`.claude/agents/senti-analyst.md`) headless with Claude Code, on a schedule.
 
-Once when Sentinel starts, then every `analyse_minutes`, but only when it is worth it: enough hours watched,
+Once when Senti starts, then every `analyse_minutes`, but only when it is worth it: enough hours watched,
 and something new since the last run (a new or rising signature, feedback from a person) or the last run is a
 day old. Otherwise the check is recorded and no tokens are spent.
 
-Each run is `claude -p --agent obp-sentinel-analyst --output-format stream-json`. Its steps (tool calls and
+Each run is `claude -p --agent senti-analyst --output-format stream-json`. Its steps (tool calls and
 short notes, never tool results) are stored in `analysis_steps` so the web page can show what it is doing.
-The tools it may use are listed explicitly: `uv run sentinel ...`, read-only git, reading files, and writing
+The tools it may use are listed explicitly: `uv run senti ...`, read-only git, reading files, and writing
 under `work/`. Only one run happens at a time, across processes.
 """
 
@@ -27,7 +27,7 @@ from .summary import watched_seconds
 
 logger = logging.getLogger(__name__)
 
-AGENT = "obp-sentinel-analyst"
+AGENT = "senti-analyst"
 AGENT_FILE = Path(".claude/agents") / f"{AGENT}.md"
 CHECK_EVERY_SECONDS = 60
 RERUN_ANYWAY_SECONDS = 86400
@@ -45,7 +45,7 @@ def unavailable_reason(config: Config, scheduled: bool = True) -> str | None:
     if not shutil.which(config.claude_command):
         return f"Claude Code ({config.claude_command}) is not installed or not on PATH"
     if not AGENT_FILE.exists():
-        return f"{AGENT_FILE} not found: start Sentinel from the OBP-Sentinel directory"
+        return f"{AGENT_FILE} not found: start Senti from the OBP-Sentinel directory"
     if not config.obp_api_source or not Path(config.obp_api_source).is_dir():
         return f"OBP_API_SOURCE is not set to the {'app' if config.is_app else 'OBP-API'} checkout"
     return None
@@ -117,7 +117,7 @@ def claim_run(store: Store, trigger: str) -> int | None:
                 store.db.execute("ROLLBACK")
                 return None
             store.db.execute(
-                "UPDATE analysis_runs SET status = 'failed', ended_at = ?, error = 'Interrupted: Sentinel stopped' "
+                "UPDATE analysis_runs SET status = 'failed', ended_at = ?, error = 'Interrupted: Senti stopped' "
                 "WHERE id = ?", (now(), r["id"]),
             )
         cur = store.db.execute(
@@ -133,13 +133,13 @@ def claim_run(store: Store, trigger: str) -> int | None:
 
 def command(config: Config) -> list[str]:
     source = str(Path(config.obp_api_source).resolve())
-    tools = ["Read", "Grep", "Glob", "Edit(work/**)", "Bash(uv run sentinel *)"]
+    tools = ["Read", "Grep", "Glob", "Edit(work/**)", "Bash(uv run senti *)"]
     tools += [f"Bash(git -C {source} {c} *)" for c in GIT_READ_COMMANDS]
     what = (f"the app `{config.name}` ({config.obp_base_url}{config.monitoring_path}), which is not OBP-API but calls it"
             if config.is_app else f"the OBP-API instance `{config.name}` ({config.obp_base_url})")
     prompt = (
-        f"Run the Sentinel analysis of {what}; every "
-        f"`uv run sentinel` command already reads that instance's data. Its source is at {source}; use that path literally "
+        f"Run the Senti analysis of {what}; every "
+        f"`uv run senti` command already reads that instance's data. Its source is at {source}; use that path literally "
         f"(e.g. git -C {source} log ...). At least {config.analyse_min_watch_hours:g}h of coverage is enough to go ahead."
     )
     return [

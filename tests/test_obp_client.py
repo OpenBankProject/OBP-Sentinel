@@ -4,7 +4,7 @@ from dataclasses import replace
 import httpx
 import pytest
 
-from obp_sentinel.obp_client import OBPClient, OBPError, required_scopes
+from senti.obp_client import OBPClient, OBPError, required_scopes
 
 
 @pytest.fixture

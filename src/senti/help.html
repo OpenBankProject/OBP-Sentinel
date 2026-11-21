@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sentinel Help</title>
+<title>Senti Help</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>
@@ -49,7 +49,7 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
 <body>
 <header>
   <div class="bar">
-    <strong>Sentinel</strong>
+    <strong>Senti</strong>
     <a href="/">Back to the suggestions</a>
   </div>
 </header>
@@ -59,7 +59,7 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
 <h3>How much it matters to you</h3>
 <ul>
   <li><strong>Relevant</strong>, <strong>Important</strong> and <strong>Urgent</strong> say how much a finding matters
-    to you. The finding stays where it is. Sentinel learns from them and shows first the kinds of finding you rate:
+    to you. The finding stays where it is. Senti learns from them and shows first the kinds of finding you rate:
     Important counts twice and Urgent three times. Urgent also puts the finding at the head of the Fix this queue.</li>
   <li><strong>Skip for now</strong> snoozes the finding. It comes back later.</li>
   <li><strong>Dismiss</strong> hides the finding and its log messages for good. Say why in the comment box first: the
@@ -81,8 +81,8 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
     it again takes a staged fix back out of your working tree first, unless you have changed those files since. Only
     your latest comment and its answer are shown; Fix this follows every comment on the finding, and the analyst
     reads them.</li>
-  <li><strong>Fix this</strong> saves the comment box, then queues the finding. Claude fixes it in Sentinel's own
-    worktree of OBP-API, following your comments, and runs the tests that cover it. If they pass, Sentinel stages the
+  <li><strong>Fix this</strong> saves the comment box, then queues the finding. Claude fixes it in Senti's own
+    worktree of OBP-API, following your comments, and runs the tests that cover it. If they pass, Senti stages the
     change in your working tree. Fixes are made one at a time: the next starts once you have committed or discarded
     the one before.</li>
   <li><strong>Fix this without tests</strong> is the same, but faster. Claude adds the test scenarios and compiles,
@@ -101,7 +101,7 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
   staged and not committed, committed and not pushed, pushed but not yet running on the instance, or running there.
   <strong>What Senti did</strong> is Claude's report from the time of the fix, and does not change. Staged means
   waiting for the next commit: git add (or Stage) puts changes there, and git commit saves them.</p>
-<p>Review the change in your IDE and change it if you like. Sentinel commits only when you press Commit.</p>
+<p>Review the change in your IDE and change it if you like. Senti commits only when you press Commit.</p>
 <ul>
   <li><strong>Stage</strong> adds the fix's files again, with any changes you made to them.</li>
   <li><strong>Unstage</strong> takes them out of what is staged. Your changes stay in the files. Unstaging in your
@@ -113,16 +113,16 @@ h2:first-child, #help > h1:first-child { margin-top: 24px; }
 </ul>
 <h3>Findings from SonarCloud</h3>
 <p>A finding whose evidence starts "SonarCloud reports" comes from SonarCloud's analysis of OBP-API, read every hour.
-  Sentinel keeps only security issues, security hotspots, serious reliability issues and new issues on your pull
+  Senti keeps only security issues, security hotspots, serious reliability issues and new issues on your pull
   request. Each links to the issue on SonarCloud. Static analysis can be wrong, so read the code before you press Fix
   this. When SonarCloud stops reporting it, the finding moves to Done.</p>
 </section>
-<h2>About Sentinel</h2>
+<h2>About Senti</h2>
 <div id="help"><p class="lead">Loading the OBP-Sentinel glossary item from OBP-API…</p></div>
 <p class="source" id="source"></p>
 </main>
 <script>
-// The text is OBP-API's glossary item OBP-Sentinel, read by Sentinel. Only plain text formatting is kept from its HTML.
+// The text is OBP-API's glossary item OBP-Sentinel, read by Senti. Only plain text formatting is kept from its HTML.
 const KEEP = new Set(['H1', 'H2', 'H3', 'H4', 'P', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'CODE', 'PRE', 'A',
                       'BLOCKQUOTE', 'BR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
 function clean(node) {
@@ -144,7 +144,7 @@ function clean(node) {
   if (help.error) {
     document.getElementById('help').replaceChildren(Object.assign(document.createElement('p'), {
       textContent: `Could not read the OBP-Sentinel glossary item from OBP-API: ${help.error}. ` +
-        'This OBP-API may be older than the version that added it. The README describes Sentinel too.' }));
+        'This OBP-API may be older than the version that added it. The README describes Senti too.' }));
   } else {
     document.getElementById('help').replaceChildren(clean(new DOMParser().parseFromString(help.html, 'text/html').body));
   }

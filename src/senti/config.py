@@ -1,6 +1,6 @@
 """Settings, read from the environment (and a .env file in the working directory).
 
-Sentinel can watch several OBP-API instances: list their names in SENTINEL_INSTANCES (e.g. "local,staging").
+Senti can watch several OBP-API instances: list their names in SENTINEL_INSTANCES (e.g. "local,staging").
 Any setting can then be given per instance by prefixing it with the instance's name in capitals, `-` as `_`
 (e.g. STAGING_OBP_BASE_URL, STAGING_OBP_API_SOURCE); without a prefixed value the plain one is used. Each
 instance has its own database (sentinel-<name>.db) and digests (digests/<name>): SENTINEL_DB and
@@ -16,6 +16,11 @@ SENTINEL_IGNORE_REGEX, which are written for OBP-API: an app takes those only pr
 (LOCAL_EXPLORER_SENTINEL_IGNORE_REGEX). Its source is EXPLORER_SOURCE (API Explorer II), FRONTEND_SOURCE
 (OBP-Frontend, for the API Manager, the Portal, Cohort and the Sandbox Populator) or OIDC_SOURCE (OBP-OIDC),
 shared by all instances.
+
+With a senti.toml (see model.py), the OBP-API instances, their URLs, OIDC clients and checkouts come from that file
+instead, and the apps' checkouts from its services. The tuning settings (SENTINEL_*) still come from the environment.
+Every instance has a service, a kind and an environment: without senti.toml, the environment is the name of the
+instance (or of an app's OBP-API instance).
 """
 
 import logging
@@ -25,6 +30,8 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from dotenv import find_dotenv, load_dotenv
+
+from .model import OBP_API, Environment, Instance, Service, Setup, SetupError, load as load_setup, setup_path
 
 
 def _list(value: str) -> list[str]:
@@ -43,17 +50,26 @@ class App(NamedTuple):
     monitoring_path: str  # where the app serves its log-cache and telemetry endpoints
     source_setting: str  # the setting naming its checkout
     github_repo: str
+    service: str  # its service's name in senti.toml
+    kind: str
 
 
 APPS = {
-    "explorer": App("public_obp_api_explorer_url", "/api/monitoring", "EXPLORER_SOURCE", "OpenBankProject/API-Explorer-II"),
-    "manager": App("public_obp_api_manager_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
-    "portal": App("public_obp_portal_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
-    "cohort": App("public_obp_cohort_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend"),
-    "oidc": App("public_obp_oidc_url", "/monitoring", "OIDC_SOURCE", "OpenBankProject/OBP-OIDC"),
+    "explorer": App("public_obp_api_explorer_url", "/api/monitoring", "EXPLORER_SOURCE", "OpenBankProject/API-Explorer-II",
+                    "api-explorer", "vue-express"),
+    "manager": App("public_obp_api_manager_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
+                   "api-manager", "sveltekit"),
+    "portal": App("public_obp_portal_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
+                  "portal", "sveltekit"),
+    "cohort": App("public_obp_cohort_url", "/monitoring", "FRONTEND_SOURCE", "OpenBankProject/OBP-Frontend",
+                  "cohort", "sveltekit"),
+    "oidc": App("public_obp_oidc_url", "/monitoring", "OIDC_SOURCE", "OpenBankProject/OBP-OIDC",
+                "obp-oidc", "scala-http4s"),
     "populator": App("public_obp_sandbox_populator_url", "/monitoring", "FRONTEND_SOURCE",
-                     "OpenBankProject/OBP-Frontend"),
+                     "OpenBankProject/OBP-Frontend", "sandbox-populator", "sveltekit"),
 }
+OBP_API_SERVICE = "obp-api"
+OBP_API_REPO = "OpenBankProject/OBP-API"
 APP_DIRECTORY_STATE = "app_directory"
 logger = logging.getLogger(__name__)
 _directories: dict[str, dict[str, str]] = {}  # by OBP-API instance: its apps' URLs, by app
@@ -67,8 +83,31 @@ class ConfigError(Exception):
     pass
 
 
+_setups: dict[tuple, Setup | None] = {}
+
+
+def current_setup() -> Setup | None:
+    """The setup in senti.toml, read again when the file changes; None without the file."""
+    load_dotenv(find_dotenv(usecwd=True))  # the working directory's .env, not one near the code
+    path = setup_path()
+    try:
+        key = (str(path.resolve()), path.stat().st_mtime_ns)
+    except OSError:
+        return None
+    if key not in _setups:
+        try:
+            _setups[key] = load_setup(path)
+        except SetupError as e:
+            raise ConfigError(str(e)) from e
+    return _setups[key]
+
+
 def _obp_instance_names() -> list[str]:
     load_dotenv(find_dotenv(usecwd=True))  # the working directory's .env, not one near the code
+    if setup := current_setup():
+        if not setup.instances:
+            raise ConfigError(f"{setup.path} lists no instances")
+        return [i.id for i in setup.instances]
     names = _list(os.environ.get("SENTINEL_INSTANCES", ""))
     for name in names:
         if not INSTANCE_NAME.match(name):
@@ -131,7 +170,10 @@ def _app_urls(parent: str) -> dict[str, str]:
 def _app_instances(obp_names: list[str]) -> dict[str, tuple[str, str]]:
     """The apps in each OBP-API instance's app directory, by instance name: (their OBP-API instance, which app)."""
     apps = {}
+    setup = current_setup()
     for parent in obp_names:
+        if setup and not setup.instance(parent).discover:
+            continue
         for app in _app_urls(parent):
             if app in APPS:
                 name = app if parent == DEFAULT_INSTANCE else f"{parent}-{app}"
@@ -150,7 +192,10 @@ def instance_names() -> list[str]:
 
 @dataclass(frozen=True)
 class Config:
-    name: str  # the OBP-API instance (or app) this configuration watches
+    name: str  # the OBP-API instance (or app) this configuration watches: its instance id
+    service: str  # the service it is an instance of (service.name)
+    kind: str  # what the service's code is (model.KINDS); what Senti learns is kept per kind
+    environment: str  # local, test, staging, production... (deployment.environment.name)
     obp_base_url: str  # for an app, the app's own URL
     monitoring_path: str  # "" for OBP-API; for an app, where its log-cache and telemetry endpoints are
     parent: str  # for an app, its OBP-API instance; "" for OBP-API
@@ -158,7 +203,7 @@ class Config:
     oidc_client_id: str
     oidc_client_secret: str
     oidc_client_setting: str  # the setting the OIDC client id was read from (an app's is usually its OBP-API instance's)
-    obp_api_url: str  # the OBP-API that checks Sentinel's token: obp_base_url, or for an app its instance's
+    obp_api_url: str  # the OBP-API that checks Senti's token: obp_base_url, or for an app its instance's
     log_cache_api_version: str
     telemetry_api_version: str
     aggregate_metrics_api_version: str
@@ -197,7 +242,7 @@ class Config:
     scan_budget_usd: float  # most one scan may spend
     scan_endpoints: int  # endpoints reviewed per scan
 
-    fix_worktree: str  # Fix this: Sentinel's own git worktree of OBP-API, next to OBP_API_SOURCE, made when first needed
+    fix_worktree: str  # Fix this: Senti's own git worktree of OBP-API, next to OBP_API_SOURCE, made when first needed
     fix_budget_usd: float  # most one fix may spend
 
     build_actions_url: str  # the OBP-API build on GitHub Actions, shown at the top of the page (build.py)
@@ -216,8 +261,10 @@ class Config:
     @classmethod
     def all_from_env(cls) -> list["Config"]:
         """Every instance: each OBP-API instance, its app directory read again, followed by its apps."""
+        setup = current_setup()
         for name in _obp_instance_names():
-            discover_apps(cls.from_env(name))
+            if not setup or setup.instance(name).discover:
+                discover_apps(cls.from_env(name))
         return [cls.from_env(name) for name in instance_names()]
 
     @classmethod
@@ -245,24 +292,52 @@ class Config:
             return os.environ[name] if name else default
 
         monitoring_path = APPS[app].monitoring_path if is_app else ""
+        # With senti.toml: the OBP-API instance (an app's parent), its service, and the app's service if listed
+        setup = current_setup()
+        listed = setup.instance(parent or name) if setup else None
+        obp_service = setup.service(listed.service) if listed else None
+        app_service = setup.service(APPS[app].service) if setup and is_app else None
+        credentials = listed.credentials if listed else ""
+
+        def oidc(key: str, default: str = "") -> str:
+            """An OIDC client setting: <credentials>_<key> with senti.toml, else OIDC_<key> as before."""
+            return os.environ.get(f"{credentials}_{key}", default) if listed else env(f"OIDC_{key}", default)
+
+        if listed:
+            obp_api_source = obp_service.source
+            source = app_service.source if app_service else "" if is_app else obp_api_source
+            github_repo = ((app_service and app_service.github_repo) or APPS[app].github_repo if is_app
+                           else obp_service.github_repo)
+        else:
+            obp_api_source = env("OBP_API_SOURCE", "")
+            source = os.environ.get(APPS[app].source_setting, "") if is_app else obp_api_source
+            github_repo = APPS[app].github_repo if is_app else env("OBP_API_GITHUB_REPO", OBP_API_REPO)
+        if is_app:
+            service, kind = (app_service.name, app_service.kind) if app_service else (APPS[app].service, APPS[app].kind)
+        else:
+            service, kind = (obp_service.name, obp_service.kind) if listed else (OBP_API_SERVICE, OBP_API)
         return cls(
             name=name,
-            obp_base_url=(_app_urls(parent)[app] if is_app
+            service=service,
+            kind=kind,
+            environment=listed.environment if listed else (parent or name),
+            obp_base_url=(_app_urls(parent)[app] if is_app else listed.url if listed
                           else env("OBP_BASE_URL", "http://localhost:8080")).rstrip("/"),
             monitoring_path=monitoring_path,
             parent=parent,
-            oidc_issuer=env("OIDC_ISSUER", "http://localhost:9000/obp-oidc").rstrip("/"),
-            oidc_client_id=env("OIDC_CLIENT_ID", ""),
-            oidc_client_secret=env("OIDC_CLIENT_SECRET", ""),
-            oidc_client_setting=setting("OIDC_CLIENT_ID") or _prefix(name) + "OIDC_CLIENT_ID",
-            obp_api_url=(Config.from_env(parent).obp_base_url if is_app
+            oidc_issuer=oidc("ISSUER", "http://localhost:9000/obp-oidc").rstrip("/"),
+            oidc_client_id=oidc("CLIENT_ID"),
+            oidc_client_secret=oidc("CLIENT_SECRET"),
+            oidc_client_setting=(f"{credentials}_CLIENT_ID" if listed
+                                 else setting("OIDC_CLIENT_ID") or _prefix(name) + "OIDC_CLIENT_ID"),
+            obp_api_url=(Config.from_env(parent).obp_base_url if is_app else listed.url if listed
                          else env("OBP_BASE_URL", "http://localhost:8080").rstrip("/")),
             log_cache_api_version=env("OBP_LOG_CACHE_API_VERSION", "v5.1.0"),
             telemetry_api_version=env("OBP_TELEMETRY_API_VERSION", "v7.0.0"),
             aggregate_metrics_api_version=env("OBP_AGGREGATE_METRICS_API_VERSION", "v6.0.0"),
             root_api_version=env("OBP_ROOT_API_VERSION", "v5.1.0"),
-            obp_api_source=os.environ.get(APPS[app].source_setting, "") if is_app else env("OBP_API_SOURCE", ""),
-            obp_api_github_repo=APPS[app].github_repo if is_app else env("OBP_API_GITHUB_REPO", "OpenBankProject/OBP-API"),
+            obp_api_source=source,
+            obp_api_github_repo=github_repo,
             db_path=env("SENTINEL_DB", f"sentinel-{name}.db" if named else "sentinel.db"),
             source_db_path=env("SENTINEL_SOURCE_DB", "sentinel-source.db"),
             review_dir=env("SENTINEL_REVIEW_DIR", "source-review"),
@@ -295,8 +370,37 @@ class Config:
             scan_minutes=int(env("SENTINEL_SCAN_MINUTES", "10")),
             scan_budget_usd=float(env("SENTINEL_SCAN_BUDGET_USD", "3")),
             scan_endpoints=int(env("SENTINEL_SCAN_ENDPOINTS", "2")),
-            fix_worktree=(env("OBP_API_SOURCE", "").rstrip("/") + "-sentinel-fixes") if env("OBP_API_SOURCE", "") else "",
+            fix_worktree=(obp_api_source.rstrip("/") + "-sentinel-fixes") if obp_api_source else "",
             fix_budget_usd=float(env("SENTINEL_FIX_BUDGET_USD", "15")),
-            build_actions_url="" if is_app else env("OBP_API_BUILD_ACTIONS_URL", ""),
-            sonarcloud_project="" if is_app else env("SONARCLOUD_PROJECT", ""),
+            build_actions_url="" if is_app else obp_service.build if listed else env("OBP_API_BUILD_ACTIONS_URL", ""),
+            sonarcloud_project="" if is_app else obp_service.sonarcloud if listed else env("SONARCLOUD_PROJECT", ""),
         )
+
+
+def setup_from_env() -> tuple[Setup, list[str]]:
+    """Today's setup from the environment, as senti.toml says it, for `senti config import-env`; and what to add
+    to .env before using it. Each instance keeps its name as its id, so its database and digests stay where they are,
+    and its name becomes its environment's (rename it in the file: the id stays)."""
+    if current_setup():
+        raise ConfigError(f"{setup_path()} exists already: Senti reads its setup from there")
+    services: dict[tuple, Service] = {}
+    instances, environments, missing = [], [], []
+    for name in _obp_instance_names():
+        c = Config.from_env(name)
+        found = (c.obp_api_source, c.obp_api_github_repo, c.build_actions_url, c.sonarcloud_project)
+        if found not in services:
+            service_name = OBP_API_SERVICE if not services else f"{OBP_API_SERVICE}-{name}"
+            services[found] = Service(service_name, OBP_API,
+                                      f"https://github.com/{c.obp_api_github_repo}" if c.obp_api_github_repo else "",
+                                      *found[:1], *found[2:])
+        credentials = c.oidc_client_setting.removesuffix("_CLIENT_ID")
+        for key in ("CLIENT_ID", "CLIENT_SECRET", "ISSUER"):
+            if f"{credentials}_{key}" not in os.environ:
+                missing.append(f"{credentials}_{key}")
+        environments.append(Environment(name))
+        instances.append(Instance(name, services[found].name, name, c.obp_base_url, credentials))
+    apps = []
+    for a in {app.service: app for app in APPS.values()}.values():
+        if source := os.environ.get(a.source_setting, ""):
+            apps.append(Service(a.service, a.kind, f"https://github.com/{a.github_repo}", source))
+    return Setup("obp", (*services.values(), *apps), tuple(environments), tuple(instances)), missing

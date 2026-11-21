@@ -1,4 +1,4 @@
-"""Logging. Sentinel may watch several OBP-API instances, so every line names the one it is about, by its URL.
+"""Logging. Senti may watch several OBP-API instances, so every line names the one it is about, by its URL.
 
 Each instance's work runs in its own threads (collector, analyst); a thread is tagged with its instance's URL
 when it starts, and every line logged from it carries that URL.

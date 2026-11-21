@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sentinel Fixed</title>
+<title>Senti Fixed</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>
@@ -52,7 +52,7 @@ li { margin: 4px 0; }
 <body>
 <header>
   <div class="bar">
-    <strong>Sentinel</strong>
+    <strong>Senti</strong>
     <a href="/">Back to the suggestions</a>
   </div>
 </header>
@@ -75,7 +75,7 @@ const days = (a, b) => Math.max(0, Math.round((b - a) / 86400));
     const fixed = lists.flat().sort((a, b) => (b.feedback?.ts ?? 0) - (a.feedback?.ts ?? 0));
     const many = instances.length > 1;
     document.getElementById('lead').textContent = fixed.length
-      ? `${fixed.length} problem${fixed.length === 1 ? '' : 's'} Sentinel noticed and that were fixed since, newest first.`
+      ? `${fixed.length} problem${fixed.length === 1 ? '' : 's'} Senti noticed and that were fixed since, newest first.`
       : 'Nothing marked fixed yet.';
     document.getElementById('fixed').replaceChildren(...fixed.map((f) => {
       const fixedAt = f.feedback?.ts;

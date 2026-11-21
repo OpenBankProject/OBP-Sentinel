@@ -1,6 +1,6 @@
-"""What was fixed since Sentinel noticed it, without anyone having to mark it.
+"""What was fixed since Senti noticed it, without anyone having to mark it.
 
-Two signals. A finding's log signatures went quiet: none seen since a new commit was deployed, while Sentinel
+Two signals. A finding's log signatures went quiet: none seen since a new commit was deployed, while Senti
 kept watching for QUIET_HOURS (no LLM). Then Look again, started by itself on the analyst's schedule, reads the
 source at the running commit: if Claude finds it fixed, the finding is marked fixed, with the fixing commit in
 Claude's answer. Shown on the Fixed page.
@@ -25,7 +25,7 @@ _lock = threading.Lock()
 
 def quiet(store: Store, config: Config) -> list[dict]:
     """Findings, not yet fixed or dismissed, whose log signatures were all last seen before a deployment that
-    Sentinel has watched for QUIET_HOURS since. Newest deployment first."""
+    Senti has watched for QUIET_HOURS since. Newest deployment first."""
     deployments = store.db.execute(
         "SELECT git_commit, first_seen FROM deployments WHERE git_commit IS NOT NULL ORDER BY first_seen").fetchall()
     result = []

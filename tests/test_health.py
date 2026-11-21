@@ -1,5 +1,5 @@
-from obp_sentinel.health import diagnose, health
-from obp_sentinel.store import Store
+from senti.health import diagnose, health
+from senti.store import Store
 
 JWKS = ('GET https://dcr.example/obp/v5.1.0/system/log-cache/error failed (401): {"code":401,"message":"OBP-20200: The '
         'application cannot be identified.  <- OBP-20206: Bad JSON Object Signing and Encryption (JOSE) exception."}')
@@ -60,14 +60,14 @@ def test_a_consumer_not_yet_a_platform_app_is_named_by_its_consumer_id(config):
 
 
 def test_the_fix_links_to_platform_apps_in_the_instances_api_manager(config, monkeypatch):
-    monkeypatch.setattr("obp_sentinel.health.api_manager_url", lambda c: "http://manager.example")
+    monkeypatch.setattr("senti.health.api_manager_url", lambda c: "http://manager.example")
     store = Store(config.db_path)
     store.set_state("platform_app", {"ts": 1, "ok": False, "consumer_id": "c1",
                                      "error": "PUT http://obp/obp/v7.0.0/consumers/current/platform-app failed (403): OBP-35046"})
     [p] = [p for p in health(store, config)["problems"] if p["key"] == "not-platform-app"]
-    assert p["link"]["href"] == "http://manager.example/consumers/platform-apps?consumer_id=c1&label=Sentinel"
+    assert p["link"]["href"] == "http://manager.example/consumers/platform-apps?consumer_id=c1&label=Senti"
 
-    monkeypatch.setattr("obp_sentinel.health.api_manager_url", lambda c: None)  # no API Manager in the app directory
+    monkeypatch.setattr("senti.health.api_manager_url", lambda c: None)  # no API Manager in the app directory
     [p] = [p for p in health(store, config)["problems"] if p["key"] == "not-platform-app"]
     assert "link" not in p
     store.close()
@@ -82,7 +82,7 @@ def test_declared_missing_scopes_are_listed_with_the_consumer(config):
 
 
 def test_claude_code_missing_is_listed_last_with_what_to_do(config, monkeypatch):
-    monkeypatch.setattr("obp_sentinel.health.unavailable_reason",
+    monkeypatch.setattr("senti.health.unavailable_reason",
                         lambda c, scheduled=True: "Claude Code (claude) is not installed or not on PATH")
     store = Store(config.db_path)
     store.record_poll("log:error", ok=False, error=JWKS)
@@ -95,7 +95,7 @@ def test_claude_code_missing_is_listed_last_with_what_to_do(config, monkeypatch)
 
 def test_an_apps_missing_checkout_names_its_own_setting(config):
     from dataclasses import replace
-    from obp_sentinel.health import analyst_action
+    from senti.health import analyst_action
     app = replace(config, name="local-cohort", parent="local", monitoring_path="/monitoring", obp_api_source="")
     assert analyst_action("OBP_API_SOURCE is not set", app).startswith("Set FRONTEND_SOURCE (in .env) to the app checkout")
     assert analyst_action("OBP_API_SOURCE is not set", config).startswith("Set OBP_API_SOURCE (in .env) to the OBP-API")
@@ -105,7 +105,7 @@ def test_connected_needs_a_recent_good_poll_and_nothing_blocking(config):
     store = Store(config.db_path)
     assert health(store, config)["connected"] is False  # no poll yet
     store.record_poll("log:error", ok=True)
-    store.set_state("platform_app", {"ts": 1, "ok": True, "consumer_id": "c1", "label": "Sentinel", "missing": []})
+    store.set_state("platform_app", {"ts": 1, "ok": True, "consumer_id": "c1", "label": "Senti", "missing": []})
     assert health(store, config)["connected"] is True
     store.set_state("platform_app", {"ts": 1, "ok": True, "consumer_id": "c1", "missing": ["CanGetTelemetry"]})
     assert health(store, config)["connected"] is False  # a Scope missing blocks watching

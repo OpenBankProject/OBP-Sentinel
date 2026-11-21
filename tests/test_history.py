@@ -2,8 +2,8 @@ import json
 import subprocess
 from dataclasses import replace
 
-from obp_sentinel import history
-from obp_sentinel.store import Store
+from senti import history
+from senti.store import Store
 
 
 def git(repo, *args, author="Ada <ada@example.com>"):
@@ -55,7 +55,7 @@ def test_trace_records_the_history_at_once_and_starts_judging(config, tmp_path, 
 
 
 def test_who_when_commit_and_where_are_split_out_of_the_answer():
-    from obp_sentinel.store import introduced_parts
+    from senti.store import introduced_parts
     assert introduced_parts("Introduced in d7bd34844 (2025-04-24, Ada) in obp-api/src/A.scala: it removed the role.") \
         == ("d7bd34844", "2025-04-24", "Ada", "obp-api/src/A.scala")
     assert introduced_parts("Introduced in bab4919ff (2018-10-22, Grace Hopper): Added endpoint.") \
@@ -66,8 +66,8 @@ def test_who_when_commit_and_where_are_split_out_of_the_answer():
 
 def test_trace_history_runs_by_itself_for_the_findings_never_traced(config, monkeypatch):
     import threading
-    from obp_sentinel import history
-    from obp_sentinel.store import Store
+    from senti import history
+    from senti.store import Store
     store = Store(config.db_path)
     ids = [store.upsert_finding({"key": k, "title": "t", "category": "bug", "signature_ids": [], "evidence": "e",
                                  "hypothesis": "h", "files": [], "suggested_fix": "f", "impact": i, "confidence": 0.5,
@@ -85,7 +85,7 @@ def test_trace_history_runs_by_itself_for_the_findings_never_traced(config, monk
 
 
 def test_the_commit_the_evidence_was_read_at_may_be_short(tmp_path):
-    from obp_sentinel.history import read_at
+    from senti.history import read_at
     repo = make_repo(tmp_path)
     full = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD~1"], capture_output=True, text=True).stdout.strip()
     assert read_at(str(repo), f"Whilst reading the source code at {full[:9]} I noticed 1234567 calls") == full[:9]

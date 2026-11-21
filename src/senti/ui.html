@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sentinel</title>
+<title>Senti</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>
@@ -244,7 +244,7 @@ textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong)
 .chart td, .chart th { padding: 2px 12px 2px 0; text-align: right; }
 .chart th { text-align: left; font-family: var(--sans); color: var(--muted); font-weight: 500; }
 
-/* Setup: what stops Sentinel from watching */
+/* Setup: what stops Senti from watching */
 .setup { border-color: var(--bad); }
 .setup h2 { margin: 0 0 4px; font-size: 16px; }
 .setup .intro { margin: 0 0 16px; font-size: 14px; color: var(--muted); }
@@ -323,7 +323,7 @@ nav.instances .flag.warn { background: var(--warn); }
   <div class="bar">
     <div class="brand">
       <svg width="28" height="28" role="img" aria-label="Open Bank Project" viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M24.214 12.107C24.214 14.5015 23.504 16.8423 22.1736 18.8333C20.8433 20.8243 18.9524 22.3761 16.7402 23.2925C14.5279 24.2088 12.0936 24.4486 9.74504 23.9814C7.39651 23.5143 5.23924 22.3612 3.54604 20.668C1.85284 18.9748 0.699761 16.8175 0.232608 14.469C-0.234544 12.1205 0.00521459 9.6861 0.921567 7.47383C1.83792 5.26156 3.38971 3.37071 5.3807 2.04037C7.37169 0.710038 9.71246 -3.66952e-06 12.107 -3.66952e-06C13.697 -0.000249893 15.2714 0.312716 16.7405 0.921063C18.2095 1.52941 19.5442 2.42122 20.6685 3.54551C21.7928 4.6698 22.6846 6.00455 23.2929 7.47356C23.9013 8.94256 24.2143 10.517 24.214 12.107Z" fill="#51B265"/><path d="M17.1062 11.5933C20.4127 5.83503 15.7941 4.56228 15.7941 4.56228C10.7856 3.06272 7.49971 5.91754 7.49971 5.91754C5.10792 7.60454 5.13229 11.7283 5.13229 11.7283C4.90173 17.018 8.06392 18.6994 8.06392 18.6994C8.06392 18.6994 11.8878 21.3536 16.8363 19.3104C21.7848 17.2673 17.1137 11.5896 17.1137 11.5896L17.1062 11.5933ZM14.8007 17.361C11.1342 17.8033 9.55222 16.7218 9.55222 16.7218C9.55222 16.7218 7.72276 15.6271 7.66653 12.6093C7.6103 9.59144 8.34508 8.71419 8.34508 8.71419C8.80817 7.96896 9.50283 7.39612 10.3226 7.08344C12.1221 6.39177 14.1465 6.72351 14.1465 6.72351C14.1465 6.72351 17.1456 6.94286 15.2224 9.7564C15.2224 9.7564 11.4604 6.97657 9.81465 9.9588C9.81465 9.9588 8.68998 12.2906 10.2683 14.3469C11.8465 16.4032 15.468 13.4378 15.468 13.4378C15.468 13.4378 18.4764 16.9205 14.8082 17.361H14.8007ZM13.6835 11.6852L12.0958 12.6224C11.6085 11.8988 12.0865 10.9598 12.0865 10.9598L13.6835 11.6852Z" fill="white"/>  </svg>
-      <strong>Sentinel</strong>
+      <strong>Senti</strong>
     </div>
     <a class="help-link" href="/fixed">Fixed</a>
     <a class="help-link" href="/help">Help</a>
@@ -405,7 +405,7 @@ nav.instances .flag.warn { background: var(--warn); }
       <aside class="d-side" aria-label="Status and actions">
       <div class="grades" role="group" aria-label="How much this matters to you">
         <button type="button" data-verdict="relevant" data-testid="grade-relevant" title="Worth fixing">Relevant</button>
-        <button type="button" data-verdict="important" data-testid="grade-important" title="Worth fixing soon; counts twice in what Sentinel learns">Important</button>
+        <button type="button" data-verdict="important" data-testid="grade-important" title="Worth fixing soon; counts twice in what Senti learns">Important</button>
         <button type="button" data-verdict="urgent" data-testid="grade-urgent" title="Fix first: also puts it at the head of the Fix this queue">Urgent</button>
         <button type="button" data-verdict="later" data-testid="grade-later" title="Brings it back later">Skip for now</button>
         <button type="button" data-verdict="dismissed" data-testid="grade-dismissed" title="Hides it and its log messages for good">Dismiss</button>
@@ -422,7 +422,7 @@ nav.instances .flag.warn { background: var(--warn); }
         <div class="actions">
           <div class="act"><button type="button" data-verdict="comment" title="Keeps your comment with the finding">Save comment</button></div>
           <div class="act" id="fix-off-row" hidden><span class="desc full" id="fix-off"></span></div>
-          <div class="act" id="fix-row"><button type="button" class="primary" id="fix-btn" title="Claude fixes and tests it; Sentinel stages it in your working tree">Fix this</button></div>
+          <div class="act" id="fix-row"><button type="button" class="primary" id="fix-btn" title="Claude fixes and tests it; Senti stages it in your working tree">Fix this</button></div>
           <div class="act" id="fix-fast-row"><button type="button" id="fix-fast-btn" title="The same without running tests; CI runs them once you push">Fix this without tests</button></div>
           <!-- What the latest fix came to: moved under Fix this or Fix this without tests, whichever made it -->
           <div class="outcome" id="fix-outcome" hidden>
@@ -431,7 +431,7 @@ nav.instances .flag.warn { background: var(--warn); }
             <div class="staged" id="d-staged" hidden>
               <h3>The fix's files</h3>
               <ul class="files" id="d-staged-files"></ul>
-              <p class="desc">Review it in your IDE, then Stage and Commit. Sentinel commits only when you press Commit.</p>
+              <p class="desc">Review it in your IDE, then Stage and Commit. Senti commits only when you press Commit.</p>
               <label for="d-commit-msg">Commit message <span>(edit it before you press Commit)</span></label>
               <textarea id="d-commit-msg" data-testid="commit-message" rows="2" maxlength="500" spellcheck="true"></textarea>
               <pre class="commands" id="d-commands" data-testid="fix-commands"></pre>
@@ -573,7 +573,7 @@ const inTab = (f, tab) => tab.startsWith('rated-')
   : tabOf(f) === tab;
 const FIX_TABS = { queued: 'queued', running: 'fixing', staged: 'commit' };
 const tabOf = (f) => FIX_TABS[f.fix_status] || (TABS.find((t) => t[2].includes(f.status)) || TABS[0])[0];
-// A suggested finding says when Sentinel first suggested it (put it in a digest), e.g. Suggested to you on 15 Nov
+// A suggested finding says when Senti first suggested it (put it in a digest), e.g. Suggested to you on 15 Nov
 const statusLabel = (f) => f.status === 'suggested' && f.first_suggested
   ? `Suggested to you on ${new Date(f.first_suggested * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
   : STATUS[f.status] || f.status;
@@ -639,10 +639,10 @@ function renderBuild(b) {
     ...(b.state === 'failing' && !state.overview.fix_unavailable ? [' ', fixBuildButton()] : []));
 }
 
-// Whether the endpoints Sentinel reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
+// Whether the endpoints Senti reads (log cache, Telemetry, aggregate metrics, or an app's /monitoring) refuse a
 // call with no token, as checked hourly by the collector (every poll while it cannot tell)
 function securedChip(s) {
-  if (!s || s.verdict === 'secured') return [];  // shown only when an endpoint answers without a token, or Sentinel cannot tell
+  if (!s || s.verdict === 'secured') return [];  // shown only when an endpoint answers without a token, or Senti cannot tell
   const odd = s.checks.filter((c) => !(s.verdict === 'open' ? c.status !== 200 : [401, 403].includes(c.status)));
   const [mark, text] = { secured: ['✓', 'Secured: no token, no data'], open: ['✗', 'Open: answers without a token'],
                          unknown: ['?', 'Secured? Could not tell'] }[s.verdict];
@@ -782,7 +782,7 @@ function render() {
     b.onclick = () => { if (!String(getSelection())) pick(); };  // not when the click ended a text selection
     b.onkeydown = (e) => { if (e.key === 'Enter') pick(); };
     return b;
-  }) : [el('div', { className: 'empty', textContent: 'Nothing here. Sentinel only suggests what it is sure about.' })]));
+  }) : [el('div', { className: 'empty', textContent: 'Nothing here. Senti only suggests what it is sure about.' })]));
 
   $('detail').hidden = !current;
   showCommentDraft(current && current.id);
@@ -891,13 +891,13 @@ function renderRecheck(f) {
   $('recheck-btn').disabled = looking;
 }
 
-// Fix this: Claude fixes it in Sentinel's own OBP-API worktree, one queued finding at a time, and Sentinel commits it
+// Fix this: Claude fixes it in Senti's own OBP-API worktree, one queued finding at a time, and Senti commits it
 function renderFix(f) {
   const why = state.overview && state.overview.fix_unavailable;
   const p = f.fix_status === 'running' && f.fix_progress;
   const text = {
     queued: f.fix || 'Queued. Claude fixes one finding at a time; this one starts when those before it are done.',
-    running: 'Claude is fixing it in Sentinel\'s worktree: check it is real, change, compile, run its tests.'
+    running: 'Claude is fixing it in Senti\'s worktree: check it is real, change, compile, run its tests.'
       + (p ? ` Started ${ago(Date.now() / 1000 - p.started)}, ${p.steps} command${p.steps === 1 ? '' : 's'} run so far. Now: ${p.step}` : ''),
   }[f.fix_status] || f.fix || '';
   const staged = f.fix_status === 'staged';
@@ -937,9 +937,9 @@ function renderFix(f) {
   btn.textContent = ['skipped', 'failed', 'discarded'].includes(f.fix_status) ? 'Try fixing again' : 'Fix this';
 }
 
-// Everything Claude did for the finding's latest fix: notes, tool calls and their results, and Sentinel's own
+// Everything Claude did for the finding's latest fix: notes, tool calls and their results, and Senti's own
 // steps. Fetched again while it is being fixed (each refresh), else once.
-const FIX_LOG_KIND = { thinking: 'Thinking', note: 'Claude', tool: 'Tool', result: 'Tool output', sentinel: 'Sentinel' };
+const FIX_LOG_KIND = { thinking: 'Thinking', note: 'Claude', tool: 'Tool', result: 'Tool output', sentinel: 'Senti' };
 async function loadFixLog(f) {
   const show = Boolean(f.fix_status) && f.fix_status !== 'queued';
   $('fix-log-box').hidden = !show;
@@ -1280,7 +1280,7 @@ function findingText(f) {
     (sha) => commits[sha] ? `${sha.slice(0, 9)} (${daysAgo(commits[sha].ts)})` : sha);  // a commit: short, and how old
   return [
     `# ${f.title}`,
-    `Sentinel finding #${f.id} (${f.key}), ${f.category}, on ${state.instance}`,
+    `Senti finding #${f.id} (${f.key}), ${f.category}, on ${state.instance}`,
     ...(f.summary ? ['', f.summary] : []),
     '', '## Evidence', evidence,
     '', '## Why it happens', f.hypothesis,
@@ -1383,7 +1383,7 @@ async function respond(verdict) {
 
 document.querySelectorAll('button[data-verdict]').forEach((b) => { b.onclick = () => respond(b.dataset.verdict); });
 
-// What Sentinel has learned from your responses on every instance: shown only once it changes the order
+// What Senti has learned from your responses on every instance of this one's kind: shown only once it changes the order
 async function loadLearned() {
   state.learned = await api('/api/preferences').catch(() => null);
   renderLearned();
@@ -1398,16 +1398,16 @@ function renderLearned() {
   box.hidden = !first.length && !later.length;
   if (box.hidden) return;
   const of = (n) => n.acted + n.dismissed;
-  const forget = el('button', { type: 'button', textContent: 'Forget', title: 'Ignore your responses so far, on every instance' });
+  const forget = el('button', { type: 'button', textContent: 'Forget', title: `Ignore your responses so far, on every ${p.kind || 'such'} instance` });
   forget.dataset.testid = 'learned-forget';
   forget.onclick = async () => {
-    if (!confirm('Forget what Sentinel has learned from your responses? It starts again from your next one.')) return;
+    if (!confirm('Forget what Senti has learned from your responses? It starts again from your next one.')) return;
     try {
       state.learned = await api('/api/preferences/forget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       state.findings = await api('/api/findings');
       render();
       renderLearned();
-      setStatus('Sentinel has forgotten your responses so far.');
+      setStatus('Senti has forgotten your responses so far.');
     } catch (e) {
       setStatus(`Could not forget: ${e.message}`, true);
     }
@@ -1416,7 +1416,7 @@ function renderLearned() {
   if (first.length) parts.push('shown first: ' + first.map(([c, n]) => `${c} (you acted on ${n.acted} of ${of(n)})`).join(', '));
   if (later.length) parts.push('shown later: ' + later.map(([c, n]) => `${c} (you dismissed ${n.dismissed} of ${of(n)})`).join(', ')
     + `, except findings of impact ${p.high_impact} or more`);
-  box.replaceChildren(`From your responses, ${parts.join('; ')}. `, forget);
+  box.replaceChildren(`From your responses on ${p.kind || 'these'} services, ${parts.join('; ')}. `, forget);
 }
 
 // What refreshes by itself never redraws the findings while someone is in a field: the redraw waits, and happens
@@ -1548,7 +1548,7 @@ function renderActivity() {
   $('a-dot').className = 'dot ' + (stale ? 'warn' : failing.length ? 'warn live' : 'live');
   $('a-state').textContent = !last ? 'No polls yet' : stale ? 'Collector not polling'
     : failing.length ? `Watching, ${failing.length} source${failing.length > 1 ? 's' : ''} failing` : 'Watching';
-  $('a-when').textContent = !last ? 'Start it with: uv run sentinel run'
+  $('a-when').textContent = !last ? 'Start it with: uv run senti run'
     : stale ? `Last poll ${ago(nowTs - last)}. Is the collector running?`
     : `Last poll ${ago(nowTs - last)} · ` + (last + a.poll_seconds > nowTs ? `next in about ${Math.round(last + a.poll_seconds - nowTs)}s` : 'next one due now');
 }
@@ -1625,15 +1625,15 @@ function renderChart(node, title, values, a, unit, emptyNote) {
   );
 }
 
-// --- Setup: what stops Sentinel from watching this instance, and what to do --------------------
+// --- Setup: what stops Senti from watching this instance, and what to do --------------------
 function renderHealth(h) {
   renderConnection(h);
   const problems = h.problems;
   $('setup').hidden = !problems.length;
   if (!problems.length) return;
-  $('setup-title').textContent = problems.length === 1 ? '1 thing to fix before Sentinel can watch this instance'
-    : `${problems.length} things to fix before Sentinel can watch this instance`;
-  $('setup-intro').textContent = 'Most blocking first. Sentinel keeps retrying, so this clears by itself within a poll of the fix.'
+  $('setup-title').textContent = problems.length === 1 ? '1 thing to fix before Senti can watch this instance'
+    : `${problems.length} things to fix before Senti can watch this instance`;
+  $('setup-intro').textContent = 'Most blocking first. Senti keeps retrying, so this clears by itself within a poll of the fix.'
     + (h.more_may_follow ? ' Until the first is fixed OBP-API cannot say which Scopes are missing, so more may appear.' : '');
   $('setup-problems').replaceChildren(...problems.map((p, i) => {
     const children = [
@@ -1642,12 +1642,12 @@ function renderHealth(h) {
       ...(p.link ? [el('p', { className: 'do' }, [el('a', { href: p.link.href, target: '_blank', rel: 'noopener', textContent: p.link.text })])] : []),
       el('p', { className: 'affects', textContent: `Affects: ${p.sources.join(', ')}` + (p.since ? ` · last seen ${dayClock(p.since)}` : '') }),
     ];
-    if (p.error) children.push(el('details', {}, [el('summary', { textContent: 'What Sentinel got' }), el('pre', { textContent: p.error })]));
+    if (p.error) children.push(el('details', {}, [el('summary', { textContent: 'What Senti got' }), el('pre', { textContent: p.error })]));
     return el('li', { className: `problem ${p.severity}` }, children);
   }));
 }
 
-// Whether Sentinel is connected to the open instance: green when it is, red with the most blocking cause when not
+// Whether Senti is connected to the open instance: green when it is, red with the most blocking cause when not
 function renderConnection(h) {
   const open = state.instances.find((i) => i.name === state.instance);
   const line = $('connection');
@@ -1682,7 +1682,7 @@ async function loadActivity() {
     renderActivity();
   } catch (e) {
     $('a-dot').className = 'dot warn';
-    $('a-state').textContent = 'Cannot reach the Sentinel page server';
+    $('a-state').textContent = 'Cannot reach the Senti page server';
     $('a-when').textContent = e.message;
   }
 }
@@ -1714,7 +1714,7 @@ function renderAnalysis(n) {
   const next = n.next_check ? `next check around ${clock(n.next_check)}` : null;
   $('n-when').textContent = running
     ? `Started ${ago(n.now - run.started_at)} · ${run.trigger} · ${run.steps_total} steps so far`
-    : n.unavailable ? `${n.unavailable}. Run it by hand with: uv run sentinel analyse`
+    : n.unavailable ? `${n.unavailable}. Run it by hand with: uv run senti analyse`
     : [check ? `${check.reason} (checked ${clock(check.ts)})` : 'Starting', next].filter(Boolean).join(' · ');
 
   $('n-steps-title').textContent = running ? 'What it is doing' : run ? `What it did in run #${run.id} (${dayClock(run.started_at)})` : 'What it did';

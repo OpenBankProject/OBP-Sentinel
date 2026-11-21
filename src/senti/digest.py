@@ -1,4 +1,4 @@
-"""The digest: the only thing Sentinel shows people. Its rules keep Sentinel from overwhelming them.
+"""The digest: the only thing Senti shows people. Its rules keep Senti from overwhelming them.
 
 - It is written only after enough hours of watching since the last digest.
 - It holds at most `digest_size` suggestions, and no more than `max_per_week` in any 7 days.
@@ -66,7 +66,7 @@ def write_digest(store: Store, config: Config, out_dir: str, force: bool = False
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{stamp}.md")
     lines = [
-        f"# OBP-Sentinel digest {stamp} UTC: `{config.name}` ({config.obp_base_url})",
+        f"# Senti digest {stamp} UTC: `{config.name}` ({config.obp_base_url})",
         "",
         f"Watched for {watched_hours:.1f}h since the last digest. "
         f"{len(candidates)} finding(s) qualified; showing {len(chosen)}.",
@@ -95,7 +95,7 @@ def write_digest(store: Store, config: Config, out_dir: str, force: bool = False
         lines += [
             "**Suggested fix.** " + f["suggested_fix"],
             "",
-            f"Respond with `uv run sentinel feedback {f['id']} relevant|important|urgent|acted|dismissed|later|fixed --comment \"...\"`",
+            f"Respond with `uv run senti feedback {f['id']} relevant|important|urgent|acted|dismissed|later|fixed --comment \"...\"`",
             "",
         ]
     with open(path, "w") as fh:
